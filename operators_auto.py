@@ -585,7 +585,16 @@ class HOUSE_OT_generate_auto(Operator):
             roof = self._create_hip_roof(width, length, total_height, roof_pitch, roof_overhang, collection)
         elif roof_type == 'SHED':
             roof = self._create_shed_roof(width, length, total_height, roof_pitch, roof_overhang, collection)
-        
+        elif roof_type == 'GAMBREL':
+            # TODO: Implémenter un vrai toit mansarde
+            # Pour l'instant, utiliser un toit pignon comme fallback
+            print("[House] AVERTISSEMENT: Toit mansarde pas encore implémenté, utilisation toit pignon")
+            roof = self._create_gable_roof(width, length, total_height, roof_pitch, roof_overhang, collection)
+        else:
+            # Fallback pour types inconnus
+            print(f"[House] ERREUR: Type de toit inconnu '{roof_type}', utilisation toit pignon par défaut")
+            roof = self._create_gable_roof(width, length, total_height, roof_pitch, roof_overhang, collection)
+
         roof.name = f"Roof_{roof_type}"
         roof["house_part"] = "roof"
         collection.objects.link(roof)
@@ -676,14 +685,14 @@ class HOUSE_OT_generate_auto(Operator):
                 ridge_start_y = width / 2
                 ridge_end_y = length - width / 2
 
-                # Ridge (arête centrale en haut)
-                v5 = bm.verts.new((width/2, ridge_start_y - o, h + rh))
-                v6 = bm.verts.new((width/2, ridge_end_y + o, h + rh))
+                # Ridge (arête centrale en haut) - PAS d'overhang sur le ridge!
+                v5 = bm.verts.new((width/2, ridge_start_y, h + rh))
+                v6 = bm.verts.new((width/2, ridge_end_y, h + rh))
 
                 # 4 faces du toit + 2 triangles aux extrémités
-                f1 = bm.faces.new([v1, v2, v5])  # Triangle avant (face X-)
+                f1 = bm.faces.new([v1, v2, v5])  # Triangle avant (face Y-)
                 f2 = bm.faces.new([v2, v3, v6, v5])  # Trapèze droite (face X+)
-                f3 = bm.faces.new([v3, v4, v6])  # Triangle arrière (face X+)
+                f3 = bm.faces.new([v3, v4, v6])  # Triangle arrière (face Y+)
                 f4 = bm.faces.new([v4, v1, v5, v6])  # Trapèze gauche (face X-)
 
             elif length < width:
@@ -691,9 +700,9 @@ class HOUSE_OT_generate_auto(Operator):
                 ridge_start_x = length / 2
                 ridge_end_x = width - length / 2
 
-                # Ridge (arête centrale en haut)
-                v5 = bm.verts.new((ridge_start_x - o, length/2, h + rh))
-                v6 = bm.verts.new((ridge_end_x + o, length/2, h + rh))
+                # Ridge (arête centrale en haut) - PAS d'overhang sur le ridge!
+                v5 = bm.verts.new((ridge_start_x, length/2, h + rh))
+                v6 = bm.verts.new((ridge_end_x, length/2, h + rh))
 
                 # 4 faces du toit
                 f1 = bm.faces.new([v1, v2, v6, v5])  # Trapèze avant (face Y-)
@@ -727,33 +736,49 @@ class HOUSE_OT_generate_auto(Operator):
         return roof
     
     def _create_shed_roof(self, width, length, height, pitch, overhang, collection):
-        """Toit monopente"""
+        """Toit monopente - Crée un volume fermé complet"""
         pitch_rad = math.radians(pitch)
         roof_height = width * math.tan(pitch_rad)
         roof_thickness = ROOF_THICKNESS_PITCHED
-        
+
         bm = bmesh.new()
-        
+
         try:
             h = height
             o = overhang
-            
-            v1 = bm.verts.new((-o, -o, h))
-            v2 = bm.verts.new((width + o, -o, h + roof_height))
-            v3 = bm.verts.new((width + o, length + o, h + roof_height))
-            v4 = bm.verts.new((-o, length + o, h))
-            
-            face = bm.faces.new([v1, v2, v3, v4])
-            
-            ret = bmesh.ops.extrude_face_region(bm, geom=[face])
-            extruded_verts = [v for v in ret['geom'] if isinstance(v, bmesh.types.BMVert)]
-            bmesh.ops.translate(bm, verts=extruded_verts, vec=Vector((0, 0, -roof_thickness)))
-            
+            rh = roof_height
+            t = roof_thickness
+
+            # Face supérieure du toit (4 vertices)
+            v1_top = bm.verts.new((-o, -o, h))
+            v2_top = bm.verts.new((width + o, -o, h + rh))
+            v3_top = bm.verts.new((width + o, length + o, h + rh))
+            v4_top = bm.verts.new((-o, length + o, h))
+
+            # Face inférieure du toit (4 vertices décalés vers le bas)
+            v1_bot = bm.verts.new((-o, -o, h - t))
+            v2_bot = bm.verts.new((width + o, -o, h + rh - t))
+            v3_bot = bm.verts.new((width + o, length + o, h + rh - t))
+            v4_bot = bm.verts.new((-o, length + o, h - t))
+
+            # Créer les 6 faces pour fermer le volume
+            # Face supérieure (inclinée)
+            f_top = bm.faces.new([v1_top, v2_top, v3_top, v4_top])
+
+            # Face inférieure (inclinée, sens inverse)
+            f_bot = bm.faces.new([v4_bot, v3_bot, v2_bot, v1_bot])
+
+            # 4 faces latérales pour fermer le volume
+            f_front = bm.faces.new([v1_top, v2_top, v2_bot, v1_bot])  # Face avant (Y-)
+            f_right = bm.faces.new([v2_top, v3_top, v3_bot, v2_bot])  # Face droite (X+)
+            f_back = bm.faces.new([v3_top, v4_top, v4_bot, v3_bot])   # Face arrière (Y+)
+            f_left = bm.faces.new([v4_top, v1_top, v1_bot, v4_bot])   # Face gauche (X-)
+
             roof, mesh = self._create_mesh_from_bmesh("ShedRoof", bm)
-            
+
         finally:
             bm.free()
-        
+
         return roof
     
     def _generate_wall_openings(self, context, props, collection, walls, style_config):
