@@ -302,14 +302,22 @@ class HOUSE_OT_generate_auto(Operator):
         if props.wall_construction_type == 'BRICK_3D':
             print(f"[House] Génération murs en briques 3D (qualité: {props.brick_3d_quality})")
             print(f"[House] Mode matériau: {props.brick_material_mode}")
-            
+
             from .materials import brick_geometry
-            
+
             width = props.house_width
             length = props.house_length
             total_height = props.num_floors * props.floor_height
-            
-            # Calculer les ouvertures
+
+            # ✅ FIX: Calculer la hauteur réelle AVANT les ouvertures
+            BRICK_HEIGHT = brick_geometry.BRICK_HEIGHT
+            MORTAR_GAP = brick_geometry.MORTAR_GAP
+            num_rows = int(total_height / (BRICK_HEIGHT + MORTAR_GAP))
+            real_wall_height = num_rows * (BRICK_HEIGHT + MORTAR_GAP)
+            self.real_wall_height = real_wall_height
+            print(f"[House] Hauteur réelle calculée: {real_wall_height:.3f}m ({num_rows} rangées)")
+
+            # Calculer les ouvertures avec hauteur réelle
             openings = self._calculate_openings_for_brick_walls(props)
             print(f"[House] {len(openings)} ouvertures calculées")
             
@@ -360,37 +368,62 @@ class HOUSE_OT_generate_auto(Operator):
 
             return walls
         
-        # === SINON MUR SIMPLE (inchangé) ===
+        # === SINON MUR SIMPLE ===
         width = props.house_width
         length = props.house_length
         wall_thickness = WALL_THICKNESS
         total_height = props.num_floors * props.floor_height
-        
+
+        # ✅ FIX: Calculer hauteur additionnelle pour SHED roof
+        import math
+        if props.roof_type == 'SHED':
+            pitch_rad = math.radians(props.roof_pitch)
+            roof_height = width * math.tan(pitch_rad)
+            print(f"[House] Murs simples adaptés SHED roof: +{roof_height:.3f}m à droite")
+        else:
+            roof_height = 0
+
         walls = []
         mesh = bpy.data.meshes.new("Walls")
         bm = bmesh.new()
-        
+
         try:
             h = total_height
-            
+
             # Vertices du bas
             outer = [
-                bm.verts.new((0, 0, 0)),
-                bm.verts.new((width, 0, 0)),
-                bm.verts.new((width, length, 0)),
-                bm.verts.new((0, length, 0))
+                bm.verts.new((0, 0, 0)),           # 0: gauche-avant
+                bm.verts.new((width, 0, 0)),       # 1: droite-avant
+                bm.verts.new((width, length, 0)),  # 2: droite-arrière
+                bm.verts.new((0, length, 0))       # 3: gauche-arrière
             ]
-            
+
             inner = [
                 bm.verts.new((wall_thickness, wall_thickness, 0)),
                 bm.verts.new((width - wall_thickness, wall_thickness, 0)),
                 bm.verts.new((width - wall_thickness, length - wall_thickness, 0)),
                 bm.verts.new((wall_thickness, length - wall_thickness, 0))
             ]
-            
-            # Vertices du haut
-            outer_top = [bm.verts.new(v.co + Vector((0, 0, h))) for v in outer]
-            inner_top = [bm.verts.new(v.co + Vector((0, 0, h))) for v in inner]
+
+            # ✅ FIX: Vertices du haut avec hauteur variable pour SHED roof
+            if props.roof_type == 'SHED':
+                # SHED: Gauche (X=0) bas, Droite (X=width) haut
+                outer_top = [
+                    bm.verts.new((0, 0, h)),                  # 0: gauche-avant (bas)
+                    bm.verts.new((width, 0, h + roof_height)),     # 1: droite-avant (haut)
+                    bm.verts.new((width, length, h + roof_height)),  # 2: droite-arrière (haut)
+                    bm.verts.new((0, length, h))              # 3: gauche-arrière (bas)
+                ]
+                inner_top = [
+                    bm.verts.new((wall_thickness, wall_thickness, h)),
+                    bm.verts.new((width - wall_thickness, wall_thickness, h + roof_height)),
+                    bm.verts.new((width - wall_thickness, length - wall_thickness, h + roof_height)),
+                    bm.verts.new((wall_thickness, length - wall_thickness, h))
+                ]
+            else:
+                # Hauteur constante pour autres toits
+                outer_top = [bm.verts.new(v.co + Vector((0, 0, h))) for v in outer]
+                inner_top = [bm.verts.new(v.co + Vector((0, 0, h))) for v in inner]
             
             # Faces verticales extérieures
             for i in range(4):
@@ -428,22 +461,28 @@ class HOUSE_OT_generate_auto(Operator):
         """Calcule les positions des ouvertures pour les murs en briques"""
         width = props.house_width
         length = props.house_length
-        
+
         openings = []
-        
+
         # Récupérer window_height_ratio
         style_config = self._apply_architectural_style(props)
         window_height_ratio = style_config.get('window_height_ratio', props.window_height_ratio)
-        
+
         # Calculer nombre de fenêtres
         num_windows_front = max(2, int(width / WINDOW_SPACING_INTERVAL))
         num_windows_side = max(2, int(length / WINDOW_SPACING_INTERVAL))
-        
+
+        # ✅ FIX: Utiliser la hauteur RÉELLE si disponible
+        if hasattr(self, 'real_wall_height') and self.real_wall_height:
+            floor_height_actual = self.real_wall_height / props.num_floors
+        else:
+            floor_height_actual = props.floor_height
+
         # PORTE
         door_width = props.front_door_width
         door_height = DOOR_HEIGHT
         door_x = width/2 - door_width/2
-        
+
         openings.append({
             'x': door_x,
             'y': 0,
@@ -454,12 +493,12 @@ class HOUSE_OT_generate_auto(Operator):
             'wall': 'front',
             'type': 'door'
         })
-        
+
         # FENÊTRES
         for floor in range(props.num_floors):
-            floor_z = floor * props.floor_height
-            window_height = props.floor_height * window_height_ratio
-            window_z = floor_z + props.floor_height * WINDOW_HEIGHT_DEFAULT
+            floor_z = floor * floor_height_actual
+            window_height = floor_height_actual * window_height_ratio
+            window_z = floor_z + floor_height_actual * WINDOW_HEIGHT_DEFAULT
             window_width = WINDOW_WIDTH
             
             # Mur AVANT
@@ -589,10 +628,8 @@ class HOUSE_OT_generate_auto(Operator):
         elif roof_type == 'SHED':
             roof = self._create_shed_roof(width, length, total_height, roof_pitch, roof_overhang, collection)
         elif roof_type == 'GAMBREL':
-            # TODO: Implémenter un vrai toit mansarde
-            # Pour l'instant, utiliser un toit pignon comme fallback
-            print("[House] AVERTISSEMENT: Toit mansarde pas encore implémenté, utilisation toit pignon")
-            roof = self._create_gable_roof(width, length, total_height, roof_pitch, roof_overhang, collection)
+            # ✅ NOUVEAU: Vrai toit mansarde/gambrel avec 2 pentes
+            roof = self._create_gambrel_roof(width, length, total_height, roof_pitch, roof_overhang, collection)
         else:
             # Fallback pour types inconnus
             print(f"[House] ERREUR: Type de toit inconnu '{roof_type}', utilisation toit pignon par défaut")
@@ -783,7 +820,91 @@ class HOUSE_OT_generate_auto(Operator):
             bm.free()
 
         return roof
-    
+
+    def _create_gambrel_roof(self, width, length, height, pitch, overhang, collection):
+        """Toit mansarde/gambrel - 2 pentes par côté (raide puis douce)"""
+        pitch_rad = math.radians(pitch)
+        roof_thickness = ROOF_THICKNESS_PITCHED
+
+        # ✅ GAMBREL: 2 segments par côté
+        # Segment inférieur: raide (pitch complet)
+        # Segment supérieur: doux (pitch / 2.5)
+
+        # Break point (cassure) à 60% de la demi-largeur
+        break_ratio = 0.6
+        break_distance = (width / 2) * break_ratio  # Distance horizontale jusqu'à la cassure
+
+        # Hauteur jusqu'à la cassure (pente raide)
+        lower_pitch_rad = pitch_rad
+        break_height = break_distance * math.tan(lower_pitch_rad)
+
+        # Pente supérieure plus douce
+        upper_pitch_rad = pitch_rad / 2.5
+
+        # Reste de distance horizontale jusqu'au sommet
+        remaining_distance = (width / 2) * (1 - break_ratio)
+
+        # Hauteur additionnelle du segment supérieur
+        upper_height = remaining_distance * math.tan(upper_pitch_rad)
+
+        # Hauteur totale du toit
+        total_roof_height = break_height + upper_height
+
+        bm = bmesh.new()
+
+        try:
+            h = height
+            o = overhang
+
+            # Position X de la cassure (break point)
+            break_x_left = width/2 - break_distance
+            break_x_right = width/2 + break_distance
+
+            # Base (8 vertices)
+            v1 = bm.verts.new((-o, -o, h))
+            v2 = bm.verts.new((width + o, -o, h))
+            v3 = bm.verts.new((width + o, length + o, h))
+            v4 = bm.verts.new((-o, length + o, h))
+
+            # Break points (cassures - 4 vertices)
+            v5 = bm.verts.new((break_x_left, -o, h + break_height))
+            v6 = bm.verts.new((break_x_right, -o, h + break_height))
+            v7 = bm.verts.new((break_x_right, length + o, h + break_height))
+            v8 = bm.verts.new((break_x_left, length + o, h + break_height))
+
+            # Sommet (2 vertices - ridge)
+            v9 = bm.verts.new((width/2, -o, h + total_roof_height))
+            v10 = bm.verts.new((width/2, length + o, h + total_roof_height))
+
+            # Créer les faces du toit (8 faces principales)
+            # Côté avant (Y-)
+            f1 = bm.faces.new([v1, v5, v9])       # Triangle bas gauche
+            f2 = bm.faces.new([v9, v6, v2])       # Triangle bas droite
+            # Côté arrière (Y+)
+            f3 = bm.faces.new([v4, v10, v8])      # Triangle haut gauche
+            f4 = bm.faces.new([v10, v3, v7])      # Triangle haut droite
+            # Pente gauche (X-)
+            f5 = bm.faces.new([v1, v4, v8, v5])   # Trapèze inférieur gauche
+            f6 = bm.faces.new([v5, v8, v10, v9])  # Trapèze supérieur gauche
+            # Pente droite (X+)
+            f7 = bm.faces.new([v2, v6, v7, v3])   # Trapèze inférieur droit
+            f8 = bm.faces.new([v6, v9, v10, v7])  # Trapèze supérieur droit
+
+            # Extruder pour l'épaisseur
+            faces_to_extrude = [f1, f2, f3, f4, f5, f6, f7, f8]
+            ret = bmesh.ops.extrude_face_region(bm, geom=faces_to_extrude)
+
+            extruded_verts = [v for v in ret['geom'] if isinstance(v, bmesh.types.BMVert)]
+            offset_vector = Vector((0, 0, -roof_thickness))
+            bmesh.ops.translate(bm, verts=extruded_verts, vec=offset_vector)
+
+            roof, mesh = self._create_mesh_from_bmesh("GambrelRoof", bm)
+
+        finally:
+            bm.free()
+
+        return roof
+
     def _generate_wall_openings(self, context, props, collection, walls, style_config):
         """Génère les trous dans les murs (Boolean) - pour murs SIMPLES uniquement"""
         width = props.house_width
@@ -902,19 +1023,28 @@ class HOUSE_OT_generate_auto(Operator):
         """Génère les fenêtres 3D complètes"""
         width = props.house_width
         length = props.house_length
-        
+
         num_windows_front = max(2, int(width / WINDOW_SPACING_INTERVAL))
         num_windows_side = max(2, int(length / WINDOW_SPACING_INTERVAL))
-        
+
         window_height_ratio = style_config.get('window_height_ratio', props.window_height_ratio)
-        window_height = props.floor_height * window_height_ratio
+
+        # ✅ FIX: Utiliser la hauteur RÉELLE si disponible (murs en briques)
+        if hasattr(self, 'real_wall_height') and self.real_wall_height:
+            floor_height_actual = self.real_wall_height / props.num_floors
+            print(f"[House] Fenêtres positionnées selon hauteur réelle: {floor_height_actual:.3f}m/étage")
+        else:
+            floor_height_actual = props.floor_height
+            print(f"[House] Fenêtres positionnées selon hauteur théorique: {floor_height_actual:.3f}m/étage")
+
+        window_height = floor_height_actual * window_height_ratio
         window_width = WINDOW_WIDTH
-        
+
         window_gen = WindowGenerator(quality=props.window_quality)
-        
+
         for floor in range(props.num_floors):
-            floor_z = floor * props.floor_height
-            window_z = floor_z + props.floor_height * WINDOW_HEIGHT_DEFAULT
+            floor_z = floor * floor_height_actual
+            window_z = floor_z + floor_height_actual * WINDOW_HEIGHT_DEFAULT
             
             # Mur avant
             spacing_front = width / (num_windows_front + 1)
