@@ -28,18 +28,18 @@ BRICK_HEIGHT = 0.065     # 6.5cm
 BRICK_DEPTH = 0.10       # 10cm (épaisseur du mur)
 
 # Espacement mortier
-MORTAR_GAP = 0.01        # 10mm entre les briques (épaisseur des joints)
-MORTAR_THICKNESS = 0.005 # 5mm d'épaisseur de mortier de chaque côté
+MORTAR_GAP = 0.012       # 12mm entre les briques (épaisseur des joints)
+MORTAR_THICKNESS = 0.006 # 6mm d'épaisseur de mortier de chaque côté
 # ============================================================
 # GÉNÉRATION DES MURS DE LA MAISON EN BRIQUES (OPTIMISÉ)
 # ============================================================
 
 def generate_house_walls_bricks(
-    house_width, 
-    house_length, 
-    total_height, 
-    collection, 
-    quality='MEDIUM', 
+    house_width,
+    house_length,
+    total_height,
+    collection,
+    quality='MEDIUM',
     openings=None,
     brick_material_mode='PRESET',
     brick_color=None,
@@ -47,7 +47,7 @@ def generate_house_walls_bricks(
     custom_material=None
 ):
     """Génère les 4 murs extérieurs d'une maison en briques 3D avec instancing
-    
+
     Args:
         house_width (float): Largeur de la maison (axe X)
         house_length (float): Longueur de la maison (axe Y)
@@ -59,9 +59,9 @@ def generate_house_walls_bricks(
         brick_color (tuple): Couleur RGB/RGBA pour mode COLOR
         brick_preset (str): Type de preset pour mode PRESET
         custom_material: Matériau custom pour mode CUSTOM
-        
+
     Returns:
-        list: Liste des objets murs créés
+        tuple: (liste des objets murs, hauteur réelle des murs en m)
     """
     
     print("\n" + "="*70)
@@ -211,6 +211,10 @@ def generate_walls_with_instancing(
 
     # Note: Le mortier est maintenant INTÉGRÉ à chaque brique, pas besoin de mortier séparé!
 
+    # ✅ FIX : Calculer la hauteur RÉELLE des murs (pour positionner le toit correctement)
+    num_rows = int(total_height / (BRICK_HEIGHT + MORTAR_GAP))
+    real_wall_height = num_rows * (BRICK_HEIGHT + MORTAR_GAP)
+
     print("\n" + "="*70)
     print("[BrickGeometry] ✅ MAISON EN BRIQUES GÉNÉRÉE AVEC SUCCÈS!")
     print("="*70)
@@ -218,12 +222,14 @@ def generate_walls_with_instancing(
     print(f"[BrickGeometry] Mortier:           INTÉGRÉ (chaque brique a son mortier)")
     print(f"[BrickGeometry] Total objets:      {len(walls) + 1:,}")
     print(f"[BrickGeometry] Murs:              4 (tous générés)")
+    print(f"[BrickGeometry] Hauteur demandée:  {total_height:.3f}m")
+    print(f"[BrickGeometry] Hauteur réelle:    {real_wall_height:.3f}m ({num_rows} rangées)")
     print(f"[BrickGeometry] Ouvertures:        {len(openings or [])} exclues")
     print(f"[BrickGeometry] Matériau brique:   {brick_material_mode}")
     print(f"[BrickGeometry] Matériau mortier:  Gris clair (automatique)")
     print("="*70 + "\n")
-    
-    return walls
+
+    return walls, real_wall_height
 
 
 def generate_walls_full_geometry(
@@ -1107,22 +1113,27 @@ def is_mortar_in_opening(mortar_x, mortar_y, mortar_z, mortar_width, mortar_heig
 
 def calculate_brick_positions_for_wall(wall_length, wall_height, start_pos, direction, openings=None):
     """Calcule toutes les positions de briques pour un mur"""
-    
+
     positions = []
-    
-    num_bricks_width = int(wall_length / (BRICK_LENGTH + MORTAR_GAP))
+
+    # ✅ FIX : Utiliser la bonne dimension selon la direction
+    # Direction X : brique de 22cm de long (BRICK_LENGTH)
+    # Direction Y : brique tournée 90°, 10cm de long (BRICK_DEPTH)
+    brick_spacing = BRICK_LENGTH if direction == 'X' else BRICK_DEPTH
+
+    num_bricks_width = int(wall_length / (brick_spacing + MORTAR_GAP))
     num_bricks_height = int(wall_height / (BRICK_HEIGHT + MORTAR_GAP))
-    
+
     for row in range(num_bricks_height):
         # Pattern en quinconce
-        offset = (BRICK_LENGTH + MORTAR_GAP) / 2 if row % 2 == 1 else 0
-        
+        offset = (brick_spacing + MORTAR_GAP) / 2 if row % 2 == 1 else 0
+
         for col in range(num_bricks_width + 1):
             # Position le long du mur
-            distance_along_wall = col * (BRICK_LENGTH + MORTAR_GAP) + offset
-            
-            # Ne pas dépasser la longueur
-            if distance_along_wall + BRICK_LENGTH > wall_length + 0.05:
+            distance_along_wall = col * (brick_spacing + MORTAR_GAP) + offset
+
+            # Ne pas dépasser la longueur (utiliser brick_spacing au lieu de BRICK_LENGTH)
+            if distance_along_wall + brick_spacing > wall_length + 0.05:
                 continue
             
             # Hauteur

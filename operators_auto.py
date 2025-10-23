@@ -337,10 +337,11 @@ class HOUSE_OT_generate_auto(Operator):
                     brick_material_mode = 'PRESET'
             
             # Générer les murs avec le nouveau système
-            walls = brick_geometry.generate_house_walls_bricks(
-                width, 
-                length, 
-                total_height, 
+            # ✅ FIX : Capturer la hauteur réelle des murs pour positionner le toit correctement
+            walls, real_wall_height = brick_geometry.generate_house_walls_bricks(
+                width,
+                length,
+                total_height,
                 collection,
                 props.brick_3d_quality,
                 openings,
@@ -349,7 +350,11 @@ class HOUSE_OT_generate_auto(Operator):
                 brick_preset,
                 custom_material
             )
-            
+
+            # Stocker la hauteur réelle pour l'utiliser dans _generate_roof
+            self.real_wall_height = real_wall_height
+            print(f"[House] Hauteur réelle des murs enregistrée: {real_wall_height:.3f}m")
+
             return walls
         
         # === SINON MUR SIMPLE (inchangé) ===
@@ -558,8 +563,16 @@ class HOUSE_OT_generate_auto(Operator):
         """Génère le toit"""
         width = props.house_width
         length = props.house_length
-        total_height = props.num_floors * props.floor_height
-        
+
+        # ✅ FIX : Utiliser la hauteur RÉELLE des murs en briques si disponible
+        # Sinon utiliser la hauteur calculée (murs simples)
+        if hasattr(self, 'real_wall_height') and self.real_wall_height:
+            total_height = self.real_wall_height
+            print(f"[House] Toit positionné à la hauteur réelle des murs: {total_height:.3f}m")
+        else:
+            total_height = props.num_floors * props.floor_height
+            print(f"[House] Toit positionné à la hauteur calculée: {total_height:.3f}m")
+
         roof_type = props.roof_type
         roof_pitch = props.roof_pitch
         roof_overhang = props.roof_overhang
