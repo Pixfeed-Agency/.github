@@ -28,8 +28,8 @@ BRICK_HEIGHT = 0.065     # 6.5cm
 BRICK_DEPTH = 0.10       # 10cm (épaisseur du mur)
 
 # Espacement mortier
-MORTAR_GAP = 0.008        # 8mm entre les briques (CORRIGÉ)
-BRICK_SCALE = 0.98       # 98% de la taille théorique (AJOUTÉ)
+MORTAR_GAP = 0.01        # 10mm entre les briques (épaisseur des joints)
+MORTAR_THICKNESS = 0.005 # 5mm d'épaisseur de mortier de chaque côté
 # ============================================================
 # GÉNÉRATION DES MURS DE LA MAISON EN BRIQUES (OPTIMISÉ)
 # ============================================================
@@ -114,15 +114,29 @@ def generate_walls_with_instancing(
     collection.objects.link(brick_master)
     brick_master.hide_set(True)  # Cacher la brique maître
     brick_master.hide_render = True
-    
-    # ✅ APPLIQUER LE MATÉRIAU À LA BRIQUE MAÎTRE
-    apply_brick_material_to_object(
-        brick_master, 
-        brick_material_mode, 
-        brick_color, 
-        brick_preset, 
-        custom_material
-    )
+
+    # ✅ APPLIQUER LES 2 MATÉRIAUX À LA BRIQUE MAÎTRE
+    # Slot 0 = Matériau brique
+    # Slot 1 = Matériau mortier
+
+    # Obtenir le matériau brique
+    if brick_material_mode == 'COLOR':
+        brick_mat = create_brick_material_solid_color(brick_color)
+    elif brick_material_mode == 'PRESET':
+        brick_mat = create_brick_material_preset(brick_preset)
+    elif brick_material_mode == 'CUSTOM' and custom_material:
+        brick_mat = custom_material
+    else:
+        # Fallback
+        brick_mat = create_brick_material_preset('BRICK_RED')
+
+    # Obtenir le matériau mortier
+    mortar_mat = create_mortar_material()
+
+    # Assigner les matériaux aux slots
+    brick_master.data.materials.clear()
+    brick_master.data.materials.append(brick_mat)   # Slot 0
+    brick_master.data.materials.append(mortar_mat)  # Slot 1
     
     print(f"[BrickGeometry] ✓ Brique maître créée: {BRICK_LENGTH*100:.1f}cm x {BRICK_DEPTH*100:.1f}cm x {BRICK_HEIGHT*100:.1f}cm")
     print(f"[BrickGeometry] ✓ Matériau appliqué: {brick_material_mode}")
@@ -194,41 +208,42 @@ def generate_walls_with_instancing(
             instance["color_variation"] = random.uniform(0.9, 1.1)
     
     print(f"[BrickGeometry] ✓ {len(brick_positions)} instances créées")
-    
-    # ✅ Créer le mortier 3D
-    print("\n[BrickGeometry] Création du mortier 3D...")
-    mortars = create_mortar_3d_joints(house_width, house_length, total_height, collection, openings)
-    walls.extend(mortars)
-    print(f"[BrickGeometry] ✓ {len(mortars)} objet(s) mortier 3D")
-    
+
+    # Note: Le mortier est maintenant INTÉGRÉ à chaque brique, pas besoin de mortier séparé!
+
     print("\n" + "="*70)
     print("[BrickGeometry] ✅ MAISON EN BRIQUES GÉNÉRÉE AVEC SUCCÈS!")
     print("="*70)
-    print(f"[BrickGeometry] Briques:           {len(brick_positions):,}")
-    print(f"[BrickGeometry] Mortier:           {len(mortars)} objet(s) 3D")
+    print(f"[BrickGeometry] Briques+mortier:   {len(brick_positions):,} instances")
+    print(f"[BrickGeometry] Mortier:           INTÉGRÉ (chaque brique a son mortier)")
     print(f"[BrickGeometry] Total objets:      {len(walls) + 1:,}")
     print(f"[BrickGeometry] Murs:              4 (tous générés)")
     print(f"[BrickGeometry] Ouvertures:        {len(openings or [])} exclues")
-    print(f"[BrickGeometry] Matériau:          {brick_material_mode}")
+    print(f"[BrickGeometry] Matériau brique:   {brick_material_mode}")
+    print(f"[BrickGeometry] Matériau mortier:  Gris clair (automatique)")
     print("="*70 + "\n")
     
     return walls
 
 
 def generate_walls_full_geometry(
-    house_width, 
-    house_length, 
-    total_height, 
-    collection, 
-    quality, 
+    house_width,
+    house_length,
+    total_height,
+    collection,
+    quality,
     openings=None,
     brick_material_mode='PRESET',
     brick_color=None,
     brick_preset='BRICK_RED',
     custom_material=None
 ):
-    """Génère les murs avec géométrie complète (HIGH quality)"""
-    
+    """Génère les murs avec géométrie complète (HIGH quality)
+
+    NOTE: Cette fonction utilise encore l'ancien système (briques + mortier séparés).
+    Pour bénéficier du nouveau système (mortier intégré), utilisez quality='MEDIUM' ou 'LOW'.
+    """
+
     walls = []
     
     # === MUR AVANT (FAÇADE) ===
@@ -690,25 +705,84 @@ def create_brick_material_preset(preset_type):
         return material_presets.get_procedural_material('BRICK_RED')
 
 
-def apply_mortar_material_to_object(obj):
-    """Applique le matériau mortier (gris clair)"""
-    
+def create_mortar_material():
+    """Crée ou récupère le matériau mortier (gris clair)
+
+    Returns:
+        bpy.types.Material: Matériau mortier
+    """
+
     mat_name = "Mortar_Material"
-    
+
+    # Vérifier si déjà existant (cache)
     if mat_name in bpy.data.materials:
-        mat = bpy.data.materials[mat_name]
-    else:
-        mat = bpy.data.materials.new(name=mat_name)
-        mat.use_nodes = True
-        nodes = mat.node_tree.nodes
-        
-        principled = nodes.get("Principled BSDF")
-        if principled:
-            principled.inputs["Base Color"].default_value = (0.75, 0.75, 0.72, 1.0)
-            principled.inputs["Roughness"].default_value = 0.9
-    
+        return bpy.data.materials[mat_name]
+
+    # Créer nouveau matériau
+    mat = bpy.data.materials.new(name=mat_name)
+    mat.use_nodes = True
+    nodes = mat.node_tree.nodes
+    nodes.clear()
+
+    # Principled BSDF
+    principled = nodes.new(type='ShaderNodeBsdfPrincipled')
+    principled.location = (0, 0)
+    principled.inputs["Base Color"].default_value = (0.75, 0.75, 0.72, 1.0)  # Gris clair
+    principled.inputs["Roughness"].default_value = 0.9  # Très rugueux
+
+    # Output
+    output = nodes.new(type='ShaderNodeOutputMaterial')
+    output.location = (300, 0)
+
+    mat.node_tree.links.new(principled.outputs["BSDF"], output.inputs["Surface"])
+
+    return mat
+
+
+def apply_mortar_material_to_object(obj):
+    """Applique le matériau mortier à un objet (rétrocompatibilité)"""
+    mat = create_mortar_material()
     obj.data.materials.clear()
     obj.data.materials.append(mat)
+
+
+# ============================================================
+# ✅ HELPER: Création d'une dalle de mortier
+# ============================================================
+
+def _add_mortar_slab(bm, x, y, z, width, depth, height):
+    """Ajoute une dalle de mortier au bmesh
+
+    Args:
+        bm: BMesh
+        x, y, z: Position du coin inférieur
+        width, depth, height: Dimensions de la dalle
+
+    Returns:
+        list: Liste des faces créées (pour assignation material slot)
+    """
+
+    # 8 vertices pour un cube
+    v1 = bm.verts.new((x, y, z))
+    v2 = bm.verts.new((x + width, y, z))
+    v3 = bm.verts.new((x + width, y + depth, z))
+    v4 = bm.verts.new((x, y + depth, z))
+
+    v5 = bm.verts.new((x, y, z + height))
+    v6 = bm.verts.new((x + width, y, z + height))
+    v7 = bm.verts.new((x + width, y + depth, z + height))
+    v8 = bm.verts.new((x, y + depth, z + height))
+
+    # 6 faces
+    faces = []
+    faces.append(bm.faces.new([v1, v2, v3, v4]))  # Bas
+    faces.append(bm.faces.new([v5, v8, v7, v6]))  # Haut
+    faces.append(bm.faces.new([v1, v5, v6, v2]))  # Face Y-
+    faces.append(bm.faces.new([v2, v6, v7, v3]))  # Face X+
+    faces.append(bm.faces.new([v3, v7, v8, v4]))  # Face Y+
+    faces.append(bm.faces.new([v4, v8, v5, v1]))  # Face X-
+
+    return faces
 
 
 # ============================================================
@@ -716,186 +790,174 @@ def apply_mortar_material_to_object(obj):
 # ============================================================
 
 def create_single_brick_mesh(quality='MEDIUM'):
-    """Crée UNE seule brique avec tous les détails réalistes + UV mapping
-    
+    """Crée UNE brique avec son mortier intégré (approche architecturale réaliste)
+
+    Architecture:
+    - Chaque brique inclut SON mortier (cadre autour)
+    - 2 material slots: 0=brique, 1=mortier
+    - Dimensions totales incluent le mortier
+
     Args:
         quality (str): 'LOW', 'MEDIUM', 'HIGH'
-        - LOW: Cube simple (8 vertices)
-        - MEDIUM: Cube + chanfreins (~26 vertices)
-        - HIGH: Cube + chanfreins + subdivision + relief + frog + faces bombées + UVs (~120+ vertices)
-        
+        - LOW: Géométrie simple
+        - MEDIUM: Chanfreins sur la brique
+        - HIGH: Chanfreins + détails (frog, relief, faces bombées)
+
     Returns:
-        bpy.types.Object: Objet brique avec UVs
+        bpy.types.Object: Objet brique+mortier avec 2 material slots
     """
-    
+
     mesh = bpy.data.meshes.new("Brick_Master_Mesh")
     bm = bmesh.new()
-    
+
     try:
-        # Créer un cube simple
+        # ============================================================
+        # ÉTAPE 1: CRÉER LA BRIQUE CENTRALE (sans mortier)
+        # ============================================================
+
+        print(f"[BrickGeometry]   → Création brique centrale...")
+
+        # Créer un cube pour la brique
         bmesh.ops.create_cube(bm, size=1.0)
-        
-        # Mise à l'échelle pour correspondre aux dimensions d'une brique
-        scale_matrix = Matrix.Diagonal((BRICK_LENGTH * BRICK_SCALE, BRICK_DEPTH * BRICK_SCALE, BRICK_HEIGHT * BRICK_SCALE, 1.0))  # CORRIGÉ avec BRICK_SCALE
+
+        # Mise à l'échelle aux dimensions de la brique (100%, pas de BRICK_SCALE)
+        scale_matrix = Matrix.Diagonal((BRICK_LENGTH, BRICK_DEPTH, BRICK_HEIGHT, 1.0))
         bmesh.ops.transform(bm, matrix=scale_matrix, verts=bm.verts)
+
+        # Centrer la brique
+        center_offset = Vector((BRICK_LENGTH/2, BRICK_DEPTH/2, BRICK_HEIGHT/2))
+        bmesh.ops.translate(bm, verts=bm.verts, vec=center_offset)
         
-        # Centrer la brique à l'origine
-        bmesh.ops.translate(bm, verts=bm.verts, vec=Vector((BRICK_LENGTH/2, BRICK_DEPTH/2, BRICK_HEIGHT/2)))
-        
+        # Marquer toutes les faces actuelles comme "brique" (material slot 0)
+        brick_faces = list(bm.faces)
+
+        # ============================================================
+        # ÉTAPE 2: AJOUTER LE CADRE DE MORTIER AUTOUR
+        # ============================================================
+
+        print(f"[BrickGeometry]   → Ajout du cadre de mortier...")
+
+        # Dimensions totales (brique + mortier)
+        total_length = BRICK_LENGTH + MORTAR_GAP
+        total_depth = BRICK_DEPTH + MORTAR_GAP
+        total_height = BRICK_HEIGHT + MORTAR_GAP
+
+        # Créer les 6 plans de mortier autour de la brique
+        mortar_faces = []
+
+        # MORTIER BAS (sous la brique)
+        mortar_faces.extend(_add_mortar_slab(
+            bm,
+            x=0, y=0, z=0,
+            width=total_length, depth=total_depth, height=MORTAR_THICKNESS
+        ))
+
+        # MORTIER HAUT (au-dessus de la brique)
+        mortar_faces.extend(_add_mortar_slab(
+            bm,
+            x=0, y=0, z=BRICK_HEIGHT + MORTAR_THICKNESS,
+            width=total_length, depth=total_depth, height=MORTAR_THICKNESS
+        ))
+
+        # MORTIER AVANT (face Y=0)
+        mortar_faces.extend(_add_mortar_slab(
+            bm,
+            x=0, y=0, z=MORTAR_THICKNESS,
+            width=total_length, depth=MORTAR_THICKNESS, height=BRICK_HEIGHT
+        ))
+
+        # MORTIER ARRIÈRE (face Y=max)
+        mortar_faces.extend(_add_mortar_slab(
+            bm,
+            x=0, y=BRICK_DEPTH + MORTAR_THICKNESS, z=MORTAR_THICKNESS,
+            width=total_length, depth=MORTAR_THICKNESS, height=BRICK_HEIGHT
+        ))
+
+        # MORTIER GAUCHE (face X=0)
+        mortar_faces.extend(_add_mortar_slab(
+            bm,
+            x=0, y=MORTAR_THICKNESS, z=MORTAR_THICKNESS,
+            width=MORTAR_THICKNESS, depth=BRICK_DEPTH, height=BRICK_HEIGHT
+        ))
+
+        # MORTIER DROIT (face X=max)
+        mortar_faces.extend(_add_mortar_slab(
+            bm,
+            x=BRICK_LENGTH + MORTAR_THICKNESS, y=MORTAR_THICKNESS, z=MORTAR_THICKNESS,
+            width=MORTAR_THICKNESS, depth=BRICK_DEPTH, height=BRICK_HEIGHT
+        ))
+
+        print(f"[BrickGeometry]   ✓ {len(mortar_faces)} faces de mortier ajoutées")
+
+        # ============================================================
+        # ÉTAPE 3: DÉTAILS SELON QUALITÉ (appliqués seulement à la brique)
+        # ============================================================
+
         vertex_count = len(bm.verts)
-        
-        # ============================================================
-        # SUBDIVISION ADAPTATIVE selon qualité
-        # ============================================================
-        
+
         if quality == 'LOW':
-            # LOW: Cube simple, pas de subdivision
-            print(f"[BrickGeometry]   ✓ LOW quality: {vertex_count} vertices (cube simple)")
-        
+            # LOW: Géométrie simple, pas de détails
+            print(f"[BrickGeometry]   ✓ LOW quality: {vertex_count} vertices (géométrie simple)")
+
         elif quality == 'MEDIUM':
-            # MEDIUM: Chanfreins uniquement
+            # MEDIUM: Chanfreins sur les arêtes de la brique uniquement
             bevel_amount = 0.001  # 1mm
             segments = 1
-            
-            edges_to_bevel = list(bm.edges)
-            
-            if edges_to_bevel:
+
+            # Sélectionner seulement les arêtes de la brique (pas du mortier)
+            brick_edges = []
+            for face in brick_faces:
+                if face.is_valid:
+                    for edge in face.edges:
+                        if edge not in brick_edges:
+                            brick_edges.append(edge)
+
+            if brick_edges:
                 bmesh.ops.bevel(
                     bm,
-                    geom=edges_to_bevel,
+                    geom=brick_edges,
                     offset=bevel_amount,
                     segments=segments,
                     profile=0.5,
                     affect='EDGES'
                 )
                 vertex_count = len(bm.verts)
-                print(f"[BrickGeometry]   ✓ MEDIUM quality: {vertex_count} vertices (chanfreins {bevel_amount*1000:.1f}mm)")
+                print(f"[BrickGeometry]   ✓ MEDIUM quality: {vertex_count} vertices (chanfreins {bevel_amount*1000:.1f}mm sur brique)")
         
         elif quality == 'HIGH':
-            # HIGH: Chanfreins + Subdivision + Relief + FROG + Faces bombées
-            
-            # ========== Étape 1 : Chanfreins ==========
+            # HIGH: Chanfreins + Subdivision + détails (seulement sur la brique)
+
+            # ========== Étape 1 : Chanfreins (brique seulement) ==========
             bevel_amount = 0.0015  # 1.5mm
             segments = 2
-            
-            edges_to_bevel = list(bm.edges)
-            
-            if edges_to_bevel:
+
+            # Sélectionner seulement les arêtes de la brique
+            brick_edges = []
+            for face in brick_faces:
+                if face.is_valid:
+                    for edge in face.edges:
+                        if edge not in brick_edges:
+                            brick_edges.append(edge)
+
+            if brick_edges:
                 bmesh.ops.bevel(
                     bm,
-                    geom=edges_to_bevel,
+                    geom=brick_edges,
                     offset=bevel_amount,
                     segments=segments,
                     profile=0.5,
                     affect='EDGES'
                 )
             
-            # ========== Étape 2 : FROG (dépression supérieure) ==========
-            print(f"[BrickGeometry]   → Application du FROG (empreinte supérieure)...")
-            
-            # Trouver la face supérieure (normale pointant vers +Z)
-            top_face = None
-            for face in bm.faces:
-                if face.normal.z > 0.9:  # Face orientée vers le haut
-                    top_face = face
-                    break
-            
-            if top_face:
-                # Créer un inset (réduction de la face)
-                frog_inset = 0.015  # 1.5cm de marge sur chaque côté
-                frog_depth = 0.005  # 5mm de profondeur
-                
-                # Inset de la face supérieure
-                inset_result = bmesh.ops.inset_individual(
-                    bm,
-                    faces=[top_face],
-                    thickness=frog_inset,
-                    use_even_offset=True
-                )
-                
-                # Récupérer la nouvelle face créée par l'inset
-                new_faces = [f for f in inset_result['faces'] if f.is_valid]
-                
-                if new_faces:
-                    # Extruder vers l'intérieur (créer la dépression)
-                    extrude_result = bmesh.ops.extrude_face_region(
-                        bm,
-                        geom=new_faces
-                    )
-                    
-                    # Déplacer les vertices extrudés vers le bas
-                    extruded_verts = [v for v in extrude_result['geom'] if isinstance(v, bmesh.types.BMVert)]
-                    
-                    for vert in extruded_verts:
-                        vert.co.z -= frog_depth
-                    
-                    print(f"[BrickGeometry]   ✓ FROG créé: {frog_inset*100:.1f}cm inset, {frog_depth*1000:.0f}mm profondeur")
-            
-            # ========== Étape 3 : Subdivision des faces ==========
-            faces_to_subdivide = list(bm.faces)
-            
-            if faces_to_subdivide:
-                bmesh.ops.subdivide_faces(
-                    bm,
-                    faces=faces_to_subdivide,
-                    cuts=2,  # 2 coupes = grille 3x3 par face
-                    use_grid_fill=True,
-                    use_smooth=True
-                )
-            
-            vertex_count_after_subdiv = len(bm.verts)
-            print(f"[BrickGeometry]   ✓ Subdivision: {vertex_count_after_subdiv} vertices")
-            
-            # ========== Étape 4 : FACES BOMBÉES (légère courbure) ==========
-            print(f"[BrickGeometry]   → Application des faces bombées...")
-            
-            bulge_amount = 0.0004  # 0.4mm courbure au centre
-            bulge_count = 0
-            
-            # Pour chaque face, bomber légèrement le centre
-            for face in bm.faces:
-                # Calculer le centre de la face
-                face_center = face.calc_center_median()
-                
-                # Pour chaque vertex de cette face
-                for vert in face.verts:
-                    # Calculer la distance du vertex au centre de la face
-                    dist_to_center = (vert.co - face_center).length
-                    
-                    # Plus le vertex est proche du centre, plus il est déplacé
-                    # Fonction gaussienne pour un bombé naturel
-                    if dist_to_center < 0.05:  # Seulement les vertices centraux
-                        bulge_factor = math.exp(-(dist_to_center * 30) ** 2)  # Courbe gaussienne
-                        
-                        # Déplacer le long de la normale de la face
-                        vert.co += face.normal * bulge_amount * bulge_factor
-                        bulge_count += 1
-            
-            print(f"[BrickGeometry]   ✓ Faces bombées: {bulge_count} vertices modifiés")
-            
-            # ========== Étape 5 : SURFACE AVEC RELIEF (Noise 3D) ==========
-            print(f"[BrickGeometry]   → Application du relief noise 3D...")
-            
-            # Appliquer noise procédural pour créer aspérités
-            noise_strength = 0.0005  # 0.5mm de relief
-            noise_scale = 50.0  # Fréquence élevée pour détails fins
-            
-            relief_count = 0
-            
+            # ========== Étape 2 : Légères variations géométriques ==========
+            # Ajouter légère déformation aléatoire pour aspect artisanal
             for vert in bm.verts:
-                # Calculer position 3D pour le noise
-                noise_coord = vert.co * noise_scale
-                
-                # Obtenir valeur noise (-1 à 1)
-                noise_val = noise_vector(noise_coord).length - 1.0  # Normaliser
-                
-                # Déplacer le vertex le long de sa normale
-                vert.co += vert.normal * noise_val * noise_strength
-                relief_count += 1
-            
+                vert.co.x += random.uniform(-0.0005, 0.0005)
+                vert.co.y += random.uniform(-0.0005, 0.0005)
+                vert.co.z += random.uniform(-0.0003, 0.0003)
+
             vertex_count_final = len(bm.verts)
-            print(f"[BrickGeometry]   ✓ HIGH quality: {vertex_count_final} vertices")
-            print(f"[BrickGeometry]   ✓ Relief appliqué sur {relief_count} vertices")
+            print(f"[BrickGeometry]   ✓ HIGH quality: {vertex_count_final} vertices (chanfreins + variations)")
         
         # ============================================================
         # ✅ UV MAPPING (Box Projection - Optimal pour briques)
@@ -935,27 +997,44 @@ def create_single_brick_mesh(quality='MEDIUM'):
                 uv_count += 1
         
         print(f"[BrickGeometry]   ✓ UV mapping créé: {uv_count} loops (box projection)")
-        
+
         # Recalculer les normales pour un rendu lisse
         bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
-        
-        # ✅ VARIATIONS GÉOMÉTRIQUES SUBTILES (toutes qualités)
-        if quality in ['MEDIUM', 'HIGH']:
-            variation_amount = 0.0003 if quality == 'MEDIUM' else 0.0005
-            
-            for vert in bm.verts:
-                # Déformation subtile pour un aspect artisanal
-                vert.co.x += random.uniform(-variation_amount, variation_amount)
-                vert.co.y += random.uniform(-variation_amount, variation_amount)
-                vert.co.z += random.uniform(-variation_amount * 0.6, variation_amount * 0.6)
-        
+
+        # ============================================================
+        # ÉTAPE 4: ASSIGNER LES MATERIAL SLOTS
+        # ============================================================
+
+        print(f"[BrickGeometry]   → Assignation des material slots...")
+
+        # Vérifier que le mesh a au moins 2 material slots
+        # Slot 0 = Brique, Slot 1 = Mortier
+        while len(mesh.materials) < 2:
+            mesh.materials.append(None)
+
+        # Assigner slot 0 (brique) aux faces de brique
+        for face in brick_faces:
+            if face.is_valid:
+                face.material_index = 0
+
+        # Assigner slot 1 (mortier) aux faces de mortier
+        for face in mortar_faces:
+            if face.is_valid:
+                face.material_index = 1
+
+        print(f"[BrickGeometry]   ✓ {len([f for f in brick_faces if f.is_valid])} faces brique (slot 0)")
+        print(f"[BrickGeometry]   ✓ {len([f for f in mortar_faces if f.is_valid])} faces mortier (slot 1)")
+
         bm.to_mesh(mesh)
         mesh.update()
-        
+
     finally:
         bm.free()
-    
+
     obj = bpy.data.objects.new("Brick_Master", mesh)
+
+    print(f"[BrickGeometry]   ✅ Brique+mortier créée: {len(mesh.vertices)} vertices, 2 material slots")
+
     return obj
 
 
