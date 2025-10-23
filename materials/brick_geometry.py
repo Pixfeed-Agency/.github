@@ -145,8 +145,9 @@ def generate_walls_with_instancing(
         # Fallback
         brick_mat = create_brick_material_preset('BRICK_RED')
 
-    # Obtenir le matériau mortier
-    mortar_mat = create_mortar_material()
+    # Obtenir le matériau mortier (couleur personnalisable future)
+    # TODO: Ajouter paramètre mortar_color depuis properties
+    mortar_mat = create_mortar_material(color=None)  # None = gris clair par défaut
 
     # Assigner les matériaux aux slots
     brick_master.data.materials.clear()
@@ -235,7 +236,26 @@ def generate_walls_with_instancing(
     )
     brick_positions.extend(right_positions)
     print(f"[BrickGeometry]   {len(right_positions)} briques")
-    
+
+    # ✅ NOUVEAU: Calculer les lintaux au-dessus des ouvertures
+    print("\n[BrickGeometry] Calcul des lintaux (briques de support au-dessus des ouvertures)...")
+
+    # Lintaux pour chaque mur
+    front_lintels = calculate_lintel_positions(openings, 'front', house_width, house_length)
+    brick_positions.extend(front_lintels)
+
+    back_lintels = calculate_lintel_positions(openings, 'back', house_width, house_length)
+    brick_positions.extend(back_lintels)
+
+    left_lintels = calculate_lintel_positions(openings, 'left', house_width, house_length)
+    brick_positions.extend(left_lintels)
+
+    right_lintels = calculate_lintel_positions(openings, 'right', house_width, house_length)
+    brick_positions.extend(right_lintels)
+
+    total_lintels = len(front_lintels) + len(back_lintels) + len(left_lintels) + len(right_lintels)
+    print(f"[BrickGeometry] ✓ {total_lintels} briques de linteau ajoutées")
+
     print(f"\n[BrickGeometry] Total positions calculées: {len(brick_positions)}")
     
     # Créer toutes les instances
@@ -766,14 +786,23 @@ def create_brick_material_preset(preset_type):
         return material_presets.get_procedural_material('BRICK_RED')
 
 
-def create_mortar_material():
-    """Crée ou récupère le matériau mortier (gris clair)
+def create_mortar_material(color=None):
+    """Crée ou récupère le matériau mortier
+
+    Args:
+        color (tuple): Couleur RGB/RGBA optionnelle. Si None, utilise gris clair par défaut.
 
     Returns:
         bpy.types.Material: Matériau mortier
     """
 
-    mat_name = "Mortar_Material"
+    # Couleur par défaut: gris clair
+    if color is None:
+        color = (0.75, 0.75, 0.72, 1.0)
+    elif len(color) == 3:
+        color = (*color, 1.0)  # Ajouter alpha si RGB
+
+    mat_name = f"Mortar_Material_{int(color[0]*255)}_{int(color[1]*255)}_{int(color[2]*255)}"
 
     # Vérifier si déjà existant (cache)
     if mat_name in bpy.data.materials:
@@ -788,7 +817,7 @@ def create_mortar_material():
     # Principled BSDF
     principled = nodes.new(type='ShaderNodeBsdfPrincipled')
     principled.location = (0, 0)
-    principled.inputs["Base Color"].default_value = (0.75, 0.75, 0.72, 1.0)  # Gris clair
+    principled.inputs["Base Color"].default_value = color
     principled.inputs["Roughness"].default_value = 0.9  # Très rugueux
 
     # Output
@@ -1181,6 +1210,129 @@ def is_mortar_in_opening(mortar_x, mortar_y, mortar_z, mortar_width, mortar_heig
     
     return False
 
+
+def calculate_lintel_positions(openings, wall_type, house_width, house_length):
+    """Calcule les positions des lintaux (briques de support) au-dessus des ouvertures
+
+    Args:
+        openings: Liste des ouvertures avec leurs propriétés
+        wall_type: Type de mur ('front', 'back', 'left', 'right')
+        house_width: Largeur de la maison
+        house_length: Longueur de la maison
+
+    Returns:
+        Liste de tuples (position, rotation) pour les briques de linteau
+    """
+    if not openings:
+        return []
+
+    positions = []
+    LINTEL_OVERHANG = 0.1  # 10cm de dépassement de chaque côté pour support structurel
+    LINTEL_ROWS = 1  # Nombre de rangées de briques pour le linteau
+
+    print(f"[BrickGeometry] Calcul des lintaux pour mur {wall_type}...")
+
+    for opening in openings:
+        # Ne traiter que les ouvertures du bon mur
+        if opening.get('wall') != wall_type:
+            continue
+
+        opening_x = opening.get('x', 0)
+        opening_y = opening.get('y', 0)
+        opening_z = opening.get('z', 0)
+        opening_width = opening.get('width', 0)
+        opening_height = opening.get('height', 0)
+
+        # Position du linteau: juste au-dessus de l'ouverture
+        lintel_z = opening_z + opening_height + MORTAR_GAP
+
+        # Déterminer la direction et les positions selon le type de mur
+        if wall_type == 'front':
+            # Mur avant: briques le long de X
+            lintel_start_x = max(0, opening_x - LINTEL_OVERHANG)
+            lintel_end_x = min(house_width, opening_x + opening_width + LINTEL_OVERHANG)
+            lintel_length = lintel_end_x - lintel_start_x
+
+            # Calculer le nombre de briques nécessaires
+            num_bricks = int(lintel_length / (BRICK_LENGTH + MORTAR_GAP)) + 1
+
+            for row in range(LINTEL_ROWS):
+                z = lintel_z + row * (BRICK_HEIGHT + MORTAR_GAP)
+                for i in range(num_bricks):
+                    x = lintel_start_x + i * (BRICK_LENGTH + MORTAR_GAP)
+
+                    # Ne pas dépasser les limites
+                    if x + BRICK_LENGTH > lintel_end_x:
+                        continue
+
+                    pos = Vector((x, 0, z))
+                    rot = Euler((0, 0, 0), 'XYZ')
+                    positions.append((pos, rot))
+
+        elif wall_type == 'back':
+            # Mur arrière: briques le long de X
+            lintel_start_x = max(0, opening_x - LINTEL_OVERHANG)
+            lintel_end_x = min(house_width, opening_x + opening_width + LINTEL_OVERHANG)
+            lintel_length = lintel_end_x - lintel_start_x
+
+            num_bricks = int(lintel_length / (BRICK_LENGTH + MORTAR_GAP)) + 1
+
+            for row in range(LINTEL_ROWS):
+                z = lintel_z + row * (BRICK_HEIGHT + MORTAR_GAP)
+                for i in range(num_bricks):
+                    x = lintel_start_x + i * (BRICK_LENGTH + MORTAR_GAP)
+
+                    if x + BRICK_LENGTH > lintel_end_x:
+                        continue
+
+                    pos = Vector((x, house_length, z))
+                    rot = Euler((0, 0, 0), 'XYZ')
+                    positions.append((pos, rot))
+
+        elif wall_type == 'left':
+            # Mur gauche: briques le long de Y (tournées à 90°)
+            lintel_start_y = max(0, opening_y - LINTEL_OVERHANG)
+            lintel_end_y = min(house_length, opening_y + opening_width + LINTEL_OVERHANG)
+            lintel_length = lintel_end_y - lintel_start_y
+
+            num_bricks = int(lintel_length / (BRICK_LENGTH + MORTAR_GAP)) + 1
+
+            for row in range(LINTEL_ROWS):
+                z = lintel_z + row * (BRICK_HEIGHT + MORTAR_GAP)
+                for i in range(num_bricks):
+                    y = lintel_start_y + i * (BRICK_LENGTH + MORTAR_GAP)
+
+                    if y + BRICK_LENGTH > lintel_end_y:
+                        continue
+
+                    pos = Vector((0, y, z))
+                    rot = Euler((0, 0, math.radians(90)), 'XYZ')
+                    positions.append((pos, rot))
+
+        elif wall_type == 'right':
+            # Mur droit: briques le long de Y (tournées à 90°)
+            lintel_start_y = max(0, opening_y - LINTEL_OVERHANG)
+            lintel_end_y = min(house_length, opening_y + opening_width + LINTEL_OVERHANG)
+            lintel_length = lintel_end_y - lintel_start_y
+
+            num_bricks = int(lintel_length / (BRICK_LENGTH + MORTAR_GAP)) + 1
+
+            for row in range(LINTEL_ROWS):
+                z = lintel_z + row * (BRICK_HEIGHT + MORTAR_GAP)
+                for i in range(num_bricks):
+                    y = lintel_start_y + i * (BRICK_LENGTH + MORTAR_GAP)
+
+                    if y + BRICK_LENGTH > lintel_end_y:
+                        continue
+
+                    pos = Vector((house_width, y, z))
+                    rot = Euler((0, 0, math.radians(90)), 'XYZ')
+                    positions.append((pos, rot))
+
+    print(f"[BrickGeometry]   ✓ {len(positions)} briques de linteau calculées pour {wall_type}")
+    return positions
+
+
 def calculate_brick_positions_for_wall(wall_length, wall_height, start_pos, direction, openings=None):
     """Calcule toutes les positions de briques pour un mur"""
 
@@ -1255,7 +1407,10 @@ def calculate_brick_positions_for_wall_sloped(wall_length, base_height, roof_hei
     brick_spacing = BRICK_LENGTH if direction == 'X' else BRICK_DEPTH
     num_bricks_width = int(wall_length / (brick_spacing + MORTAR_GAP))
 
-    # Pour chaque colonne, calculer la hauteur maximale à cette position X
+    # Calculer nombre maximum de rangées
+    max_possible_rows = int((base_height + roof_height) / (BRICK_HEIGHT + MORTAR_GAP))
+
+    # Pour chaque colonne
     for col in range(num_bricks_width + 1):
         # Position X le long du mur
         distance_along_wall_base = col * (brick_spacing + MORTAR_GAP)
@@ -1263,18 +1418,8 @@ def calculate_brick_positions_for_wall_sloped(wall_length, base_height, roof_hei
         if distance_along_wall_base + brick_spacing > wall_length + 0.05:
             continue
 
-        # ✅ CALCUL HAUTEUR VARIABLE:
-        # À X=0: hauteur = base_height
-        # À X=wall_length: hauteur = base_height + roof_height
-        # Interpolation linéaire
-        ratio = distance_along_wall_base / wall_length if wall_length > 0 else 0
-        max_height_at_position = base_height + (roof_height * ratio)
-
-        # Nombre de rangées possibles à cette position
-        num_rows_here = int(max_height_at_position / (BRICK_HEIGHT + MORTAR_GAP))
-
-        # Placer les briques en colonnes, avec quinconce
-        for row in range(num_rows_here):
+        # Pour chaque rangée possible
+        for row in range(max_possible_rows + 5):  # +5 pour sécurité
             # Quinconce : décaler les rangées impaires
             offset = (brick_spacing + MORTAR_GAP) / 2 if row % 2 == 1 else 0
             distance_along_wall = distance_along_wall_base + offset
@@ -1282,7 +1427,20 @@ def calculate_brick_positions_for_wall_sloped(wall_length, base_height, roof_hei
             if distance_along_wall + brick_spacing > wall_length + 0.05:
                 continue
 
+            # Position Z de la brique (bas)
             z = row * (BRICK_HEIGHT + MORTAR_GAP)
+
+            # ✅ FIX: Vérifier que le TOP de la brique ne dépasse pas le toit
+            # Calculer la hauteur du toit à cette position X
+            ratio = distance_along_wall / wall_length if wall_length > 0 else 0
+            roof_height_at_position = base_height + (roof_height * ratio)
+
+            # Le TOP de la brique
+            brick_top = z + BRICK_HEIGHT
+
+            # Si le top dépasse le toit, arrêter cette colonne
+            if brick_top > roof_height_at_position + 0.01:  # +1cm de tolérance
+                break
 
             # Calculer position selon direction
             if direction == 'X':

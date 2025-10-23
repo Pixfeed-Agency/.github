@@ -832,7 +832,7 @@ class HOUSE_OT_generate_auto(Operator):
 
         # Break point (cassure) à 60% de la demi-largeur
         break_ratio = 0.6
-        break_distance = (width / 2) * break_ratio  # Distance horizontale jusqu'à la cassure
+        break_distance = (width / 2) * break_ratio
 
         # Hauteur jusqu'à la cassure (pente raide)
         lower_pitch_rad = pitch_rad
@@ -855,47 +855,55 @@ class HOUSE_OT_generate_auto(Operator):
         try:
             h = height
             o = overhang
+            rh = total_roof_height
+            t = roof_thickness
 
             # Position X de la cassure (break point)
             break_x_left = width/2 - break_distance
             break_x_right = width/2 + break_distance
 
-            # Base (8 vertices)
+            # ✅ GÉOMÉTRIE COMPLÈTE CORRIGÉE
+            # Base (4 coins)
             v1 = bm.verts.new((-o, -o, h))
             v2 = bm.verts.new((width + o, -o, h))
             v3 = bm.verts.new((width + o, length + o, h))
             v4 = bm.verts.new((-o, length + o, h))
 
-            # Break points (cassures - 4 vertices)
-            v5 = bm.verts.new((break_x_left, -o, h + break_height))
-            v6 = bm.verts.new((break_x_right, -o, h + break_height))
-            v7 = bm.verts.new((break_x_right, length + o, h + break_height))
-            v8 = bm.verts.new((break_x_left, length + o, h + break_height))
+            # Break points gauche (4 vertices)
+            v5_front = bm.verts.new((break_x_left, -o, h + break_height))
+            v5_back = bm.verts.new((break_x_left, length + o, h + break_height))
 
-            # Sommet (2 vertices - ridge)
-            v9 = bm.verts.new((width/2, -o, h + total_roof_height))
-            v10 = bm.verts.new((width/2, length + o, h + total_roof_height))
+            # Break points droite (4 vertices)
+            v6_front = bm.verts.new((break_x_right, -o, h + break_height))
+            v6_back = bm.verts.new((break_x_right, length + o, h + break_height))
 
-            # Créer les faces du toit (8 faces principales)
-            # Côté avant (Y-)
-            f1 = bm.faces.new([v1, v5, v9])       # Triangle bas gauche
-            f2 = bm.faces.new([v9, v6, v2])       # Triangle bas droite
-            # Côté arrière (Y+)
-            f3 = bm.faces.new([v4, v10, v8])      # Triangle haut gauche
-            f4 = bm.faces.new([v10, v3, v7])      # Triangle haut droite
-            # Pente gauche (X-)
-            f5 = bm.faces.new([v1, v4, v8, v5])   # Trapèze inférieur gauche
-            f6 = bm.faces.new([v5, v8, v10, v9])  # Trapèze supérieur gauche
-            # Pente droite (X+)
-            f7 = bm.faces.new([v2, v6, v7, v3])   # Trapèze inférieur droit
-            f8 = bm.faces.new([v6, v9, v10, v7])  # Trapèze supérieur droit
+            # Sommet (ridge - 2 vertices)
+            v_top_front = bm.verts.new((width/2, -o, h + rh))
+            v_top_back = bm.verts.new((width/2, length + o, h + rh))
+
+            # ✅ FACES PRINCIPALES (surface extérieure)
+            # Pente GAUCHE (2 trapèzes)
+            f1 = bm.faces.new([v1, v4, v5_back, v5_front])  # Trapèze inférieur gauche
+            f2 = bm.faces.new([v5_front, v5_back, v_top_back, v_top_front])  # Trapèze supérieur gauche
+
+            # Pente DROITE (2 trapèzes)
+            f3 = bm.faces.new([v2, v6_front, v6_back, v3])  # Trapèze inférieur droit
+            f4 = bm.faces.new([v6_front, v_top_front, v_top_back, v6_back])  # Trapèze supérieur droit
+
+            # Pignon AVANT - Y- (4 triangles formant le W)
+            f5 = bm.faces.new([v1, v2, v6_front, v5_front])  # Base avant
+            f6 = bm.faces.new([v5_front, v6_front, v_top_front])  # Sommet avant
+
+            # Pignon ARRIÈRE - Y+ (4 triangles formant le W)
+            f7 = bm.faces.new([v4, v5_back, v6_back, v3])  # Base arrière
+            f8 = bm.faces.new([v5_back, v_top_back, v6_back])  # Sommet arrière
 
             # Extruder pour l'épaisseur
             faces_to_extrude = [f1, f2, f3, f4, f5, f6, f7, f8]
             ret = bmesh.ops.extrude_face_region(bm, geom=faces_to_extrude)
 
             extruded_verts = [v for v in ret['geom'] if isinstance(v, bmesh.types.BMVert)]
-            offset_vector = Vector((0, 0, -roof_thickness))
+            offset_vector = Vector((0, 0, -t))
             bmesh.ops.translate(bm, verts=extruded_verts, vec=offset_vector)
 
             roof, mesh = self._create_mesh_from_bmesh("GambrelRoof", bm)
