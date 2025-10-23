@@ -1046,39 +1046,54 @@ def create_single_brick_mesh(quality='MEDIUM'):
 
 def is_brick_in_opening(brick_x, brick_y, brick_z, brick_width, brick_height, openings):
     """Vérifie si une brique est MAJORITAIREMENT dans une zone d'ouverture
-    
-    ✅ CORRECTION: Vérifie si le CENTRE de la brique est dans l'ouverture,
-    au lieu de supprimer toutes les briques qui touchent l'ouverture.
-    Cela évite les trous dans les murs autour des fenêtres/portes.
+
+    ✅ CORRECTION COMPLÈTE: Vérifie X/Y selon le type de mur
+    - Murs AVANT/ARRIÈRE (front/back): Vérifier X et Z
+    - Murs GAUCHE/DROIT (left/right): Vérifier Y et Z
     """
     if not openings:
         return False
-    
+
     # Centre de la brique
     brick_center_x = brick_x + brick_width / 2
+    brick_center_y = brick_y + brick_width / 2  # AJOUTÉ!
     brick_center_z = brick_z + brick_height / 2
-    
-    # Marge de sécurité pour éviter les briques qui débordent légèrement
+
+    # Marge de sécurité
     SAFETY_MARGIN = 0.02  # 2cm
-    
+
     for opening in openings:
         opening_x = opening.get('x', 0)
         opening_y = opening.get('y', 0)
         opening_z = opening.get('z', 0)
         opening_width = opening.get('width', 0)
         opening_height = opening.get('height', 0)
-        
-        # Étendre légèrement la zone d'ouverture avec la marge
-        opening_x_min = opening_x - SAFETY_MARGIN
-        opening_x_max = opening_x + opening_width + SAFETY_MARGIN
+        opening_wall = opening.get('wall', 'front')
+
+        # Vérifier Z (commun à tous les murs)
         opening_z_min = opening_z - SAFETY_MARGIN
         opening_z_max = opening_z + opening_height + SAFETY_MARGIN
-        
-        # Vérifier si le CENTRE de la brique est dans l'ouverture étendue
-        if (opening_x_min < brick_center_x < opening_x_max and
-            opening_z_min < brick_center_z < opening_z_max):
-            return True
-    
+
+        if not (opening_z_min < brick_center_z < opening_z_max):
+            continue  # Pas au bon niveau en hauteur
+
+        # ✅ FIX: Vérifier X OU Y selon le type de mur
+        if opening_wall in ['front', 'back']:
+            # Murs AVANT/ARRIÈRE: vérifier X
+            opening_x_min = opening_x - SAFETY_MARGIN
+            opening_x_max = opening_x + opening_width + SAFETY_MARGIN
+
+            if opening_x_min < brick_center_x < opening_x_max:
+                return True
+
+        elif opening_wall in ['left', 'right']:
+            # Murs GAUCHE/DROIT: vérifier Y
+            opening_y_min = opening_y - SAFETY_MARGIN
+            opening_y_max = opening_y + opening_width + SAFETY_MARGIN
+
+            if opening_y_min < brick_center_y < opening_y_max:
+                return True
+
     return False
 
 
