@@ -44,7 +44,9 @@ def generate_house_walls_bricks(
     brick_material_mode='PRESET',
     brick_color=None,
     brick_preset='BRICK_RED',
-    custom_material=None
+    custom_material=None,
+    roof_type='GABLE',
+    roof_pitch=35.0
 ):
     """Génère les 4 murs extérieurs d'une maison en briques 3D avec instancing
 
@@ -59,48 +61,61 @@ def generate_house_walls_bricks(
         brick_color (tuple): Couleur RGB/RGBA pour mode COLOR
         brick_preset (str): Type de preset pour mode PRESET
         custom_material: Matériau custom pour mode CUSTOM
+        roof_type (str): Type de toit ('GABLE', 'SHED', etc.)
+        roof_pitch (float): Pente du toit en degrés
 
     Returns:
         tuple: (liste des objets murs, hauteur réelle des murs en m)
     """
-    
+
     print("\n" + "="*70)
     print("[BrickGeometry] GÉNÉRATION MAISON EN BRIQUES (VERSION ULTIMATE)")
     print("="*70)
     print(f"[BrickGeometry] Dimensions: {house_width}m x {house_length}m x {total_height}m")
     print(f"[BrickGeometry] Qualité: {quality}")
     print(f"[BrickGeometry] Mode matériau: {brick_material_mode}")
-    
+    print(f"[BrickGeometry] Type de toit: {roof_type}")
+
     # Décider si on utilise l'instancing selon la qualité
     use_instancing = (quality == 'LOW' or quality == 'MEDIUM')
-    
+
     if use_instancing:
         print(f"[BrickGeometry] Mode: INSTANCING (optimisé)")
         return generate_walls_with_instancing(
             house_width, house_length, total_height, collection, quality, openings,
-            brick_material_mode, brick_color, brick_preset, custom_material
+            brick_material_mode, brick_color, brick_preset, custom_material,
+            roof_type, roof_pitch
         )
     else:
         print(f"[BrickGeometry] Mode: GÉOMÉTRIE COMPLÈTE (haute qualité)")
         return generate_walls_full_geometry(
             house_width, house_length, total_height, collection, quality, openings,
-            brick_material_mode, brick_color, brick_preset, custom_material
+            brick_material_mode, brick_color, brick_preset, custom_material,
+            roof_type, roof_pitch
         )
 
 
 def generate_walls_with_instancing(
-    house_width, 
-    house_length, 
-    total_height, 
-    collection, 
-    quality, 
+    house_width,
+    house_length,
+    total_height,
+    collection,
+    quality,
     openings=None,
     brick_material_mode='PRESET',
     brick_color=None,
     brick_preset='BRICK_RED',
-    custom_material=None
+    custom_material=None,
+    roof_type='GABLE',
+    roof_pitch=35.0
 ):
-    """Génère les murs avec instancing pour optimiser les performances"""
+    """Génère les murs avec instancing pour optimiser les performances
+
+    Pour SHED roof: adapte les hauteurs des murs
+    - Mur GAUCHE (X=0): hauteur normale
+    - Mur DROIT (X=width): hauteur + roof_height
+    - Murs AVANT/ARRIÈRE: hauteur variable (triangle/escalier)
+    """
     
     walls = []
     
@@ -140,35 +155,61 @@ def generate_walls_with_instancing(
     
     print(f"[BrickGeometry] ✓ Brique maître créée: {BRICK_LENGTH*100:.1f}cm x {BRICK_DEPTH*100:.1f}cm x {BRICK_HEIGHT*100:.1f}cm")
     print(f"[BrickGeometry] ✓ Matériau appliqué: {brick_material_mode}")
-    
+
+    # ✅ SHED ROOF: Calculer les hauteurs variables des murs
+    import math
+    if roof_type == 'SHED':
+        pitch_rad = math.radians(roof_pitch)
+        roof_height = house_width * math.tan(pitch_rad)
+        print(f"[BrickGeometry] ✓ SHED ROOF: hauteur additionnelle = {roof_height:.3f}m (pente {roof_pitch}°)")
+    else:
+        roof_height = 0
+
     print("\n[BrickGeometry] Calcul des positions des briques...")
-    
+
     # Calculer les positions de toutes les briques pour les 4 murs
     brick_positions = []
-    
-    # MUR AVANT
+
+    # MUR AVANT (Y=0) - Pour SHED: hauteur variable de total_height à total_height+roof_height
     print("[BrickGeometry] → Mur AVANT (façade)...")
-    front_positions = calculate_brick_positions_for_wall(
-        house_width, total_height, 
-        start_pos=Vector((0, 0, 0)),
-        direction='X',
-        openings=[o for o in (openings or []) if o.get('wall') == 'front']
-    )
+    if roof_type == 'SHED':
+        # Hauteur variable selon X
+        front_positions = calculate_brick_positions_for_wall_sloped(
+            house_width, total_height, roof_height,
+            start_pos=Vector((0, 0, 0)),
+            direction='X',
+            openings=[o for o in (openings or []) if o.get('wall') == 'front']
+        )
+    else:
+        front_positions = calculate_brick_positions_for_wall(
+            house_width, total_height,
+            start_pos=Vector((0, 0, 0)),
+            direction='X',
+            openings=[o for o in (openings or []) if o.get('wall') == 'front']
+        )
     brick_positions.extend(front_positions)
     print(f"[BrickGeometry]   {len(front_positions)} briques")
-    
-    # MUR ARRIÈRE
+
+    # MUR ARRIÈRE (Y=length) - Pour SHED: hauteur variable
     print("[BrickGeometry] → Mur ARRIÈRE...")
-    back_positions = calculate_brick_positions_for_wall(
-        house_width, total_height,
-        start_pos=Vector((0, house_length, 0)),
-        direction='X',
-        openings=[o for o in (openings or []) if o.get('wall') == 'back']
-    )
+    if roof_type == 'SHED':
+        back_positions = calculate_brick_positions_for_wall_sloped(
+            house_width, total_height, roof_height,
+            start_pos=Vector((0, house_length, 0)),
+            direction='X',
+            openings=[o for o in (openings or []) if o.get('wall') == 'back']
+        )
+    else:
+        back_positions = calculate_brick_positions_for_wall(
+            house_width, total_height,
+            start_pos=Vector((0, house_length, 0)),
+            direction='X',
+            openings=[o for o in (openings or []) if o.get('wall') == 'back']
+        )
     brick_positions.extend(back_positions)
     print(f"[BrickGeometry]   {len(back_positions)} briques")
-    
-    # MUR GAUCHE
+
+    # MUR GAUCHE (X=0) - Pour SHED: hauteur normale
     print("[BrickGeometry] → Mur GAUCHE...")
     left_positions = calculate_brick_positions_for_wall(
         house_length, total_height,
@@ -178,11 +219,16 @@ def generate_walls_with_instancing(
     )
     brick_positions.extend(left_positions)
     print(f"[BrickGeometry]   {len(left_positions)} briques")
-    
-    # MUR DROIT
+
+    # MUR DROIT (X=width) - Pour SHED: hauteur augmentée
     print("[BrickGeometry] → Mur DROIT...")
+    if roof_type == 'SHED':
+        right_wall_height = total_height + roof_height
+        print(f"[BrickGeometry]   Hauteur adaptée: {right_wall_height:.3f}m")
+    else:
+        right_wall_height = total_height
     right_positions = calculate_brick_positions_for_wall(
-        house_length, total_height,
+        house_length, right_wall_height,
         start_pos=Vector((house_width, 0, 0)),
         direction='Y',
         openings=[o for o in (openings or []) if o.get('wall') == 'right']
@@ -242,13 +288,22 @@ def generate_walls_full_geometry(
     brick_material_mode='PRESET',
     brick_color=None,
     brick_preset='BRICK_RED',
-    custom_material=None
+    custom_material=None,
+    roof_type='GABLE',
+    roof_pitch=35.0
 ):
     """Génère les murs avec géométrie complète (HIGH quality)
 
     NOTE: Cette fonction utilise encore l'ancien système (briques + mortier séparés).
     Pour bénéficier du nouveau système (mortier intégré), utilisez quality='MEDIUM' ou 'LOW'.
+
+    NOTE 2: Le support SHED roof n'est pas implémenté en mode HIGH quality.
+    Utilisez MEDIUM ou LOW pour le shed roof avec murs adaptés.
     """
+
+    if roof_type == 'SHED':
+        print("[BrickGeometry] AVERTISSEMENT: SHED roof non supporté en qualité HIGH")
+        print("[BrickGeometry] Utilisez qualité MEDIUM ou LOW pour murs adaptés")
 
     walls = []
     
@@ -1173,6 +1228,79 @@ def calculate_brick_positions_for_wall(wall_length, wall_height, start_pos, dire
             
             positions.append((pos, rot))
     
+    return positions
+
+
+def calculate_brick_positions_for_wall_sloped(wall_length, base_height, roof_height, start_pos, direction, openings=None):
+    """Calcule les positions de briques pour un mur en pente (shed roof)
+
+    Pour les murs avant/arrière d'un shed roof:
+    - Hauteur varie de base_height (X=0) à base_height + roof_height (X=wall_length)
+    - Les briques forment un "escalier" suivant la pente
+
+    Args:
+        wall_length: Longueur du mur
+        base_height: Hauteur de base (côté bas)
+        roof_height: Hauteur additionnelle (côté haut)
+        start_pos: Position de départ
+        direction: 'X' ou 'Y'
+        openings: Liste des ouvertures
+
+    Returns:
+        Liste de (position, rotation) pour chaque brique
+    """
+    import math
+
+    positions = []
+    brick_spacing = BRICK_LENGTH if direction == 'X' else BRICK_DEPTH
+    num_bricks_width = int(wall_length / (brick_spacing + MORTAR_GAP))
+
+    # Pour chaque colonne, calculer la hauteur maximale à cette position X
+    for col in range(num_bricks_width + 1):
+        # Position X le long du mur
+        distance_along_wall_base = col * (brick_spacing + MORTAR_GAP)
+
+        if distance_along_wall_base + brick_spacing > wall_length + 0.05:
+            continue
+
+        # ✅ CALCUL HAUTEUR VARIABLE:
+        # À X=0: hauteur = base_height
+        # À X=wall_length: hauteur = base_height + roof_height
+        # Interpolation linéaire
+        ratio = distance_along_wall_base / wall_length if wall_length > 0 else 0
+        max_height_at_position = base_height + (roof_height * ratio)
+
+        # Nombre de rangées possibles à cette position
+        num_rows_here = int(max_height_at_position / (BRICK_HEIGHT + MORTAR_GAP))
+
+        # Placer les briques en colonnes, avec quinconce
+        for row in range(num_rows_here):
+            # Quinconce : décaler les rangées impaires
+            offset = (brick_spacing + MORTAR_GAP) / 2 if row % 2 == 1 else 0
+            distance_along_wall = distance_along_wall_base + offset
+
+            if distance_along_wall + brick_spacing > wall_length + 0.05:
+                continue
+
+            z = row * (BRICK_HEIGHT + MORTAR_GAP)
+
+            # Calculer position selon direction
+            if direction == 'X':
+                pos = start_pos + Vector((distance_along_wall, 0, z))
+                rot = Euler((0, 0, 0), 'XYZ')
+
+                if is_brick_in_opening(pos.x, pos.y, z, BRICK_LENGTH, BRICK_HEIGHT, openings):
+                    continue
+
+            else:  # Y
+                pos = start_pos + Vector((0, distance_along_wall, z))
+                rot = Euler((0, 0, math.radians(90)), 'XYZ')
+
+                if is_brick_in_opening(pos.x, pos.y, z, BRICK_LENGTH, BRICK_HEIGHT, openings):
+                    continue
+
+            positions.append((pos, rot))
+
     return positions
 
 

@@ -338,6 +338,7 @@ class HOUSE_OT_generate_auto(Operator):
             
             # Générer les murs avec le nouveau système
             # ✅ FIX : Capturer la hauteur réelle des murs pour positionner le toit correctement
+            # ✅ NOUVEAU : Passer roof_type et roof_pitch pour adapter les murs (shed roof)
             walls, real_wall_height = brick_geometry.generate_house_walls_bricks(
                 width,
                 length,
@@ -348,7 +349,9 @@ class HOUSE_OT_generate_auto(Operator):
                 brick_material_mode,
                 brick_color,
                 brick_preset,
-                custom_material
+                custom_material,
+                roof_type=props.roof_type,
+                roof_pitch=props.roof_pitch
             )
 
             # Stocker la hauteur réelle pour l'utiliser dans _generate_roof
