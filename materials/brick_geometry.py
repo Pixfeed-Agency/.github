@@ -46,7 +46,9 @@ def generate_house_walls_bricks(
     brick_preset='BRICK_RED',
     custom_material=None,
     roof_type='GABLE',
-    roof_pitch=35.0
+    roof_pitch=35.0,
+    mortar_color=None,  # ✅ NOUVEAU: Couleur personnalisable du mortier
+    bonding_pattern='RUNNING'  # ✅ NOUVEAU: Pattern d'appareillage des briques
 ):
     """Génère les 4 murs extérieurs d'une maison en briques 3D avec instancing
 
@@ -77,14 +79,19 @@ def generate_house_walls_bricks(
     print(f"[BrickGeometry] Type de toit: {roof_type}")
 
     # Décider si on utilise l'instancing selon la qualité
-    use_instancing = (quality == 'LOW' or quality == 'MEDIUM')
+    # ✅ NOUVEAU: Forcer l'instancing pour SHED roof même en HIGH quality
+    # car le système d'instancing supporte déjà les murs inclinés
+    use_instancing = (quality == 'LOW' or quality == 'MEDIUM' or roof_type == 'SHED')
 
     if use_instancing:
-        print(f"[BrickGeometry] Mode: INSTANCING (optimisé)")
+        if roof_type == 'SHED' and quality == 'HIGH':
+            print(f"[BrickGeometry] Mode: INSTANCING (SHED roof nécessite l'instancing)")
+        else:
+            print(f"[BrickGeometry] Mode: INSTANCING (optimisé)")
         return generate_walls_with_instancing(
             house_width, house_length, total_height, collection, quality, openings,
             brick_material_mode, brick_color, brick_preset, custom_material,
-            roof_type, roof_pitch
+            roof_type, roof_pitch, mortar_color, bonding_pattern
         )
     else:
         print(f"[BrickGeometry] Mode: GÉOMÉTRIE COMPLÈTE (haute qualité)")
@@ -107,7 +114,9 @@ def generate_walls_with_instancing(
     brick_preset='BRICK_RED',
     custom_material=None,
     roof_type='GABLE',
-    roof_pitch=35.0
+    roof_pitch=35.0,
+    mortar_color=None,  # ✅ NOUVEAU: Couleur personnalisable du mortier
+    bonding_pattern='RUNNING'  # ✅ NOUVEAU: Pattern d'appareillage
 ):
     """Génère les murs avec instancing pour optimiser les performances
 
@@ -145,9 +154,9 @@ def generate_walls_with_instancing(
         # Fallback
         brick_mat = create_brick_material_preset('BRICK_RED')
 
-    # Obtenir le matériau mortier (couleur personnalisable future)
-    # TODO: Ajouter paramètre mortar_color depuis properties
-    mortar_mat = create_mortar_material(color=None)  # None = gris clair par défaut
+    # Obtenir le matériau mortier avec couleur personnalisable
+    # ✅ COMPLÉTÉ: Paramètre mortar_color intégré
+    mortar_mat = create_mortar_material(color=mortar_color)
 
     # Assigner les matériaux aux slots
     brick_master.data.materials.clear()
@@ -186,7 +195,8 @@ def generate_walls_with_instancing(
             house_width, total_height,
             start_pos=Vector((0, 0, 0)),
             direction='X',
-            openings=[o for o in (openings or []) if o.get('wall') == 'front']
+            openings=[o for o in (openings or []) if o.get('wall') == 'front'],
+            bonding_pattern=bonding_pattern
         )
     brick_positions.extend(front_positions)
     print(f"[BrickGeometry]   {len(front_positions)} briques")
@@ -205,7 +215,8 @@ def generate_walls_with_instancing(
             house_width, total_height,
             start_pos=Vector((0, house_length, 0)),
             direction='X',
-            openings=[o for o in (openings or []) if o.get('wall') == 'back']
+            openings=[o for o in (openings or []) if o.get('wall') == 'back'],
+            bonding_pattern=bonding_pattern
         )
     brick_positions.extend(back_positions)
     print(f"[BrickGeometry]   {len(back_positions)} briques")
@@ -216,7 +227,8 @@ def generate_walls_with_instancing(
         house_length, total_height,
         start_pos=Vector((0, 0, 0)),
         direction='Y',
-        openings=[o for o in (openings or []) if o.get('wall') == 'left']
+        openings=[o for o in (openings or []) if o.get('wall') == 'left'],
+        bonding_pattern=bonding_pattern
     )
     brick_positions.extend(left_positions)
     print(f"[BrickGeometry]   {len(left_positions)} briques")
@@ -232,7 +244,8 @@ def generate_walls_with_instancing(
         house_length, right_wall_height,
         start_pos=Vector((house_width, 0, 0)),
         direction='Y',
-        openings=[o for o in (openings or []) if o.get('wall') == 'right']
+        openings=[o for o in (openings or []) if o.get('wall') == 'right'],
+        bonding_pattern=bonding_pattern
     )
     brick_positions.extend(right_positions)
     print(f"[BrickGeometry]   {len(right_positions)} briques")
@@ -240,17 +253,17 @@ def generate_walls_with_instancing(
     # ✅ NOUVEAU: Calculer les lintaux au-dessus des ouvertures
     print("\n[BrickGeometry] Calcul des lintaux (briques de support au-dessus des ouvertures)...")
 
-    # Lintaux pour chaque mur
-    front_lintels = calculate_lintel_positions(openings, 'front', house_width, house_length)
+    # Lintaux pour chaque mur (avec vérification collision toit)
+    front_lintels = calculate_lintel_positions(openings, 'front', house_width, house_length, roof_type, roof_pitch, total_height)
     brick_positions.extend(front_lintels)
 
-    back_lintels = calculate_lintel_positions(openings, 'back', house_width, house_length)
+    back_lintels = calculate_lintel_positions(openings, 'back', house_width, house_length, roof_type, roof_pitch, total_height)
     brick_positions.extend(back_lintels)
 
-    left_lintels = calculate_lintel_positions(openings, 'left', house_width, house_length)
+    left_lintels = calculate_lintel_positions(openings, 'left', house_width, house_length, roof_type, roof_pitch, total_height)
     brick_positions.extend(left_lintels)
 
-    right_lintels = calculate_lintel_positions(openings, 'right', house_width, house_length)
+    right_lintels = calculate_lintel_positions(openings, 'right', house_width, house_length, roof_type, roof_pitch, total_height)
     brick_positions.extend(right_lintels)
 
     total_lintels = len(front_lintels) + len(back_lintels) + len(left_lintels) + len(right_lintels)
@@ -1211,7 +1224,7 @@ def is_mortar_in_opening(mortar_x, mortar_y, mortar_z, mortar_width, mortar_heig
     return False
 
 
-def calculate_lintel_positions(openings, wall_type, house_width, house_length):
+def calculate_lintel_positions(openings, wall_type, house_width, house_length, roof_type='GABLE', roof_pitch=35.0, base_height=3.0):
     """Calcule les positions des lintaux (briques de support) au-dessus des ouvertures
 
     Args:
@@ -1219,6 +1232,9 @@ def calculate_lintel_positions(openings, wall_type, house_width, house_length):
         wall_type: Type de mur ('front', 'back', 'left', 'right')
         house_width: Largeur de la maison
         house_length: Longueur de la maison
+        roof_type: Type de toit (pour vérifier collision)
+        roof_pitch: Pente du toit en degrés
+        base_height: Hauteur de base des murs
 
     Returns:
         Liste de tuples (position, rotation) pour les briques de linteau
@@ -1231,6 +1247,14 @@ def calculate_lintel_positions(openings, wall_type, house_width, house_length):
     LINTEL_ROWS = 1  # Nombre de rangées de briques pour le linteau
 
     print(f"[BrickGeometry] Calcul des lintaux pour mur {wall_type}...")
+
+    # ✅ NOUVEAU: Calculer hauteur variable du toit pour SHED roof
+    import math
+    roof_height_variation = 0
+    if roof_type == 'SHED':
+        pitch_rad = math.radians(roof_pitch)
+        roof_height_variation = house_width * math.tan(pitch_rad)
+        print(f"[BrickGeometry]   SHED roof détecté: variation hauteur = {roof_height_variation:.3f}m")
 
     for opening in openings:
         # Ne traiter que les ouvertures du bon mur
@@ -1265,6 +1289,17 @@ def calculate_lintel_positions(openings, wall_type, house_width, house_length):
                     if x + BRICK_LENGTH > lintel_end_x:
                         continue
 
+                    # ✅ FIX: Vérifier collision avec toit pour SHED roof
+                    if roof_type == 'SHED':
+                        # Hauteur du toit à cette position X
+                        ratio = x / house_width if house_width > 0 else 0
+                        roof_height_at_pos = base_height + (roof_height_variation * ratio)
+                        brick_top = z + BRICK_HEIGHT
+
+                        # Si le linteau dépasse le toit, skip
+                        if brick_top > roof_height_at_pos + 0.01:  # +1cm tolérance
+                            continue
+
                     pos = Vector((x, 0, z))
                     rot = Euler((0, 0, 0), 'XYZ')
                     positions.append((pos, rot))
@@ -1285,24 +1320,46 @@ def calculate_lintel_positions(openings, wall_type, house_width, house_length):
                     if x + BRICK_LENGTH > lintel_end_x:
                         continue
 
+                    # ✅ FIX: Vérifier collision avec toit pour SHED roof
+                    if roof_type == 'SHED':
+                        # Hauteur du toit à cette position X
+                        ratio = x / house_width if house_width > 0 else 0
+                        roof_height_at_pos = base_height + (roof_height_variation * ratio)
+                        brick_top = z + BRICK_HEIGHT
+
+                        # Si le linteau dépasse le toit, skip
+                        if brick_top > roof_height_at_pos + 0.01:  # +1cm tolérance
+                            continue
+
                     pos = Vector((x, house_length, z))
                     rot = Euler((0, 0, 0), 'XYZ')
                     positions.append((pos, rot))
 
         elif wall_type == 'left':
             # Mur gauche: briques le long de Y (tournées à 90°)
+            # ✅ FIX: Utiliser BRICK_DEPTH pour alignement avec les briques du mur
             lintel_start_y = max(0, opening_y - LINTEL_OVERHANG)
             lintel_end_y = min(house_length, opening_y + opening_width + LINTEL_OVERHANG)
             lintel_length = lintel_end_y - lintel_start_y
 
-            num_bricks = int(lintel_length / (BRICK_LENGTH + MORTAR_GAP)) + 1
+            num_bricks = int(lintel_length / (BRICK_DEPTH + MORTAR_GAP)) + 1
 
             for row in range(LINTEL_ROWS):
                 z = lintel_z + row * (BRICK_HEIGHT + MORTAR_GAP)
-                for i in range(num_bricks):
-                    y = lintel_start_y + i * (BRICK_LENGTH + MORTAR_GAP)
 
-                    if y + BRICK_LENGTH > lintel_end_y:
+                # ✅ FIX: Vérifier collision avec toit pour SHED roof (mur gauche = côté bas)
+                if roof_type == 'SHED':
+                    roof_height_at_left = base_height
+                    brick_top = z + BRICK_HEIGHT
+
+                    # Si tout le linteau dépasse le toit, skip cette rangée
+                    if brick_top > roof_height_at_left + 0.01:
+                        continue
+
+                for i in range(num_bricks):
+                    y = lintel_start_y + i * (BRICK_DEPTH + MORTAR_GAP)
+
+                    if y + BRICK_DEPTH > lintel_end_y:
                         continue
 
                     pos = Vector((0, y, z))
@@ -1311,18 +1368,29 @@ def calculate_lintel_positions(openings, wall_type, house_width, house_length):
 
         elif wall_type == 'right':
             # Mur droit: briques le long de Y (tournées à 90°)
+            # ✅ FIX: Utiliser BRICK_DEPTH pour alignement avec les briques du mur
             lintel_start_y = max(0, opening_y - LINTEL_OVERHANG)
             lintel_end_y = min(house_length, opening_y + opening_width + LINTEL_OVERHANG)
             lintel_length = lintel_end_y - lintel_start_y
 
-            num_bricks = int(lintel_length / (BRICK_LENGTH + MORTAR_GAP)) + 1
+            num_bricks = int(lintel_length / (BRICK_DEPTH + MORTAR_GAP)) + 1
 
             for row in range(LINTEL_ROWS):
                 z = lintel_z + row * (BRICK_HEIGHT + MORTAR_GAP)
-                for i in range(num_bricks):
-                    y = lintel_start_y + i * (BRICK_LENGTH + MORTAR_GAP)
 
-                    if y + BRICK_LENGTH > lintel_end_y:
+                # ✅ FIX: Vérifier collision avec toit pour SHED roof (mur droit = côté haut)
+                if roof_type == 'SHED':
+                    roof_height_at_right = base_height + roof_height_variation
+                    brick_top = z + BRICK_HEIGHT
+
+                    # Si tout le linteau dépasse le toit, skip cette rangée
+                    if brick_top > roof_height_at_right + 0.01:
+                        continue
+
+                for i in range(num_bricks):
+                    y = lintel_start_y + i * (BRICK_DEPTH + MORTAR_GAP)
+
+                    if y + BRICK_DEPTH > lintel_end_y:
                         continue
 
                     pos = Vector((house_width, y, z))
@@ -1333,9 +1401,20 @@ def calculate_lintel_positions(openings, wall_type, house_width, house_length):
     return positions
 
 
-def calculate_brick_positions_for_wall(wall_length, wall_height, start_pos, direction, openings=None):
-    """Calcule toutes les positions de briques pour un mur"""
+def calculate_brick_positions_for_wall(wall_length, wall_height, start_pos, direction, openings=None, bonding_pattern='RUNNING'):
+    """Calcule toutes les positions de briques pour un mur avec pattern d'appareillage
 
+    Args:
+        wall_length: Longueur du mur
+        wall_height: Hauteur du mur
+        start_pos: Position de départ
+        direction: 'X' ou 'Y'
+        openings: Liste des ouvertures
+        bonding_pattern: 'RUNNING', 'STACK', 'FLEMISH', 'ENGLISH'
+
+    Returns:
+        Liste de (position, rotation) pour chaque brique
+    """
     positions = []
 
     # ✅ FIX : Utiliser la bonne dimension selon la direction
@@ -1347,8 +1426,28 @@ def calculate_brick_positions_for_wall(wall_length, wall_height, start_pos, dire
     num_bricks_height = int(wall_height / (BRICK_HEIGHT + MORTAR_GAP))
 
     for row in range(num_bricks_height):
-        # Pattern en quinconce
-        offset = (brick_spacing + MORTAR_GAP) / 2 if row % 2 == 1 else 0
+        # ✅ NOUVEAU: Calculer l'offset selon le pattern d'appareillage
+        if bonding_pattern == 'RUNNING':
+            # Quinconce: offset de demi-brique sur rangées impaires
+            offset = (brick_spacing + MORTAR_GAP) / 2 if row % 2 == 1 else 0
+        elif bonding_pattern == 'STACK':
+            # Empilé: pas d'offset, briques alignées verticalement
+            offset = 0
+        elif bonding_pattern == 'FLEMISH':
+            # Flemish bond: alternance headers/stretchers
+            # Simulé avec offset 1/4 sur rangées impaires
+            offset = (brick_spacing + MORTAR_GAP) / 4 if row % 2 == 1 else 0
+        elif bonding_pattern == 'ENGLISH':
+            # English bond: rangées alternées
+            # Rangées paires: stretchers, Rangées impaires: headers
+            if row % 2 == 1:
+                # Rangée de headers: briques plus courtes, plus nombreuses
+                offset = (brick_spacing + MORTAR_GAP) / 2
+            else:
+                offset = 0
+        else:
+            # Défaut: running bond
+            offset = (brick_spacing + MORTAR_GAP) / 2 if row % 2 == 1 else 0
 
         for col in range(num_bricks_width + 1):
             # Position le long du mur
@@ -1357,29 +1456,29 @@ def calculate_brick_positions_for_wall(wall_length, wall_height, start_pos, dire
             # Ne pas dépasser la longueur (utiliser brick_spacing au lieu de BRICK_LENGTH)
             if distance_along_wall + brick_spacing > wall_length + 0.05:
                 continue
-            
+
             # Hauteur
             z = row * (BRICK_HEIGHT + MORTAR_GAP)
-            
+
             # Calculer position selon direction
             if direction == 'X':
                 pos = start_pos + Vector((distance_along_wall, 0, z))
                 rot = Euler((0, 0, 0), 'XYZ')
-                
+
                 # Vérifier si dans une ouverture
                 if is_brick_in_opening(pos.x, pos.y, z, BRICK_LENGTH, BRICK_HEIGHT, openings):
                     continue
-                    
+
             else:  # Y
                 pos = start_pos + Vector((0, distance_along_wall, z))
                 rot = Euler((0, 0, math.radians(90)), 'XYZ')
-                
+
                 # Vérifier si dans une ouverture
                 if is_brick_in_opening(pos.x, pos.y, z, BRICK_LENGTH, BRICK_HEIGHT, openings):
                     continue
-            
+
             positions.append((pos, rot))
-    
+
     return positions
 
 

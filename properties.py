@@ -539,7 +539,33 @@ class HouseGeneratorProperties(PropertyGroup):
         description="Matériau personnalisé pour briques 3D",
         type=bpy.types.Material
     )
-    
+
+    # ✅ NOUVELLE PROPRIÉTÉ: Couleur du mortier personnalisable
+    mortar_color: FloatVectorProperty(
+        name="Couleur mortier",
+        description="Couleur du mortier entre les briques (pour briques 3D)",
+        subtype='COLOR',
+        size=4,
+        default=(0.75, 0.75, 0.72, 1.0),  # Gris clair par défaut
+        min=0.0,
+        max=1.0,
+        update=regenerate_house
+    )
+
+    # ✅ NOUVELLE PROPRIÉTÉ: Pattern d'appareillage des briques
+    brick_bonding_pattern: EnumProperty(
+        name="Appareillage briques",
+        description="Pattern d'arrangement des briques (bonding pattern)",
+        items=[
+            ('RUNNING', "Running Bond (Quinconce)", "Pattern standard avec offset de demi-brique", 0),
+            ('STACK', "Stack Bond (Empilé)", "Briques alignées verticalement (moderne)", 1),
+            ('FLEMISH', "Flemish Bond", "Alternance headers/stretchers (traditionnel)", 2),
+            ('ENGLISH', "English Bond", "Rangées alternées headers/stretchers", 3),
+        ],
+        default='RUNNING',
+        update=regenerate_house
+    )
+
     wall_material_type: EnumProperty(
         name="Matériau murs",
         description="Type de matériau pour les murs extérieurs",
