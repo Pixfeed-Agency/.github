@@ -643,35 +643,87 @@ class HOUSE_OT_generate_auto(Operator):
         return roof
     
     def _create_hip_roof(self, width, length, height, pitch, overhang, collection):
-        """Toit à 4 pans"""
+        """Toit à 4 pans (hip roof) - Crée une géométrie rectangulaire appropriée"""
         pitch_rad = math.radians(pitch)
-        base_size = max(width, length) + overhang * 2
-        top_size = min(width, length) / 2
-        roof_height = (base_size - top_size) / 2 * math.tan(pitch_rad)
-        
+        roof_thickness = ROOF_THICKNESS_PITCHED
+
+        # Calculer la hauteur du toit basée sur la plus petite dimension
+        # Un toit en croupe a une arête (ridge) au centre si rectangulaire
+        if width < length:
+            # Ridge court le long de X, pente le long de Y
+            ridge_length = length - width  # Longueur de l'arête centrale
+            roof_height = (width / 2) * math.tan(pitch_rad)
+        else:
+            # Ridge court le long de Y, pente le long de X
+            ridge_length = width - length
+            roof_height = (length / 2) * math.tan(pitch_rad)
+
         bm = bmesh.new()
-        
+
         try:
-            bmesh.ops.create_cone(
-                bm,
-                cap_ends=True,
-                cap_tris=False,
-                segments=4,
-                radius1=base_size / 2,
-                radius2=top_size / 2,
-                depth=roof_height
-            )
-            
-            rotation_matrix = Matrix.Rotation(math.radians(45), 4, 'Z')
-            bmesh.ops.rotate(bm, verts=bm.verts, cent=(0, 0, 0), matrix=rotation_matrix)
-            
+            h = height
+            rh = roof_height
+            o = overhang
+
+            # Base rectangulaire (4 coins)
+            v1 = bm.verts.new((-o, -o, h))
+            v2 = bm.verts.new((width + o, -o, h))
+            v3 = bm.verts.new((width + o, length + o, h))
+            v4 = bm.verts.new((-o, length + o, h))
+
+            if width < length:
+                # House est plus long en Y: ridge le long de Y
+                ridge_start_y = width / 2
+                ridge_end_y = length - width / 2
+
+                # Ridge (arête centrale en haut)
+                v5 = bm.verts.new((width/2, ridge_start_y - o, h + rh))
+                v6 = bm.verts.new((width/2, ridge_end_y + o, h + rh))
+
+                # 4 faces du toit + 2 triangles aux extrémités
+                f1 = bm.faces.new([v1, v2, v5])  # Triangle avant (face X-)
+                f2 = bm.faces.new([v2, v3, v6, v5])  # Trapèze droite (face X+)
+                f3 = bm.faces.new([v3, v4, v6])  # Triangle arrière (face X+)
+                f4 = bm.faces.new([v4, v1, v5, v6])  # Trapèze gauche (face X-)
+
+            elif length < width:
+                # House est plus long en X: ridge le long de X
+                ridge_start_x = length / 2
+                ridge_end_x = width - length / 2
+
+                # Ridge (arête centrale en haut)
+                v5 = bm.verts.new((ridge_start_x - o, length/2, h + rh))
+                v6 = bm.verts.new((ridge_end_x + o, length/2, h + rh))
+
+                # 4 faces du toit
+                f1 = bm.faces.new([v1, v2, v6, v5])  # Trapèze avant (face Y-)
+                f2 = bm.faces.new([v2, v3, v6])  # Triangle droite (face X+)
+                f3 = bm.faces.new([v3, v4, v5])  # Trapèze arrière (face Y+)
+                f4 = bm.faces.new([v4, v1, v5, v6])  # Triangle gauche (face X-)
+
+            else:
+                # Maison carrée: pyramide parfaite avec sommet au centre
+                v5 = bm.verts.new((width/2, length/2, h + rh))
+
+                # 4 faces triangulaires
+                f1 = bm.faces.new([v1, v2, v5])
+                f2 = bm.faces.new([v2, v3, v5])
+                f3 = bm.faces.new([v3, v4, v5])
+                f4 = bm.faces.new([v4, v1, v5])
+
+            # Extruder pour donner de l'épaisseur au toit
+            faces_to_extrude = [f1, f2, f3, f4]
+            ret = bmesh.ops.extrude_face_region(bm, geom=faces_to_extrude)
+
+            extruded_verts = [v for v in ret['geom'] if isinstance(v, bmesh.types.BMVert)]
+            offset_vector = Vector((0, 0, -roof_thickness))
+            bmesh.ops.translate(bm, verts=extruded_verts, vec=offset_vector)
+
             roof, mesh = self._create_mesh_from_bmesh("HipRoof", bm)
-            
+
         finally:
             bm.free()
-        
-        roof.location = (width/2, length/2, height + roof_height/2)
-        
+
         return roof
     
     def _create_shed_roof(self, width, length, height, pitch, overhang, collection):
