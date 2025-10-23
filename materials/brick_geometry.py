@@ -188,7 +188,8 @@ def generate_walls_with_instancing(
             house_width, total_height, roof_height,
             start_pos=Vector((0, 0, 0)),
             direction='X',
-            openings=[o for o in (openings or []) if o.get('wall') == 'front']
+            openings=[o for o in (openings or []) if o.get('wall') == 'front'],
+            bonding_pattern=bonding_pattern
         )
     else:
         front_positions = calculate_brick_positions_for_wall(
@@ -208,7 +209,8 @@ def generate_walls_with_instancing(
             house_width, total_height, roof_height,
             start_pos=Vector((0, house_length, 0)),
             direction='X',
-            openings=[o for o in (openings or []) if o.get('wall') == 'back']
+            openings=[o for o in (openings or []) if o.get('wall') == 'back'],
+            bonding_pattern=bonding_pattern
         )
     else:
         back_positions = calculate_brick_positions_for_wall(
@@ -1401,6 +1403,28 @@ def calculate_lintel_positions(openings, wall_type, house_width, house_length, r
     return positions
 
 
+def _calculate_brick_transform(direction, distance, z, start_pos):
+    """Helper pour calculer position et rotation d'une brique selon la direction
+
+    Args:
+        direction: 'X' ou 'Y'
+        distance: Distance le long du mur
+        z: Hauteur
+        start_pos: Position de départ du mur
+
+    Returns:
+        tuple: (position Vector, rotation Euler)
+    """
+    import math
+    if direction == 'X':
+        pos = start_pos + Vector((distance, 0, z))
+        rot = Euler((0, 0, 0), 'XYZ')
+    else:  # Y
+        pos = start_pos + Vector((0, distance, z))
+        rot = Euler((0, 0, math.radians(90)), 'XYZ')
+    return pos, rot
+
+
 def calculate_brick_positions_for_wall(wall_length, wall_height, start_pos, direction, openings=None, bonding_pattern='RUNNING'):
     """Calcule toutes les positions de briques pour un mur avec pattern d'appareillage
 
@@ -1460,30 +1484,20 @@ def calculate_brick_positions_for_wall(wall_length, wall_height, start_pos, dire
             # Hauteur
             z = row * (BRICK_HEIGHT + MORTAR_GAP)
 
-            # Calculer position selon direction
-            if direction == 'X':
-                pos = start_pos + Vector((distance_along_wall, 0, z))
-                rot = Euler((0, 0, 0), 'XYZ')
+            # ✅ REFACTOR: Utiliser fonction helper pour calcul position/rotation
+            pos, rot = _calculate_brick_transform(direction, distance_along_wall, z, start_pos)
 
-                # Vérifier si dans une ouverture
-                if is_brick_in_opening(pos.x, pos.y, z, BRICK_LENGTH, BRICK_HEIGHT, openings):
-                    continue
-
-            else:  # Y
-                pos = start_pos + Vector((0, distance_along_wall, z))
-                rot = Euler((0, 0, math.radians(90)), 'XYZ')
-
-                # Vérifier si dans une ouverture
-                if is_brick_in_opening(pos.x, pos.y, z, BRICK_LENGTH, BRICK_HEIGHT, openings):
-                    continue
+            # Vérifier si dans une ouverture
+            if is_brick_in_opening(pos.x, pos.y, z, BRICK_LENGTH, BRICK_HEIGHT, openings):
+                continue
 
             positions.append((pos, rot))
 
     return positions
 
 
-def calculate_brick_positions_for_wall_sloped(wall_length, base_height, roof_height, start_pos, direction, openings=None):
-    """Calcule les positions de briques pour un mur en pente (shed roof)
+def calculate_brick_positions_for_wall_sloped(wall_length, base_height, roof_height, start_pos, direction, openings=None, bonding_pattern='RUNNING'):
+    """Calcule les positions de briques pour un mur en pente (shed roof) avec pattern d'appareillage
 
     Pour les murs avant/arrière d'un shed roof:
     - Hauteur varie de base_height (X=0) à base_height + roof_height (X=wall_length)
@@ -1496,6 +1510,7 @@ def calculate_brick_positions_for_wall_sloped(wall_length, base_height, roof_hei
         start_pos: Position de départ
         direction: 'X' ou 'Y'
         openings: Liste des ouvertures
+        bonding_pattern: 'RUNNING', 'STACK', 'FLEMISH', 'ENGLISH'
 
     Returns:
         Liste de (position, rotation) pour chaque brique
@@ -1519,8 +1534,26 @@ def calculate_brick_positions_for_wall_sloped(wall_length, base_height, roof_hei
 
         # Pour chaque rangée possible
         for row in range(max_possible_rows + 5):  # +5 pour sécurité
-            # Quinconce : décaler les rangées impaires
-            offset = (brick_spacing + MORTAR_GAP) / 2 if row % 2 == 1 else 0
+            # ✅ NOUVEAU: Calculer l'offset selon le pattern d'appareillage
+            if bonding_pattern == 'RUNNING':
+                # Quinconce: offset de demi-brique sur rangées impaires
+                offset = (brick_spacing + MORTAR_GAP) / 2 if row % 2 == 1 else 0
+            elif bonding_pattern == 'STACK':
+                # Empilé: pas d'offset, briques alignées verticalement
+                offset = 0
+            elif bonding_pattern == 'FLEMISH':
+                # Flemish bond: alternance headers/stretchers
+                offset = (brick_spacing + MORTAR_GAP) / 4 if row % 2 == 1 else 0
+            elif bonding_pattern == 'ENGLISH':
+                # English bond: rangées alternées
+                if row % 2 == 1:
+                    offset = (brick_spacing + MORTAR_GAP) / 2
+                else:
+                    offset = 0
+            else:
+                # Défaut: running bond
+                offset = (brick_spacing + MORTAR_GAP) / 2 if row % 2 == 1 else 0
+
             distance_along_wall = distance_along_wall_base + offset
 
             if distance_along_wall + brick_spacing > wall_length + 0.05:
@@ -1530,31 +1563,25 @@ def calculate_brick_positions_for_wall_sloped(wall_length, base_height, roof_hei
             z = row * (BRICK_HEIGHT + MORTAR_GAP)
 
             # ✅ FIX: Vérifier que le TOP de la brique ne dépasse pas le toit
-            # Calculer la hauteur du toit à cette position X
-            ratio = distance_along_wall / wall_length if wall_length > 0 else 0
-            roof_height_at_position = base_height + (roof_height * ratio)
+            # IMPORTANT: Vérifier à la FIN de la brique (position + longueur)
+            # car le toit monte et la fin de la brique est plus haute
+            brick_end_position = distance_along_wall + brick_spacing
+            ratio = brick_end_position / wall_length if wall_length > 0 else 0
+            roof_height_at_brick_end = base_height + (roof_height * ratio)
 
             # Le TOP de la brique
             brick_top = z + BRICK_HEIGHT
 
-            # Si le top dépasse le toit, arrêter cette colonne
-            if brick_top > roof_height_at_position + 0.01:  # +1cm de tolérance
+            # Si le top de la brique dépasse le toit à SA POSITION FINALE, arrêter cette colonne
+            if brick_top > roof_height_at_brick_end + 0.01:  # +1cm de tolérance
                 break
 
-            # Calculer position selon direction
-            if direction == 'X':
-                pos = start_pos + Vector((distance_along_wall, 0, z))
-                rot = Euler((0, 0, 0), 'XYZ')
+            # ✅ REFACTOR: Utiliser fonction helper pour calcul position/rotation
+            pos, rot = _calculate_brick_transform(direction, distance_along_wall, z, start_pos)
 
-                if is_brick_in_opening(pos.x, pos.y, z, BRICK_LENGTH, BRICK_HEIGHT, openings):
-                    continue
-
-            else:  # Y
-                pos = start_pos + Vector((0, distance_along_wall, z))
-                rot = Euler((0, 0, math.radians(90)), 'XYZ')
-
-                if is_brick_in_opening(pos.x, pos.y, z, BRICK_LENGTH, BRICK_HEIGHT, openings):
-                    continue
+            # Vérifier si dans une ouverture
+            if is_brick_in_opening(pos.x, pos.y, z, BRICK_LENGTH, BRICK_HEIGHT, openings):
+                continue
 
             positions.append((pos, rot))
 

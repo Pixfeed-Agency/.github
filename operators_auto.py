@@ -15,6 +15,7 @@ import random
 
 # Import du module de fenêtres
 from .windows import WindowGenerator
+from .doors import DoorGenerator
 
 # Constantes - Dimensions et épaisseurs
 WALL_THICKNESS = 0.25
@@ -111,9 +112,18 @@ class HOUSE_OT_generate_auto(Operator):
             else:
                 print("[House] Murs en briques 3D : ouvertures déjà intégrées")
             
+            # ✅ NOUVEAU: Générer les fondations (AVANT les murs)
+            if props.foundation_height > 0:
+                print(f"[House] Fondations visuelles (hauteur: {props.foundation_height}m)...")
+                self._generate_foundation(context, props, house_collection)
+
             print(f"[House] Fenêtres complètes 3D (type: {props.window_type}, qualité: {props.window_quality})...")
             self._generate_windows_complete(context, props, house_collection, style_config)
-            
+
+            # ✅ NOUVEAU: Générer la porte d'entrée visuelle
+            print(f"[House] Porte d'entrée visuelle (type: {props.door_type}, qualité: {props.door_quality})...")
+            self._generate_door_visual(context, props, house_collection)
+
             if props.include_garage:
                 print("[House] Garage...")
                 self._generate_garage(context, props, house_collection)
@@ -412,17 +422,20 @@ class HOUSE_OT_generate_auto(Operator):
             # ✅ FIX: Vertices du haut avec hauteur variable pour SHED roof
             if props.roof_type == 'SHED':
                 # SHED: Gauche (X=0) bas, Droite (X=width) haut
+                # ✅ NOUVEAU: Abaisser le plafond pour éviter intersection avec le toit
+                # Le toit commence à h, donc on abaisse de ROOF_THICKNESS + 0.05m (gap)
+                wall_cap_offset = ROOF_THICKNESS_PITCHED + 0.05
                 outer_top = [
-                    bm.verts.new((0, 0, h)),                  # 0: gauche-avant (bas)
-                    bm.verts.new((width, 0, h + roof_height)),     # 1: droite-avant (haut)
-                    bm.verts.new((width, length, h + roof_height)),  # 2: droite-arrière (haut)
-                    bm.verts.new((0, length, h))              # 3: gauche-arrière (bas)
+                    bm.verts.new((0, 0, h - wall_cap_offset)),                  # 0: gauche-avant (bas)
+                    bm.verts.new((width, 0, h + roof_height - wall_cap_offset)),     # 1: droite-avant (haut)
+                    bm.verts.new((width, length, h + roof_height - wall_cap_offset)),  # 2: droite-arrière (haut)
+                    bm.verts.new((0, length, h - wall_cap_offset))              # 3: gauche-arrière (bas)
                 ]
                 inner_top = [
-                    bm.verts.new((wall_thickness, wall_thickness, h)),
-                    bm.verts.new((width - wall_thickness, wall_thickness, h + roof_height)),
-                    bm.verts.new((width - wall_thickness, length - wall_thickness, h + roof_height)),
-                    bm.verts.new((wall_thickness, length - wall_thickness, h))
+                    bm.verts.new((wall_thickness, wall_thickness, h - wall_cap_offset)),
+                    bm.verts.new((width - wall_thickness, wall_thickness, h + roof_height - wall_cap_offset)),
+                    bm.verts.new((width - wall_thickness, length - wall_thickness, h + roof_height - wall_cap_offset)),
+                    bm.verts.new((wall_thickness, length - wall_thickness, h - wall_cap_offset))
                 ]
             else:
                 # Hauteur constante pour autres toits
@@ -1111,7 +1124,112 @@ class HOUSE_OT_generate_auto(Operator):
                     orientation='right',
                     collection=collection
                 )
-    
+
+    def _generate_door_visual(self, context, props, collection):
+        """Génère la porte d'entrée visuelle (objet 3D)"""
+        width = props.house_width
+
+        # ✅ FIX: Utiliser la hauteur RÉELLE si disponible
+        if hasattr(self, 'real_wall_height') and self.real_wall_height:
+            floor_height_actual = self.real_wall_height / props.num_floors
+        else:
+            floor_height_actual = props.floor_height
+
+        door_width = props.front_door_width
+        door_height = DOOR_HEIGHT
+        door_x = width/2  # Position centrale
+
+        print(f"[House] Génération porte visuelle {props.door_type}: {door_width}x{door_height}m")
+
+        door_gen = DoorGenerator(quality=props.door_quality)
+
+        door_gen.generate_door(
+            door_type=props.door_type,
+            width=door_width,
+            height=door_height,
+            location=Vector((door_x - door_width/2, WALL_THICKNESS/2, 0)),
+            orientation='front',
+            collection=collection
+        )
+
+    def _generate_foundation(self, context, props, collection):
+        """Génère les fondations visuelles (socle béton/pierre)"""
+
+        if props.foundation_height <= 0:
+            print("[House] Fondations désactivées (hauteur = 0)")
+            return
+
+        width = props.house_width
+        length = props.house_length
+        height = props.foundation_height
+
+        # Les fondations dépassent légèrement des murs
+        foundation_overhang = 0.15  # 15cm de débord
+
+        print(f"[House] Génération fondations: {width+2*foundation_overhang}x{length+2*foundation_overhang}x{height}m")
+
+        bm = bmesh.new()
+
+        try:
+            # Créer un bloc rectangulaire
+            bmesh.ops.create_cube(bm, size=1.0)
+
+            # Mise à l'échelle
+            scale_matrix = Matrix.Diagonal((
+                width + 2*foundation_overhang,
+                length + 2*foundation_overhang,
+                height,
+                1.0
+            ))
+            bmesh.ops.transform(bm, matrix=scale_matrix, verts=bm.verts)
+
+            # Position (centrée en X/Y, enterrée en Z)
+            translate_vec = Vector((
+                width/2,
+                length/2,
+                -height/2  # Moitié enterrée
+            ))
+            bmesh.ops.translate(bm, verts=bm.verts, vec=translate_vec)
+
+            foundation_mesh = bpy.data.meshes.new("Foundation_Mesh")
+            bm.to_mesh(foundation_mesh)
+            foundation_mesh.update()
+
+        finally:
+            bm.free()
+
+        foundation_obj = bpy.data.objects.new("Foundation", foundation_mesh)
+        foundation_obj["house_part"] = "foundation"
+        collection.objects.link(foundation_obj)
+
+        # Appliquer matériau béton/pierre
+        self._apply_foundation_material(foundation_obj)
+
+        print("[House] ✓ Fondations générées")
+
+    def _apply_foundation_material(self, obj):
+        """Applique un matériau béton aux fondations"""
+        mat_name = "Foundation_Material"
+
+        if mat_name not in bpy.data.materials:
+            mat = bpy.data.materials.new(name=mat_name)
+            mat.use_nodes = True
+            nodes = mat.node_tree.nodes
+            nodes.clear()
+
+            bsdf = nodes.new('ShaderNodeBsdfPrincipled')
+            bsdf.inputs['Base Color'].default_value = (0.5, 0.5, 0.5, 1.0)  # Gris béton
+            bsdf.inputs['Roughness'].default_value = 0.8
+            bsdf.inputs['Specular'].default_value = 0.1
+
+            output = nodes.new('ShaderNodeOutputMaterial')
+            mat.node_tree.links.new(bsdf.outputs['BSDF'], output.inputs['Surface'])
+        else:
+            mat = bpy.data.materials[mat_name]
+
+        obj.data.materials.clear()
+        obj.data.materials.append(mat)
+
     # [... Les autres fonctions garage, terrace, balcony, lighting restent identiques ...]
     
     def _generate_garage(self, context, props, collection):
