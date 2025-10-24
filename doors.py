@@ -356,7 +356,7 @@ class DoorGenerator:
                 bsdf = nodes.new('ShaderNodeBsdfPrincipled')
                 bsdf.inputs['Base Color'].default_value = (0.3, 0.2, 0.1, 1.0)  # Bois foncé
                 bsdf.inputs['Roughness'].default_value = 0.6
-                bsdf.inputs['Specular'].default_value = 0.2
+                # Note: 'Specular' n'existe plus dans Blender 4.2+
 
                 output = nodes.new('ShaderNodeOutputMaterial')
                 mat.node_tree.links.new(bsdf.outputs['BSDF'], output.inputs['Surface'])

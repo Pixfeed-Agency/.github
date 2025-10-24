@@ -1220,7 +1220,7 @@ class HOUSE_OT_generate_auto(Operator):
             bsdf = nodes.new('ShaderNodeBsdfPrincipled')
             bsdf.inputs['Base Color'].default_value = (0.5, 0.5, 0.5, 1.0)  # Gris béton
             bsdf.inputs['Roughness'].default_value = 0.8
-            bsdf.inputs['Specular'].default_value = 0.1
+            # Note: 'Specular' n'existe plus dans Blender 4.2+
 
             output = nodes.new('ShaderNodeOutputMaterial')
             mat.node_tree.links.new(bsdf.outputs['BSDF'], output.inputs['Surface'])
