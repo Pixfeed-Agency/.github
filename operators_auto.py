@@ -1230,42 +1230,48 @@ class HOUSE_OT_generate_auto(Operator):
         obj.data.materials.clear()
         obj.data.materials.append(mat)
 
-    # [... Les autres fonctions garage, terrace, balcony, lighting restent identiques ...]
-    
+    # ============================================================
+    # FONCTIONNALITÉS NON IMPLÉMENTÉES (TODO)
+    # ============================================================
+
     def _generate_garage(self, context, props, collection):
         """Génère un garage"""
-        # Code inchangé
-        pass
-    
+        # TODO: Implémenter la génération de garage
+        print("[House] ⚠️  AVERTISSEMENT: Génération de garage non implémentée")
+        self.report({'WARNING'}, "Garage: Fonctionnalité non encore implémentée")
+
     def _generate_terrace(self, context, props, collection):
         """Génère une terrasse"""
-        # Code inchangé
-        pass
-    
+        # TODO: Implémenter la génération de terrasse
+        print("[House] ⚠️  AVERTISSEMENT: Génération de terrasse non implémentée")
+        self.report({'WARNING'}, "Terrasse: Fonctionnalité non encore implémentée")
+
     def _generate_balcony(self, context, props, collection):
         """Génère un balcon"""
-        # Code inchangé
-        pass
-    
+        # TODO: Implémenter la génération de balcon
+        print("[House] ⚠️  AVERTISSEMENT: Génération de balcon non implémentée")
+        self.report({'WARNING'}, "Balcon: Fonctionnalité non encore implémentée")
+
     def _generate_balcony_railing(self, context, props, collection, balcony_width, balcony_depth, x_pos, y_pos, z_pos):
         """Génère la rambarde"""
-        # Code inchangé
+        # TODO: Implémenter la rambarde de balcon
         pass
-    
+
     def _add_railing_segment(self, bm, x, y, z, width, depth, height):
         """Ajoute un segment de rambarde"""
-        # Code inchangé
+        # TODO: Implémenter les segments de rambarde
         pass
-    
+
     def _add_railing_post(self, bm, x, y, z, width, depth, height):
         """Ajoute un poteau"""
-        # Code inchangé
+        # TODO: Implémenter les poteaux de rambarde
         pass
-    
+
     def _add_scene_lighting(self, context, props):
-        """Ajoute l'éclairage"""
-        # Code inchangé
-        pass
+        """Ajoute l'éclairage automatique"""
+        # TODO: Implémenter l'éclairage automatique de scène
+        print("[House] ⚠️  AVERTISSEMENT: Éclairage automatique non implémenté")
+        self.report({'WARNING'}, "Éclairage automatique: Fonctionnalité non encore implémentée")
     
     def _apply_materials(self, context, props, collection, style_config):
         """Applique les matériaux - Les briques 3D sont déjà gérées"""

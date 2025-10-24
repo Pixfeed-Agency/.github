@@ -860,8 +860,8 @@ class WindowGenerator:
                 # Paramètres de rendu pour transparence
                 mat.blend_method = 'BLEND'
                 mat.shadow_method = 'HASHED' if self.quality == 'MEDIUM' else 'CLIP'
-                mat.use_screen_refraction = True
-                mat.refraction_depth = 0.1
+                # Note: 'use_screen_refraction' et 'refraction_depth' n'existent plus dans Blender 4.2+
+                # La réfraction est gérée automatiquement via le Glass BSDF
             
             print(f"[Windows] Matériau verre créé: {mat_name}")
         

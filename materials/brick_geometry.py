@@ -465,14 +465,19 @@ def generate_walls_full_geometry(
     # Calculer statistiques
     total_bricks = calculate_brick_count(house_width, total_height) * 2 + \
                    calculate_brick_count(house_length, total_height) * 2
-    
+
+    # ✅ FIX: Calculer la hauteur RÉELLE des murs (pour positionner le toit correctement)
+    num_rows = int(total_height / (BRICK_HEIGHT + MORTAR_GAP))
+    real_wall_height = num_rows * (BRICK_HEIGHT + MORTAR_GAP)
+
     print(f"[BrickGeometry] ✅ Maison en briques créée!")
     print(f"[BrickGeometry]    Total briques: ~{total_bricks}")
     print(f"[BrickGeometry]    Objets créés: {len(walls)}")
     print(f"[BrickGeometry]    Ouvertures exclues: {len(openings or [])}")
     print(f"[BrickGeometry]    Matériau: {brick_material_mode}")
-    
-    return walls
+    print(f"[BrickGeometry]    Hauteur réelle: {real_wall_height:.3f}m ({num_rows} rangées)")
+
+    return walls, real_wall_height
 
 
 # ============================================================
@@ -1869,12 +1874,12 @@ def create_mortar_base(width, height, depth):
 
 def add_brick_displacement(obj, strength=0.003):
     """Ajoute un modificateur Displace pour relief"""
-    
+
     tex = bpy.data.textures.new("Brick_Displace_Tex", 'CLOUDS')
     tex.noise_scale = 0.3
     tex.noise_depth = 3
-    tex.noise_basis = 'BLENDER_ORIGINAL'
-    
+    # Note: 'noise_basis' n'existe plus dans Blender 4.2+
+
     mod = obj.modifiers.new("BrickDisplace", 'DISPLACE')
     mod.texture = tex
     mod.strength = strength
