@@ -546,7 +546,7 @@ class HouseGeneratorProperties(PropertyGroup):
         description="Couleur du mortier entre les briques (pour briques 3D)",
         subtype='COLOR',
         size=4,
-        default=(0.75, 0.75, 0.72, 1.0),  # Gris clair par défaut
+        default=(0.92, 0.92, 0.90, 1.0),  # Blanc cassé / crème clair (très contrasté avec briques)
         min=0.0,
         max=1.0,
         update=regenerate_house

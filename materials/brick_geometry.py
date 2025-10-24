@@ -810,15 +810,15 @@ def create_mortar_material(color=None):
     """Crée ou récupère le matériau mortier
 
     Args:
-        color (tuple): Couleur RGB/RGBA optionnelle. Si None, utilise gris clair par défaut.
+        color (tuple): Couleur RGB/RGBA optionnelle. Si None, utilise blanc cassé par défaut.
 
     Returns:
         bpy.types.Material: Matériau mortier
     """
 
-    # Couleur par défaut: gris clair
+    # Couleur par défaut: blanc cassé / crème clair (très contrasté avec briques)
     if color is None:
-        color = (0.75, 0.75, 0.72, 1.0)
+        color = (0.92, 0.92, 0.90, 1.0)
     elif len(color) == 3:
         color = (*color, 1.0)  # Ajouter alpha si RGB
 
@@ -1567,18 +1567,18 @@ def calculate_brick_positions_for_wall_sloped(wall_length, base_height, roof_hei
             # Position Z de la brique (bas)
             z = row * (BRICK_HEIGHT + MORTAR_GAP)
 
-            # ✅ FIX: Vérifier que le TOP de la brique ne dépasse pas le toit
-            # IMPORTANT: Vérifier à la FIN de la brique (position + longueur)
-            # car le toit monte et la fin de la brique est plus haute
-            brick_end_position = distance_along_wall + brick_spacing
-            ratio = brick_end_position / wall_length if wall_length > 0 else 0
-            roof_height_at_brick_end = base_height + (roof_height * ratio)
+            # ✅ FIX CORRIGÉ: Vérifier que le TOP de la brique ne dépasse pas le toit
+            # IMPORTANT: Vérifier au DÉBUT de la brique, pas à la fin!
+            # Car le toit monte de gauche à droite, donc il est plus BAS au début de la brique
+            ratio = distance_along_wall / wall_length if wall_length > 0 else 0
+            roof_height_at_brick_start = base_height + (roof_height * ratio)
 
             # Le TOP de la brique
             brick_top = z + BRICK_HEIGHT
 
-            # Si le top de la brique dépasse le toit à SA POSITION FINALE, arrêter cette colonne
-            if brick_top > roof_height_at_brick_end + 0.01:  # +1cm de tolérance
+            # Si le top de la brique dépasse le toit à SA POSITION DE DÉPART, arrêter cette colonne
+            # Tolérance réduite à 0.5cm pour éviter que la brique ne touche visuellement le toit
+            if brick_top > roof_height_at_brick_start - 0.005:  # -0.5cm de marge de sécurité
                 break
 
             # ✅ REFACTOR: Utiliser fonction helper pour calcul position/rotation

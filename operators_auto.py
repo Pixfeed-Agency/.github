@@ -481,6 +481,12 @@ class HOUSE_OT_generate_auto(Operator):
 
         openings = []
 
+        # ✅ FIX: Ajuster profondeur des ouvertures selon type de mur
+        if props.wall_construction_type == 'BRICK_3D':
+            wall_depth = 0.10  # Murs briques 3D: 10cm
+        else:
+            wall_depth = WALL_THICKNESS  # Murs simples: 25cm
+
         # Récupérer window_height_ratio
         style_config = self._apply_architectural_style(props)
         window_height_ratio = style_config.get('window_height_ratio', props.window_height_ratio)
@@ -506,7 +512,7 @@ class HOUSE_OT_generate_auto(Operator):
             'z': 0,
             'width': door_width,
             'height': door_height,
-            'depth': WALL_THICKNESS,
+            'depth': wall_depth,
             'wall': 'front',
             'type': 'door'
         })
@@ -534,56 +540,56 @@ class HOUSE_OT_generate_auto(Operator):
                     'z': window_z,
                     'width': window_width,
                     'height': window_height,
-                    'depth': WALL_THICKNESS,
+                    'depth': wall_depth,
                     'wall': 'front',
                     'type': 'window'
                 })
-            
+
             # Mur ARRIÈRE
             for i in range(num_windows_front):
                 x_pos = spacing_front * (i + 1)
                 opening_x = x_pos - window_width/2
-                
+
                 openings.append({
                     'x': opening_x,
                     'y': length,
                     'z': window_z,
                     'width': window_width,
                     'height': window_height,
-                    'depth': WALL_THICKNESS,
+                    'depth': wall_depth,
                     'wall': 'back',
                     'type': 'window'
                 })
-            
+
             # Mur GAUCHE
             spacing_side = length / (num_windows_side + 1)
             for i in range(num_windows_side):
                 y_pos = spacing_side * (i + 1)
                 opening_y = y_pos - window_width/2
-                
+
                 openings.append({
                     'x': 0,
                     'y': opening_y,
                     'z': window_z,
                     'width': window_width,
                     'height': window_height,
-                    'depth': WALL_THICKNESS,
+                    'depth': wall_depth,
                     'wall': 'left',
                     'type': 'window'
                 })
-            
+
             # Mur DROIT
             for i in range(num_windows_side):
                 y_pos = spacing_side * (i + 1)
                 opening_y = y_pos - window_width/2
-                
+
                 openings.append({
                     'x': width,
                     'y': opening_y,
                     'z': window_z,
                     'width': window_width,
                     'height': window_height,
-                    'depth': WALL_THICKNESS,
+                    'depth': wall_depth,
                     'wall': 'right',
                     'type': 'window'
                 })
@@ -1062,6 +1068,16 @@ class HOUSE_OT_generate_auto(Operator):
             floor_height_actual = props.floor_height
             print(f"[House] Fenêtres positionnées selon hauteur théorique: {floor_height_actual:.3f}m/étage")
 
+        # ✅ FIX: Ajuster profondeur fenêtres selon type de mur
+        if props.wall_construction_type == 'BRICK_3D':
+            # Murs briques 3D: épaisseur = BRICK_DEPTH (10cm)
+            wall_depth = 0.10
+            print(f"[House] Fenêtres ajustées pour murs BRICK_3D: profondeur {wall_depth*100:.0f}cm")
+        else:
+            # Murs simples: épaisseur = WALL_THICKNESS (25cm)
+            wall_depth = WALL_THICKNESS
+            print(f"[House] Fenêtres ajustées pour murs simples: profondeur {wall_depth*100:.0f}cm")
+
         window_height = floor_height_actual * window_height_ratio
         window_width = WINDOW_WIDTH
 
@@ -1075,19 +1091,19 @@ class HOUSE_OT_generate_auto(Operator):
             spacing_front = width / (num_windows_front + 1)
             for i in range(num_windows_front):
                 x_pos = spacing_front * (i + 1)
-                
+
                 if floor == 0 and abs(x_pos - width/2) < props.front_door_width * 1.5:
                     continue
-                
+
                 window_gen.generate_window(
                     window_type=props.window_type,
                     width=window_width,
                     height=window_height,
-                    location=Vector((x_pos, WALL_THICKNESS/2, window_z)),
+                    location=Vector((x_pos, wall_depth/2, window_z)),
                     orientation='front',
                     collection=collection
                 )
-            
+
             # Mur arrière
             for i in range(num_windows_front):
                 x_pos = spacing_front * (i + 1)
@@ -1095,11 +1111,11 @@ class HOUSE_OT_generate_auto(Operator):
                     window_type=props.window_type,
                     width=window_width,
                     height=window_height,
-                    location=Vector((x_pos, length - WALL_THICKNESS/2, window_z)),
+                    location=Vector((x_pos, length - wall_depth/2, window_z)),
                     orientation='back',
                     collection=collection
                 )
-            
+
             # Mur gauche
             spacing_side = length / (num_windows_side + 1)
             for i in range(num_windows_side):
@@ -1108,11 +1124,11 @@ class HOUSE_OT_generate_auto(Operator):
                     window_type=props.window_type,
                     width=window_width,
                     height=window_height,
-                    location=Vector((WALL_THICKNESS/2, y_pos, window_z)),
+                    location=Vector((wall_depth/2, y_pos, window_z)),
                     orientation='left',
                     collection=collection
                 )
-            
+
             # Mur droit
             for i in range(num_windows_side):
                 y_pos = spacing_side * (i + 1)
@@ -1120,7 +1136,7 @@ class HOUSE_OT_generate_auto(Operator):
                     window_type=props.window_type,
                     width=window_width,
                     height=window_height,
-                    location=Vector((width - WALL_THICKNESS/2, y_pos, window_z)),
+                    location=Vector((width - wall_depth/2, y_pos, window_z)),
                     orientation='right',
                     collection=collection
                 )
@@ -1135,6 +1151,12 @@ class HOUSE_OT_generate_auto(Operator):
         else:
             floor_height_actual = props.floor_height
 
+        # ✅ FIX: Ajuster profondeur porte selon type de mur
+        if props.wall_construction_type == 'BRICK_3D':
+            wall_depth = 0.10  # Murs briques 3D: 10cm
+        else:
+            wall_depth = WALL_THICKNESS  # Murs simples: 25cm
+
         door_width = props.front_door_width
         door_height = DOOR_HEIGHT
         door_x = width/2  # Position centrale
@@ -1147,7 +1169,7 @@ class HOUSE_OT_generate_auto(Operator):
             door_type=props.door_type,
             width=door_width,
             height=door_height,
-            location=Vector((door_x - door_width/2, WALL_THICKNESS/2, 0)),
+            location=Vector((door_x - door_width/2, wall_depth/2, 0)),
             orientation='front',
             collection=collection
         )
