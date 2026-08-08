@@ -178,13 +178,65 @@ class DoorGenerator:
                                         with_mullion=False)
 
     def _create_french_door(self, width, height, location, orientation, collection):
-        """Crée une porte-fenêtre vitrée (simplifié)"""
-        # Pour l'instant, porte double avec verre ajouté
+        """✅ IMPLÉMENTÉ: Porte-fenêtre à la française — 2 battants dont
+        les panneaux sont largement vitrés (cadre bois + vitre)"""
         objects = self._create_double_door(width, height, location, orientation, collection)
 
-        # TODO: Ajouter vitres (similaire aux fenêtres)
+        # Ajouter une vitre au centre de chaque battant
+        glass_mat = self._get_glass_material()
+        panel_width = (width - self.frame_width * 3) / 2
+        glass_w = panel_width - 0.16          # marge du cadre bois
+        glass_h = height - self.frame_width - 0.30
+        th = self.door_thickness
+
+        for obj in list(objects):
+            if "Panel" not in obj.name:
+                continue
+            bm = bmesh.new()
+            gx0 = (panel_width - glass_w) / 2
+            gz0 = 0.18
+            # Vitre: fine plaque centrée dans l'épaisseur du panneau
+            vb = [bm.verts.new(c) for c in (
+                (gx0, th * 0.45, gz0), (gx0 + glass_w, th * 0.45, gz0),
+                (gx0 + glass_w, th * 0.45, gz0 + glass_h), (gx0, th * 0.45, gz0 + glass_h))]
+            vt = [bm.verts.new((v.co.x, th * 0.55, v.co.z)) for v in vb]
+            bm.faces.new(vb[::-1])
+            bm.faces.new(vt)
+            for i in range(4):
+                j = (i + 1) % 4
+                bm.faces.new([vb[i], vb[j], vt[j], vt[i]])
+            bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+            mesh = bpy.data.meshes.new("Door_Glass_Mesh")
+            bm.to_mesh(mesh)
+            mesh.update()
+            bm.free()
+            glass = bpy.data.objects.new("Door_Glass", mesh)
+            glass["house_part"] = "glass"
+            glass.location = obj.location
+            glass.data.materials.append(glass_mat)
+            collection.objects.link(glass)
+            objects.append(glass)
 
         return objects
+
+    def _get_glass_material(self):
+        """Matériau verre simple pour portes vitrées (mis en cache)"""
+        mat = bpy.data.materials.get("Door_Glass_Material")
+        if mat is None:
+            mat = bpy.data.materials.new("Door_Glass_Material")
+            mat.use_nodes = True
+            nodes = mat.node_tree.nodes
+            nodes.clear()
+            glass = nodes.new('ShaderNodeBsdfGlass')
+            glass.inputs['IOR'].default_value = 1.45
+            glass.inputs['Color'].default_value = (0.85, 0.92, 0.95, 1.0)
+            out = nodes.new('ShaderNodeOutputMaterial')
+            mat.node_tree.links.new(glass.outputs['BSDF'], out.inputs['Surface'])
+            if hasattr(mat, "surface_render_method"):
+                mat.surface_render_method = 'BLENDED'
+            elif hasattr(mat, "blend_method"):
+                mat.blend_method = 'BLEND'
+        return mat
 
     def _create_door_frame(self, width, height, orientation):
         """Crée le cadre de porte (dormant)"""
@@ -272,6 +324,21 @@ class DoorGenerator:
                     profile=0.5,
                     affect='EDGES'
                 )
+
+            # ✅ NOUVEAU: POIGNÉE (la constante DOOR_HANDLE_HEIGHT existait
+            # sans qu'aucune poignée ne soit jamais générée!)
+            hz = min(DOOR_HANDLE_HEIGHT, height - 0.3)
+            hx = width - 0.09          # côté opposé aux charnières
+            # Platine
+            ret = bmesh.ops.create_cube(bm, size=1.0)
+            bmesh.ops.transform(bm, verts=ret['verts'],
+                                matrix=Matrix.Diagonal((0.035, 0.012, 0.16, 1.0)))
+            bmesh.ops.translate(bm, verts=ret['verts'], vec=(hx, -0.006, hz))
+            # Béquille (barre horizontale)
+            ret = bmesh.ops.create_cube(bm, size=1.0)
+            bmesh.ops.transform(bm, verts=ret['verts'],
+                                matrix=Matrix.Diagonal((0.11, 0.018, 0.018, 1.0)))
+            bmesh.ops.translate(bm, verts=ret['verts'], vec=(hx - 0.045, -0.028, hz))
 
             bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
 

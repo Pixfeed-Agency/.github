@@ -124,6 +124,15 @@ class HOUSE_PT_roof_panel(Panel):
         col.prop(props, "roof_pitch", text="Pente")
         col.prop(props, "roof_overhang", text="Débord")
 
+        # ✅ NOUVEAU: Couverture + gouttières + cheminée
+        layout.separator()
+        col = layout.column(align=True)
+        col.prop(props, "roof_covering", text="Couverture")
+        if props.roof_covering == 'TILES':
+            col.prop(props, "tile_color", text="Couleur tuiles")
+        col.prop(props, "include_gutters", text="Gouttières")
+        col.prop(props, "include_chimney", text="Cheminée")
+
         # ✅ UX: Avertir DANS l'UI quand la pente sera clampée à la plage
         # normative du type de toit (avant: clamp silencieux, console only)
         from .operators_auto import HOUSE_OT_generate_auto
@@ -169,7 +178,12 @@ class HOUSE_PT_windows_panel(Panel):
 
         col = layout.column(align=True)
         col.prop(props, "num_windows_front", text="Façade")
+        col.prop(props, "num_windows_back", text="Arrière")
         col.prop(props, "num_windows_side", text="Côtés")
+
+        layout.separator()
+        # ✅ NOUVEAU: Volets battants
+        layout.prop(props, "include_shutters", text="Volets", toggle=True)
 
 
 class HOUSE_PT_doors_panel(Panel):
@@ -372,16 +386,20 @@ class HOUSE_PT_elements_panel(Panel):
         layout = self.layout
         props = context.scene.house_generator
         
-        # Note: fonctionnalités en cours de développement (affichent un
-        # avertissement à la génération tant qu'elles ne sont pas implémentées)
+        # ✅ IMPLÉMENTÉ: garage, terrasse, balcon (module features.py)
         box = layout.box()
-        box.prop(props, "include_garage", text="Garage (bientôt)", toggle=True)
+        box.prop(props, "include_garage", text="Garage", toggle=True)
+        if props.include_garage:
+            col = box.column(align=True)
+            col.prop(props, "garage_width", text="Largeur")
+            col.prop(props, "garage_depth", text="Profondeur")
+            col.prop(props, "garage_position", text="Côté")
 
         box = layout.box()
-        box.prop(props, "include_terrace", text="Terrasse (bientôt)", toggle=True)
+        box.prop(props, "include_terrace", text="Terrasse (arrière)", toggle=True)
 
         box = layout.box()
-        box.prop(props, "include_balcony", text="Balcon (bientôt)", toggle=True)
+        box.prop(props, "include_balcony", text="Balcon (étages 2+)", toggle=True)
 
         layout.separator()
         box = layout.box()

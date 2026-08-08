@@ -210,6 +210,50 @@ class HouseGeneratorProperties(PropertyGroup):
         unit='LENGTH',
         update=regenerate_house
     )
+
+    # ✅ NOUVEAU: Couverture du toit
+    roof_covering: EnumProperty(
+        name="Couverture",
+        description="Revêtement du toit",
+        items=[
+            ('NONE', "Lisse", "Dalle simple (rapide)"),
+            ('TILES', "Tuiles", "Tuiles mécaniques instanciées (GABLE/monopente)"),
+        ],
+        default='NONE',
+        update=regenerate_house
+    )
+
+    tile_color: FloatVectorProperty(
+        name="Couleur tuiles",
+        description="Couleur des tuiles de couverture",
+        subtype='COLOR',
+        size=3,
+        default=(0.45, 0.2, 0.14),  # Terre cuite
+        min=0.0,
+        max=1.0,
+        update=regenerate_house
+    )
+
+    include_gutters: BoolProperty(
+        name="Gouttières",
+        description="Ajouter gouttières et descentes le long des égouts",
+        default=True,
+        update=regenerate_house
+    )
+
+    include_chimney: BoolProperty(
+        name="Cheminée",
+        description="Ajouter une cheminée en brique traversant le toit",
+        default=False,
+        update=regenerate_house
+    )
+
+    include_shutters: BoolProperty(
+        name="Volets",
+        description="Ajouter des volets battants de part et d'autre des fenêtres",
+        default=False,
+        update=regenerate_house
+    )
     
     # ============================================================
     # FONDATIONS

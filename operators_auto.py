@@ -127,13 +127,23 @@ class HOUSE_OT_generate_auto(Operator):
             print(f"[House] Porte d'entrée visuelle (type: {props.door_type}, qualité: {props.door_quality})...")
             self._generate_door_visual(context, props, house_collection)
 
+            # ✅ NOUVEAU: Couverture, gouttières, cheminée
+            if props.roof_covering == 'TILES':
+                print("[House] Couverture en tuiles...")
+                self._generate_roof_tiles(context, props, house_collection)
+
+            if props.include_gutters:
+                print("[House] Gouttières...")
+                self._generate_gutters(context, props, house_collection)
+
+            if props.include_chimney:
+                print("[House] Cheminée...")
+                self._generate_chimney(context, props, house_collection)
+
             if props.include_garage:
                 print("[House] Garage...")
                 self._generate_garage(context, props, house_collection)
 
-            # ✅ FIX: Ne plus laisser les styles architecturaux activer des
-            # fonctionnalités NON IMPLÉMENTÉES (terrace/balcony_enabled
-            # déclenchaient un warning à quasiment chaque génération)
             if props.include_terrace:
                 print("[House] Terrasse...")
                 self._generate_terrace(context, props, house_collection)
@@ -1394,6 +1404,10 @@ class HOUSE_OT_generate_auto(Operator):
 
         window_gen = WindowGenerator(quality=props.window_quality)
 
+        # ✅ NOUVEAU: Collecte des specs pour les volets (mêmes valeurs
+        # que les fenêtres visuelles — cohérence garantie)
+        shutter_specs = []
+
         for floor in range(props.num_floors):
             floor_z = floor * floor_height_actual
             # ✅ FIX MAJEUR: L'objet fenêtre est construit CENTRÉ sur son
@@ -1420,6 +1434,9 @@ class HOUSE_OT_generate_auto(Operator):
                     orientation='front',
                     collection=collection
                 )
+                shutter_specs.append({'x': x_pos, 'y': 0, 'z_center': window_z,
+                                      'width': window_width, 'height': window_height,
+                                      'wall': 'front'})
 
             # Mur arrière
             # ✅ FIX: num_windows_back câblé (mêmes valeurs que les trous)
@@ -1435,6 +1452,9 @@ class HOUSE_OT_generate_auto(Operator):
                     orientation='back',
                     collection=collection
                 )
+                shutter_specs.append({'x': x_pos, 'y': length, 'z_center': window_z,
+                                      'width': window_width, 'height': window_height,
+                                      'wall': 'back'})
 
             # Mur gauche
             spacing_side = length / (num_windows_side + 1)
@@ -1448,6 +1468,9 @@ class HOUSE_OT_generate_auto(Operator):
                     orientation='left',
                     collection=collection
                 )
+                shutter_specs.append({'x': 0, 'y': y_pos, 'z_center': window_z,
+                                      'width': window_width, 'height': window_height,
+                                      'wall': 'left'})
 
             # Mur droit
             for i in range(num_windows_side):
@@ -1460,6 +1483,14 @@ class HOUSE_OT_generate_auto(Operator):
                     orientation='right',
                     collection=collection
                 )
+                shutter_specs.append({'x': width, 'y': y_pos, 'z_center': window_z,
+                                      'width': window_width, 'height': window_height,
+                                      'wall': 'right'})
+
+        # ✅ NOUVEAU: Volets battants (option)
+        if getattr(props, 'include_shutters', False) and shutter_specs:
+            from . import features
+            features.build_shutters(props, collection, shutter_specs)
 
     def _generate_door_visual(self, context, props, collection):
         """Génère la porte d'entrée visuelle (objet 3D)"""
@@ -1610,47 +1641,88 @@ class HOUSE_OT_generate_auto(Operator):
         obj.data.materials.append(mat)
 
     # ============================================================
-    # FONCTIONNALITÉS NON IMPLÉMENTÉES (TODO)
+    # ✅ FONCTIONNALITÉS EXTÉRIEURES (module features.py)
     # ============================================================
 
+    def _roof_metrics(self, props):
+        """Métriques du toit partagées par cheminée/gouttières/tuiles:
+        (hauteur murs, pente effective, altitude faîtage, égouts g/d, débords)"""
+        h = getattr(self, 'real_wall_height', None) or (props.num_floors * props.floor_height)
+        pitch = self._effective_pitch(props.roof_type, props.roof_pitch)
+        pitch_rad = math.radians(pitch)
+        o_eave = props.roof_overhang
+        o_rake = self._rake_overhang(props.roof_overhang)
+        width, length = props.house_width, props.house_length
+
+        if props.roof_type == 'GABLE':
+            half = width / 2 if length >= width else length / 2
+            peak = h + half * math.tan(pitch_rad)
+            eave = h - o_eave * math.tan(pitch_rad)
+            eave_l = eave_r = eave
+        elif props.roof_type == 'HIP':
+            half = min(width, length) / 2
+            peak = h + half * math.tan(pitch_rad)
+            eave_l = eave_r = h - o_eave * math.tan(pitch_rad)
+        elif props.roof_type == 'SHED':
+            slope = math.tan(pitch_rad)
+            peak = h + width * slope
+            eave_l = h - o_eave * slope           # côté bas (x=0)
+            eave_r = h + (width + o_eave) * slope  # côté haut
+        elif props.roof_type == 'GAMBREL':
+            brisis = math.radians(68.0)
+            bd = (width / 2) * 0.25
+            peak = h + bd * math.tan(brisis) + (width / 2 - bd) * math.tan(pitch_rad)
+            eave_l = eave_r = h - o_eave * math.tan(brisis)
+        else:  # FLAT
+            peak = h + ROOF_THICKNESS_FLAT + 0.45
+            eave_l = eave_r = h
+        return h, pitch, peak, eave_l, eave_r, o_eave, o_rake
+
     def _generate_garage(self, context, props, collection):
-        """Génère un garage"""
-        # TODO: Implémenter la génération de garage
-        print("[House] ⚠️  AVERTISSEMENT: Génération de garage non implémentée")
-        self.report({'WARNING'}, "Garage: Fonctionnalité non encore implémentée")
+        """✅ Garage attenant + porte sectionnelle"""
+        from . import features
+        features.build_garage(props, collection, self._plinth_visible(props))
 
     def _generate_terrace(self, context, props, collection):
-        """Génère une terrasse"""
-        # TODO: Implémenter la génération de terrasse
-        print("[House] ⚠️  AVERTISSEMENT: Génération de terrasse non implémentée")
-        self.report({'WARNING'}, "Terrasse: Fonctionnalité non encore implémentée")
+        """✅ Terrasse en lames de bois à l'arrière"""
+        from . import features
+        features.build_terrace(props, collection, self._plinth_visible(props))
 
     def _generate_balcony(self, context, props, collection):
-        """Génère un balcon"""
-        # TODO: Implémenter la génération de balcon
-        print("[House] ⚠️  AVERTISSEMENT: Génération de balcon non implémentée")
-        self.report({'WARNING'}, "Balcon: Fonctionnalité non encore implémentée")
+        """✅ Balcon au 1er étage avec rambarde"""
+        from . import features
+        if getattr(self, 'real_wall_height', None):
+            fh = self.real_wall_height / props.num_floors
+        else:
+            fh = props.floor_height
+        features.build_balcony(props, collection, fh)
 
-    def _generate_balcony_railing(self, context, props, collection, balcony_width, balcony_depth, x_pos, y_pos, z_pos):
-        """Génère la rambarde"""
-        # TODO: Implémenter la rambarde de balcon
-        pass
+    def _generate_chimney(self, context, props, collection):
+        """✅ Cheminée en brique traversant le toit"""
+        from . import features
+        h, _pitch, peak, *_ = self._roof_metrics(props)
+        features.build_chimney(props, collection, h, peak)
 
-    def _add_railing_segment(self, bm, x, y, z, width, depth, height):
-        """Ajoute un segment de rambarde"""
-        # TODO: Implémenter les segments de rambarde
-        pass
+    def _generate_gutters(self, context, props, collection):
+        """✅ Gouttières le long des égouts + descentes"""
+        from . import features
+        _h, _pitch, _peak, eave_l, eave_r, o_eave, o_rake = self._roof_metrics(props)
+        features.build_gutters(props, collection, eave_l, eave_r, o_eave, o_rake)
 
-    def _add_railing_post(self, bm, x, y, z, width, depth, height):
-        """Ajoute un poteau"""
-        # TODO: Implémenter les poteaux de rambarde
-        pass
+    def _generate_roof_tiles(self, context, props, collection):
+        """✅ Couverture en tuiles instanciées (GN) — GABLE/SHED"""
+        from . import features
+        h, pitch, _peak, _el, _er, o_eave, o_rake = self._roof_metrics(props)
+        features.build_roof_tiles(props, collection, h, pitch, o_eave, o_rake)
 
     def _add_scene_lighting(self, context, props):
-        """Ajoute l'éclairage automatique"""
-        # TODO: Implémenter l'éclairage automatique de scène
-        print("[House] ⚠️  AVERTISSEMENT: Éclairage automatique non implémenté")
-        self.report({'WARNING'}, "Éclairage automatique: Fonctionnalité non encore implémentée")
+        """✅ Éclairage automatique: soleil + remplissage + ciel"""
+        from . import features
+        features.add_scene_lighting(props, collection=self._light_collection(context))
+
+    def _light_collection(self, context):
+        """Les lumières vont dans la collection House si elle existe"""
+        return bpy.data.collections.get("House") or context.scene.collection
 
     def _apply_materials(self, context, props, collection, style_config):
         """Applique les matériaux - Les briques 3D sont déjà gérées"""

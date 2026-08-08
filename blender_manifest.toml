@@ -1,10 +1,10 @@
 # Manifeste d'extension Blender 4.2+
 # Permet l'installation comme Extension (le format bl_info seul est
 # déprécié depuis Blender 4.2)
-schema_version = "1.1.1"
+schema_version = "1.2.0"
 
 id = "house_generator"
-version = "1.1.1"
+version = "1.2.0"
 name = "House"
 tagline = "Automatic and manual house generation with floor plans support"
 maintainer = "mvaertan"

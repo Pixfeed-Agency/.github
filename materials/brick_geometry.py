@@ -1234,9 +1234,19 @@ def calculate_lintel_positions(openings, wall_type, house_width, house_length, r
         # dalle du toit, pas à sa hauteur nominale) — sans wall_top, un
         # linteau haut placé mordait dans la dalle des toits en pente
         effective_top = wall_top if wall_top is not None else base_height
+        # ✅ FIX: FALLBACK EN LINTEAU PLAT — quand le soldat (23cm) ne tient
+        # pas sous le plafond du mur (fenêtres proches de l'égout), on pose
+        # une plate-bande d'1 rangée couchée au lieu de ne RIEN poser
+        flat_mode = False
         if roof_type != 'SHED' and lintel_top > effective_top + 0.001:
-            print(f"[BrickGeometry]   Linteau omis (dépasserait le mur: {lintel_top:.2f}m > {effective_top:.2f}m)")
-            continue
+            flat_top = lintel_z + row_h
+            if flat_top <= effective_top + 0.001:
+                flat_mode = True
+                lintel_top = flat_top
+                print(f"[BrickGeometry]   Linteau en plate-bande (soldat trop haut: mur {effective_top:.2f}m)")
+            else:
+                print(f"[BrickGeometry]   Linteau omis (dépasserait le mur: {lintel_top:.2f}m > {effective_top:.2f}m)")
+                continue
 
         # Clamp dalle SHED pour les murs latéraux (hauteur constante par mur)
         # (✅ elif: les deux tests sont mutuellement exclusifs)
@@ -1250,15 +1260,18 @@ def calculate_lintel_positions(openings, wall_type, house_width, house_length, r
         # ✅ FIX: CENTRER le rang de soldats sur l'ouverture — avec l'ancien
         # départ fixe, l'appui gauche faisait 15cm et le droit 0-7cm (linteau
         # visuellement décentré)
+        # ✅ Pas le long du mur: 7.7cm pour les soldats, 23.2cm en plate-bande
+        step_along = (BRICK_LENGTH + MORTAR_GAP) if flat_mode else cell_along
+
         span = lintel_end - lintel_start
-        num_bricks = int(span / cell_along)
-        run_length = num_bricks * cell_along
+        num_bricks = int(span / step_along)
+        run_length = num_bricks * step_along
         opening_center = along_start + opening_width / 2
         run_start = max(0.0, min(wall_span - run_length, opening_center - run_length / 2))
 
         for i in range(num_bricks):
-            coord = run_start + i * cell_along
-            if coord + cell_along > wall_span + 0.001:
+            coord = run_start + i * step_along
+            if coord + step_along > wall_span + 0.001:
                 break  # coordonnée croissante: rien de plus ne tiendra
 
             # Clamp dalle SHED par position pour les murs avant/arrière
@@ -1269,25 +1282,39 @@ def calculate_lintel_positions(openings, wall_type, house_width, house_length, r
                 if lintel_top > roof_bottom:
                     continue
 
-            if wall_type == 'front':
+            if flat_mode:
+                # Plate-bande: briques COUCHÉES comme les rangées du mur
+                if wall_type == 'front':
+                    pos = Vector((coord, 0, lintel_z))
+                    rot = Euler((0, 0, 0), 'XYZ')
+                elif wall_type == 'back':
+                    pos = Vector((coord, house_length - (BRICK_DEPTH + MORTAR_GAP), lintel_z))
+                    rot = Euler((0, 0, 0), 'XYZ')
+                elif wall_type == 'left':
+                    pos = Vector((BRICK_DEPTH + MORTAR_GAP, coord, lintel_z))
+                    rot = Euler((0, 0, math.radians(90)), 'XYZ')
+                else:  # right
+                    pos = Vector((house_width, coord, lintel_z))
+                    rot = Euler((0, 0, math.radians(90)), 'XYZ')
+            elif wall_type == 'front':
                 # Occupe x∈[pos-0.077, pos], y∈[pos, pos+0.112]
-                pos = Vector((coord + cell_along, 0, lintel_z))
+                pos = Vector((coord + step_along, 0, lintel_z))
                 rot = Euler((0, math.radians(-90), 0), 'XYZ')
             elif wall_type == 'back':
                 # Aligné sur le mur arrière (décalé vers l'intérieur)
-                pos = Vector((coord + cell_along, house_length - (BRICK_DEPTH + MORTAR_GAP), lintel_z))
+                pos = Vector((coord + step_along, house_length - (BRICK_DEPTH + MORTAR_GAP), lintel_z))
                 rot = Euler((0, math.radians(-90), 0), 'XYZ')
             elif wall_type == 'left':
                 # Occupe x∈[pos-0.112, pos], y∈[pos-0.077, pos]
-                pos = Vector((BRICK_DEPTH + MORTAR_GAP, coord + cell_along, lintel_z))
+                pos = Vector((BRICK_DEPTH + MORTAR_GAP, coord + step_along, lintel_z))
                 rot = Euler((0, math.radians(-90), math.radians(90)), 'XYZ')
             else:  # right
-                pos = Vector((house_width, coord + cell_along, lintel_z))
+                pos = Vector((house_width, coord + step_along, lintel_z))
                 rot = Euler((0, math.radians(-90), math.radians(90)), 'XYZ')
 
             positions.append((pos, rot))
 
-    print(f"[BrickGeometry]   ✓ {len(positions)} briques de linteau (soldats) pour {wall_type}")
+    print(f"[BrickGeometry]   ✓ {len(positions)} briques de linteau pour {wall_type}")
     return positions
 
 

@@ -1,5 +1,44 @@
 # Changelog — House Generator
 
+## v1.2.0 — Le grand bond: 9 fonctionnalités + validation Blender headless réelle
+
+**Première version TESTÉE dans un vrai Blender 4.2** (bpy headless):
+13/13 configurations génèrent sans erreur, rendus Cycles validés à l'image.
+
+### Nouvelles fonctionnalités (features.py)
+- **Éclairage automatique**: soleil chaud + lumière de débouchage + ciel
+- **Tuiles de couverture** (GABLE/monopente): tuiles mécaniques instanciées
+  via Geometry Nodes (~1300-2000 tuiles, 1 objet), effet d'écailles par
+  rangée, FAÎTIÈRES sur le faîtage, couleur réglable
+- **Gouttières + descentes** le long des égouts (descentes contre le mur),
+  adaptées à chaque type de toit
+- **Cheminée** en brique avec couronnement, traversant le toit près du
+  faîtage
+- **Garage attenant** (largeur/profondeur/côté réglables): 3 murs, toit
+  monopente débordant, PORTE SECTIONNELLE à panneaux
+- **Terrasse arrière** en lames de bois sur structure
+- **Balcon** au 1er étage avec rambarde à poteaux (posé à la hauteur
+  réelle des murs briques)
+- **Volets battants** de part et d'autre de chaque fenêtre (option)
+- **Portes**: POIGNÉE (platine + béquille) sur chaque panneau; porte
+  FRANÇAISE réellement vitrée (vitre + matériau verre dans chaque battant)
+
+### Corrections issues des rendus réels
+- **Matériau briques**: 4 assombrisseurs globaux neutralisés — le dégradé
+  vertical noir→blanc lisait le Z-objet d'une brique de 7cm (tout sortait
+  quasi noir), l'AO multipliait par 0.5, l'humidité par 0.65
+- **Linteaux**: fallback en PLATE-BANDE (1 rangée couchée) quand le cours
+  de soldats ne tient pas sous l'égout — les fenêtres hautes n'avaient
+  AUCUN linteau
+- Tuiles: chevauchement coplanaire entre rangées éliminé (bandes noires
+  de z-fighting), clamp au faîtage
+
+### Limites connues (documentées)
+- Plans en L non supportés (le corps est rectangulaire + garage attenant)
+- Briques coupées aux ouvertures et pièces intérieures: prochains chantiers
+- Tuiles sur HIP/GAMBREL: à venir
+
+
 ## v1.1.1 — Tour du propriétaire: 40+ correctifs post-audit
 
 Trois audits croisés sur l'état v1.1.0 (dont un sur les nouveautés

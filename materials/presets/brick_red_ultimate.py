@@ -72,9 +72,9 @@ def create_ultimate_red_brick_material_v4_final(base_colors=None):
     ramp_vertical = nodes.new('ShaderNodeValToRGB')
     ramp_vertical.location = (-3100, -1200)
     ramp_vertical.color_ramp.elements[0].position = 0.0
-    ramp_vertical.color_ramp.elements[0].color = (0.0, 0.0, 0.0, 1.0)
+    ramp_vertical.color_ramp.elements[0].color = (0.88, 0.88, 0.88, 1.0)  # ✅ FIX: neutre (Z-objet d'une brique ≈ 0 → tout sortait noir)
     ramp_vertical.color_ramp.elements[1].position = 0.3
-    ramp_vertical.color_ramp.elements[1].color = (0.5, 0.5, 0.5, 1.0)
+    ramp_vertical.color_ramp.elements[1].color = (0.95, 0.95, 0.95, 1.0)
     ramp_vertical.color_ramp.elements.new(1.0)
     ramp_vertical.color_ramp.elements[2].color = (1.0, 1.0, 1.0, 1.0)
     links.new(separate_xyz.outputs['Z'], ramp_vertical.inputs['Fac'])
@@ -373,7 +373,7 @@ def create_ultimate_red_brick_material_v4_final(base_colors=None):
     links.new(mix_weathering_color.outputs[2], mix_ao_color.inputs[6])
     rgb_ao_darken = nodes.new('ShaderNodeRGB')
     rgb_ao_darken.location = (-1000, 50)
-    rgb_ao_darken.outputs[0].default_value = (0.5, 0.5, 0.5, 1.0)
+    rgb_ao_darken.outputs[0].default_value = (0.88, 0.88, 0.88, 1.0)  # ✅ FIX: était ×0.5 global
     links.new(rgb_ao_darken.outputs[0], mix_ao_color.inputs[7])
     
     mix_vertical_color = nodes.new('ShaderNodeMix')
@@ -384,14 +384,14 @@ def create_ultimate_red_brick_material_v4_final(base_colors=None):
     links.new(mix_ao_color.outputs[2], mix_vertical_color.inputs[6])
     rgb_dark_bottom = nodes.new('ShaderNodeRGB')
     rgb_dark_bottom.location = (-800, 50)
-    rgb_dark_bottom.outputs[0].default_value = (0.7, 0.7, 0.7, 1.0)
+    rgb_dark_bottom.outputs[0].default_value = (0.92, 0.92, 0.92, 1.0)
     links.new(rgb_dark_bottom.outputs[0], mix_vertical_color.inputs[7])
     
     mix_moisture_color = nodes.new('ShaderNodeMix')
     mix_moisture_color.data_type = 'RGBA'
     mix_moisture_color.blend_type = 'MULTIPLY'
     mix_moisture_color.location = (-400, 250)
-    mix_moisture_color.inputs[7].default_value = (0.65, 0.65, 0.65, 1.0)
+    mix_moisture_color.inputs[7].default_value = (0.88, 0.88, 0.88, 1.0)  # ✅ FIX: était ×0.65
     links.new(mix_moisture_vertical.outputs[1], mix_moisture_color.inputs[0])
     links.new(mix_vertical_color.outputs[2], mix_moisture_color.inputs[6])
     
