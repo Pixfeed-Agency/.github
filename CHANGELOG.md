@@ -1,5 +1,27 @@
 # Changelog — House Generator
 
+## v1.10.0 — BANC DE NON-RÉGRESSION VISUEL (chantier qualité n°1)
+
+Le filet de sécurité qui manquait: les pires bugs de l'historique
+(matériau par-tuile débranché, Boolean avalant la façade du garage,
+doublons masquant les V2) rendaient `FINISHED` avec une image fausse.
+
+- **`tests/visual/bench.py`**: 24 configurations golden-image couvrant
+  chaque chemin de code visible (5 toits, 2 moteurs briques, 3 modes
+  matériaux, murs enduit+Boolean, ailes L/U/croupe/mansarde, garage
+  briques ET enduit, velux/lucarnes, étages+balcon, 2 vues intérieures,
+  environnement complet, preset régional)
+- **Invariants par config**: opérateur FINISHED + objets clés présents
+  (le bug du garage aurait été attrapé) — a d'ailleurs immédiatement
+  attrapé une erreur d'invariant dans sa propre config garage_bricks
+- **Déterminisme prouvé**: double-run 24/24 PASS à MAE=0.00 (Cycles
+  CPU seed fixe = pixels identiques) — seuils MAE≤2.0 / ≤1.5% px
+- **Test négatif validé**: matériau volontairement cassé → FAIL net
+  (MAE 10.4, 16% de pixels)
+- **Rapport HTML** (référence | actuel | diff ×8), CLI `--update`,
+  `--only`, `--fast`, exit code CI; références committées (~1.5 Mo);
+  bonnes pratiques documentées dans `tests/visual/README.md`
+
 ## v1.9.1 — La MAISON photoréaliste (réponse au comparatif photo réelle)
 
 **Diagnostiqué sur photo de pavillon réel fournie par l'utilisateur.**

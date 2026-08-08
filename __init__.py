@@ -21,7 +21,7 @@
 bl_info = {
     "name": "House",
     "author": "mvaertan",
-    "version": (1, 9, 0),
+    "version": (1, 10, 0),
     "blender": (4, 2, 0),
     "location": "View3D > Sidebar > House",
     "description": "Automatic and manual house generation with floor plans support",
