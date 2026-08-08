@@ -92,10 +92,273 @@ def _partition_with_doorway(bm, axis, at, a0, a1, z0, z1, door_at):
     seg(d0, d1, top, z1)         # imposte au-dessus de la porte
 
 
+def interior_layout(props, wall_depth, floor_height_actual, door_center_x,
+                    window_xs_back, window_ys_side):
+    """✅ v1.5: Distribution PARTAGÉE — positions des refends, passage
+    aligné sur l'entrée, et ESCALIER DROIT avec trémie si ≥ 2 étages.
+
+    L'escalier court le long du refend transversal, côté séjour. La
+    volée: marches de 25cm de giron, hauteur de marche fha/n ≈ 17-18cm
+    (norme habitation). Trémie sur les 2/3 hauts de la volée.
+    Returns dict {y_refend, door_pass, x_split, stair, tremie}.
+    """
+    W, L = props.house_width, props.house_length
+    t = wall_depth
+    y_refend = _avoid(L * 0.55, window_ys_side, 0.75, L * 0.35, L * 0.7)
+    door_pass = _avoid(door_center_x, [], 0, t + 0.7, W - t - 0.7)
+    x_split = _avoid(W * 0.5, list(window_xs_back), 0.75, W * 0.3, W * 0.7)
+
+    stair = tremie = None
+    if props.num_floors >= 2:
+        going = 0.25
+        n = max(12, int(math.ceil(floor_height_actual / 0.185)))
+        run = n * going
+        y1 = y_refend - PARTITION_T / 2 - 0.06
+        y0 = y1 - 1.0
+        # volée collée au mur DROIT, montée vers +x (départ côté gauche)
+        x1 = W - t - 0.25
+        x0 = x1 - run
+        if x0 < t + 0.4:
+            print("[House] Escalier: maison trop étroite pour une volée "
+                  f"droite ({run:.1f}m) — ignoré")
+        else:
+            # le passage du refend ne doit pas déboucher SUR l'escalier
+            if x0 - 0.7 < door_pass < x1 + 0.7:
+                door_pass = _avoid(max(t + 0.7, x0 - 1.0), [], 0,
+                                   t + 0.7, W - t - 0.7)
+                if x0 - 0.7 < door_pass < x1 + 0.7:
+                    door_pass = t + 0.75
+            stair = {'x0': x0, 'x1': x1, 'y0': y0, 'y1': y1,
+                     'n': n, 'going': going, 'run': run}
+            tremie = (x0 + run * 0.35, y0 - 0.02, x1 + 0.15, y1 + 0.02)
+
+    return {'y_refend': y_refend, 'door_pass': door_pass,
+            'x_split': x_split, 'stair': stair, 'tremie': tremie}
+
+
+def build_staircase(props, collection, layout, floor_height_actual,
+                    slab_top, style_name='TRADITIONAL'):
+    """✅ v1.5: ESCALIER DROIT entre chaque étage, style selon
+    l'architecture: BOIS (limons + contremarches + garde-corps bois) en
+    traditionnel/méditerranéen, BÉTON + garde-corps métal fin en
+    moderne/contemporain."""
+    stair = layout.get('stair')
+    if not stair:
+        return []
+    wood_style = style_name in ('TRADITIONAL', 'MEDITERRANEAN')
+    x0, x1 = stair['x0'], stair['x1']
+    y0, y1 = stair['y0'], stair['y1']
+    n, going = stair['n'], stair['going']
+
+    if wood_style:
+        step_mat = _parquet()
+        struct_mat = _simple_material("House_Stair_Wood", (0.36, 0.24, 0.14),
+                                      roughness=0.55)
+        rail_mat = struct_mat
+    else:
+        step_mat = _simple_material("House_Stair_Concrete", (0.60, 0.59, 0.57),
+                                    roughness=0.8)
+        struct_mat = step_mat
+        rail_mat = _simple_material("House_Stair_Metal", (0.20, 0.20, 0.22),
+                                    roughness=0.35, metallic=0.85)
+
+    bm_steps = bmesh.new()
+    bm_struct = bmesh.new()
+    bm_rail = bmesh.new()
+    objs = []
+
+    for floor in range(props.num_floors - 1):
+        z_base = slab_top + floor * floor_height_actual
+        rise = floor_height_actual / n
+        for i in range(n):
+            sx0 = x0 + i * going
+            sz1 = z_base + (i + 1) * rise
+            if wood_style:
+                # marche (nez débordant 3cm) + contremarche
+                _add_box(bm_steps, sx0 - 0.03, y0 + 0.02, sz1 - 0.035,
+                         sx0 + going + 0.005, y1 - 0.02, sz1)
+                _add_box(bm_struct, sx0 + going - 0.02, y0 + 0.04,
+                         sz1 - rise, sx0 + going, y1 - 0.04, sz1 - 0.035)
+            else:
+                # béton: bloc plein jusqu'au sol de la marche
+                _add_box(bm_steps, sx0, y0 + 0.02, z_base,
+                         sx0 + going + 0.003, y1 - 0.02, sz1)
+        if wood_style:
+            # limons latéraux (bandeaux suivant la pente)
+            for yy in (y0, y1 - 0.045):
+                for i in range(n):
+                    sx0 = x0 + i * going
+                    sz1 = z_base + (i + 1) * rise
+                    _add_box(bm_struct, sx0, yy, sz1 - rise - 0.05,
+                             sx0 + going, yy + 0.045, sz1)
+        # garde-corps côté séjour (y0): poteaux + main courante
+        post_r = 0.03 if wood_style else 0.014
+        for i in range(0, n + 1, 2):
+            px = x0 + i * going
+            pz0 = z_base + i * rise
+            _add_box(bm_rail, px - post_r, y0 - 0.01, pz0,
+                     px + post_r, y0 + 0.05, pz0 + 0.90)
+        for i in range(n):
+            px = x0 + i * going
+            pz = z_base + (i + 1) * rise + 0.88
+            _add_box(bm_rail, px - 0.005, y0 - 0.005, pz - 0.045,
+                     px + going + 0.005, y0 + 0.055, pz)
+
+    objs.append(_new_mesh_obj("Stair_Steps", bm_steps, collection,
+                              "interior", step_mat))
+    if len(bm_struct.verts):
+        objs.append(_new_mesh_obj("Stair_Structure", bm_struct, collection,
+                                  "interior", struct_mat))
+    else:
+        bm_struct.free()
+    objs.append(_new_mesh_obj("Stair_Rail", bm_rail, collection,
+                              "interior", rail_mat))
+    print(f"[House] ✓ Escalier {'bois' if wood_style else 'béton/métal'}: "
+          f"{stair['n']} marches × {props.num_floors - 1} volée(s) + trémie")
+    return objs
+
+
+def build_interior_doors(props, collection, layout, floor_height_actual,
+                         slab_top):
+    """✅ v1.5: PORTES INTÉRIEURES posées dans les passages des cloisons
+    (battant articulé 'ouverture', entrouvert pour la vie du plan)."""
+    try:
+        from .doors import DoorGenerator
+    except Exception as e:
+        print(f"[House] Portes intérieures indisponibles: {e}")
+        return []
+    W, L = props.house_width, props.house_length
+    gen = DoorGenerator(quality='MEDIUM')
+    made = 0
+    for floor in range(props.num_floors):
+        z = slab_top + floor * floor_height_actual + 0.016
+        dw = DOORWAY_W - 0.05
+        # porte du refend transversal (mur X à y=y_refend)
+        try:
+            gen.generate_door(
+                door_type='SINGLE', width=dw, height=DOORWAY_H - 0.06,
+                location=Vector((layout['door_pass'] - dw / 2,
+                                 layout['y_refend'] - PARTITION_T / 2, z)),
+                orientation='front', collection=collection)
+            made += 1
+        except Exception as e:
+            print(f"[House] Porte intérieure (refend) échouée: {e}")
+        # porte du refend longitudinal (mur Y à x=x_split)
+        try:
+            y_door = (layout['y_refend'] + L) / 2
+            gen.generate_door(
+                door_type='SINGLE', width=dw, height=DOORWAY_H - 0.06,
+                location=Vector((layout['x_split'] - PARTITION_T / 2,
+                                 y_door - dw / 2, z)),
+                orientation='left', collection=collection)
+            made += 1
+        except Exception as e:
+            print(f"[House] Porte intérieure (refend long.) échouée: {e}")
+    print(f"[House] ✓ {made} porte(s) intérieure(s) posée(s)")
+    return []
+
+
+def build_wall_liners(props, collection, wall_depth, openings,
+                      floor_height_actual, top_ceiling_z, slab_top,
+                      wing_frames=None):
+    """✅ v1.5: DOUBLAGE INTÉRIEUR PEINT des murs extérieurs.
+
+    Panneaux plâtre (3.5cm) plaqués côté intérieur des 4 murs (et des
+    murs des ailes), avec RÉSERVATIONS exactes aux fenêtres, portes et
+    passages (liste d'ouvertures partagée avec la maçonnerie). Fini la
+    brique apparente involontaire à l'intérieur.
+    """
+    from mathutils import Matrix as _M
+    W, L = props.house_width, props.house_length
+    t = wall_depth
+    lt = 0.035
+    color = tuple(getattr(props, 'interior_wall_color', (0.87, 0.85, 0.80)))[:3]
+    mat = _simple_material("House_Interior_Paint", color, roughness=0.9)
+
+    def liner_for_wall(bm, wall, span_len, box, wall_openings, n_floors, fh):
+        """Segments pleins + allèges + linteaux autour des ouvertures."""
+        ops = sorted(wall_openings, key=lambda o: o['a'])
+        for floor in range(n_floors):
+            z0 = floor * fh + slab_top + 0.017
+            z1 = (floor + 1) * fh - CEILING_T - 0.002
+            if floor == n_floors - 1 and top_ceiling_z is not None:
+                z1 = min(z1, top_ceiling_z - CEILING_T - 0.002)
+            cursor = 0.0
+            for o in ops:
+                oa0, oa1 = o['a'] - 0.02, o['a'] + o['w'] + 0.02
+                oz0, oz1 = o['z'] - 0.02, o['z'] + o['h'] + 0.02
+                if oz1 <= z0 or oz0 >= z1:
+                    continue  # ouverture hors de cet étage
+                if oa0 > cursor:
+                    box(cursor, oa0, z0, z1)
+                if oz0 > z0:
+                    box(oa0, oa1, z0, min(oz0, z1))     # allège
+                if oz1 < z1:
+                    box(oa0, oa1, max(oz1, z0), z1)     # imposte
+                cursor = max(cursor, oa1)
+            if cursor < span_len:
+                box(cursor, span_len, z0, z1)
+
+    def project(openings_list, wall):
+        res = []
+        for o in openings_list or []:
+            if o.get('wall') != wall:
+                continue
+            a = o['x'] if wall in ('front', 'back') else o['y']
+            res.append({'a': a, 'w': o['width'], 'z': o['z'], 'h': o['height']})
+        return res
+
+    bm = bmesh.new()
+    nf = props.num_floors
+    liner_for_wall(bm, 'front', W,
+                   lambda a0, a1, z0, z1: _add_box(bm, max(a0, t), t, z0,
+                                                   min(a1, W - t), t + lt, z1),
+                   project(openings, 'front'), nf, floor_height_actual)
+    liner_for_wall(bm, 'back', W,
+                   lambda a0, a1, z0, z1: _add_box(bm, max(a0, t), L - t - lt, z0,
+                                                   min(a1, W - t), L - t, z1),
+                   project(openings, 'back'), nf, floor_height_actual)
+    liner_for_wall(bm, 'left', L,
+                   lambda a0, a1, z0, z1: _add_box(bm, t, max(a0, t + lt), z0,
+                                                   t + lt, min(a1, L - t - lt), z1),
+                   project(openings, 'left'), nf, floor_height_actual)
+    liner_for_wall(bm, 'right', L,
+                   lambda a0, a1, z0, z1: _add_box(bm, W - t - lt, max(a0, t + lt), z0,
+                                                   W - t, min(a1, L - t - lt), z1),
+                   project(openings, 'right'), nf, floor_height_actual)
+    objs = [_new_mesh_obj("Interior_Liners", bm, collection, "interior", mat)]
+
+    # Ailes: doublage des 3 murs (le mitoyen est le doublage du principal)
+    for wf in (wing_frames or []):
+        w, d = wf['w'], wf['d']
+        floors = wf.get('floors', 1)
+        fh = wf.get('fh', wf['h'])
+        wo = wf.get('openings') or []
+        bm = bmesh.new()
+        saved_top = wf['h'] - 0.32
+        liner_for_wall(bm, 'front', w,
+                       lambda a0, a1, z0, z1: _add_box(bm, max(a0, t), t, z0,
+                                                       min(a1, w - t), t + lt, z1),
+                       project(wo, 'front'), floors, fh)
+        liner_for_wall(bm, 'left', d,
+                       lambda a0, a1, z0, z1: _add_box(bm, t, max(a0, t + lt), z0,
+                                                       t + lt, min(a1, d), z1),
+                       project(wo, 'left'), floors, fh)
+        liner_for_wall(bm, 'right', d,
+                       lambda a0, a1, z0, z1: _add_box(bm, w - t - lt, max(a0, t + lt), z0,
+                                                       w - t, min(a1, d), z1),
+                       project(wo, 'right'), floors, fh)
+        bmesh.ops.transform(bm, verts=bm.verts, matrix=wf['M'])
+        objs.append(_new_mesh_obj("Wing_Liners", bm, collection, "interior", mat))
+
+    print("[House] ✓ Doublage intérieur peint posé (murs + ailes)")
+    return objs
+
+
 def build_interiors(props, collection, wall_depth, floor_height_actual,
                     door_center_x, window_xs_front, window_xs_back,
-                    window_ys_side, wing_frame=None, passage=None,
-                    top_ceiling_z=None, slab_top=0.2):
+                    window_ys_side, wing_frames=None, passage=None,
+                    top_ceiling_z=None, slab_top=0.2, layout=None):
     """Plafonds, cloisons et sols du volume principal (+ aile).
 
     Args:
@@ -109,9 +372,30 @@ def build_interiors(props, collection, wall_depth, floor_height_actual,
     """
     W, L = props.house_width, props.house_length
     t = wall_depth
+    if layout is None:
+        layout = interior_layout(props, wall_depth, floor_height_actual,
+                                 door_center_x, window_xs_back, window_ys_side)
+    tremie = layout.get('tremie')
     plaster = _plaster()
     parquet = _parquet()
     objs = []
+
+    def slab_with_hole(bm, x0, y0, z0, x1, y1, z1, hole):
+        """Dalle en 4 boîtes autour d'un trou rectangulaire (trémie)."""
+        hx0, hy0, hx1, hy1 = hole
+        hx0, hx1 = max(x0, hx0), min(x1, hx1)
+        hy0, hy1 = max(y0, hy0), min(y1, hy1)
+        if hx1 <= hx0 or hy1 <= hy0:
+            _add_box(bm, x0, y0, z0, x1, y1, z1)
+            return
+        if hx0 > x0:
+            _add_box(bm, x0, y0, z0, hx0, y1, z1)
+        if hx1 < x1:
+            _add_box(bm, hx1, y0, z0, x1, y1, z1)
+        if hy0 > y0:
+            _add_box(bm, hx0, y0, z0, hx1, hy0, z1)
+        if hy1 < y1:
+            _add_box(bm, hx0, hy1, z0, hx1, y1, z1)
 
     # --- PLAFONDS + SOLS par étage (volume principal) ---
     # ✅ Le plafond du DERNIER étage passe SOUS le chaperon des murs
@@ -123,11 +407,20 @@ def build_interiors(props, collection, wall_depth, floor_height_actual,
         z_top = (floor + 1) * floor_height_actual
         if top_ceiling_z is not None and floor == props.num_floors - 1:
             z_top = min(z_top, top_ceiling_z)
-        _add_box(bm_c, t, t, z_top - CEILING_T, W - t, L - t, z_top)
+        # ✅ v1.5: trémie d'escalier dans les plafonds intermédiaires
+        if tremie is not None and floor < props.num_floors - 1:
+            slab_with_hole(bm_c, t, t, z_top - CEILING_T, W - t, L - t, z_top,
+                           tremie)
+        else:
+            _add_box(bm_c, t, t, z_top - CEILING_T, W - t, L - t, z_top)
         # ✅ Le parquet se pose SUR la dalle de l'opérateur (épaisseur
         # slab_top) — il était enterré 13cm sous elle
         z_floor = floor * floor_height_actual + slab_top
-        _add_box(bm_f, t, t, z_floor + 0.001, W - t, L - t, z_floor + 0.016)
+        if tremie is not None and floor >= 1:
+            slab_with_hole(bm_f, t, t, z_floor + 0.001, W - t, L - t,
+                           z_floor + 0.016, tremie)
+        else:
+            _add_box(bm_f, t, t, z_floor + 0.001, W - t, L - t, z_floor + 0.016)
     objs.append(_new_mesh_obj("Interior_Ceilings", bm_c, collection,
                               "interior", plaster))
     objs.append(_new_mesh_obj("Interior_Floors", bm_f, collection,
@@ -141,33 +434,36 @@ def build_interiors(props, collection, wall_depth, floor_height_actual,
         if top_ceiling_z is not None and floor == props.num_floors - 1:
             z1 = min(z1, top_ceiling_z - CEILING_T)
 
-        # 1. REFEND transversal (mur à y = ~55% de la profondeur):
-        # sépare la pièce de vie (côté entrée) des chambres.
-        y_refend = _avoid(L * 0.55, window_ys_side, 0.75, L * 0.35, L * 0.7)
-        # passage aligné sur la porte d'entrée (circulation naturelle)
-        door_pass = _avoid(door_center_x, [], 0, t + 0.7, W - t - 0.7)
+        # 1. REFEND transversal — positions PARTAGÉES avec l'escalier
+        y_refend = layout['y_refend']
+        door_pass = layout['door_pass']
         _partition_with_doorway(bm, 'X', y_refend, t, W - t, z0, z1, door_pass)
 
         # 2. Cloison de REFEND longitudinal côté arrière: deux pièces.
-        forbidden = list(window_xs_back)
-        x_split = _avoid(W * 0.5, forbidden, 0.75, W * 0.3, W * 0.7)
-        _partition_with_doorway(bm, 'Y', x_split, y_refend, L - t, z0, z1,
-                                (y_refend + L - t) / 2)
+        _partition_with_doorway(bm, 'Y', layout['x_split'], y_refend, L - t,
+                                z0, z1, (y_refend + L - t) / 2)
 
     objs.append(_new_mesh_obj("Interior_Partitions", bm, collection,
                               "interior", plaster))
 
-    # --- AILE: plafond + sol (pièce unique: suite) ---
-    if wing_frame is not None:
+    # --- AILES: plafonds + sols PAR ÉTAGE (pièce(s) de l'aile) ---
+    for wing_frame in (wing_frames or []):
         w, d, h = wing_frame['w'], wing_frame['d'], wing_frame['h']
+        floors = wing_frame.get('floors', 1)
+        fh = wing_frame.get('fh', h)
         bm = bmesh.new()
-        # sous le chaperon des murs d'égout de l'aile (dalle + marge)
-        _add_box(bm, t, t, h - CEILING_T - 0.32, w - t, d, h - 0.32)
-        _add_box(bm, t, t, slab_top + 0.001, w - t, d, slab_top + 0.016)
+        for fl in range(floors):
+            z_top = (fl + 1) * fh
+            if fl == floors - 1:
+                # sous le chaperon des murs d'égout de l'aile (dalle + marge)
+                z_top = min(z_top, h - 0.32)
+            _add_box(bm, t, t, z_top - CEILING_T, w - t, d, z_top)
+            z_floor = fl * fh + (slab_top if fl == 0 else 0.0)
+            _add_box(bm, t, t, z_floor + 0.001, w - t, d, z_floor + 0.016)
         bmesh.ops.transform(bm, verts=bm.verts, matrix=wing_frame['M'])
         objs.append(_new_mesh_obj("Wing_Interior", bm, collection,
                                   "interior", plaster))
 
     print(f"[House] ✓ Intérieurs: plafonds + sols + cloisons "
-          f"({props.num_floors} étage(s){', aile' if wing_frame else ''})")
+          f"({props.num_floors} étage(s), {len(wing_frames or [])} aile(s))")
     return objs

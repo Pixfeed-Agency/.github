@@ -257,7 +257,7 @@ def build_gutters(props, collection, eave_z_left, eave_z_right, o_eave, o_rake):
 
     ridge_along_y = length >= width
 
-    if roof_type in ('GABLE', 'GAMBREL') and ridge_along_y or roof_type == 'SHED':
+    if roof_type == 'GAMBREL' or (roof_type == 'GABLE' and ridge_along_y) or roof_type == 'SHED':
         # Égouts sur les côtés X (gauche/droit)
         y0, y1 = -o_rake, length + o_rake
         gutter_run((-o_eave, y0, eave_z_left - r), (-o_eave, y1, eave_z_left - r))
@@ -265,7 +265,7 @@ def build_gutters(props, collection, eave_z_left, eave_z_right, o_eave, o_rake):
         # ✅ FIX: Descentes CONTRE le mur (avant: au bord du débord, flottantes)
         downspout(-down_r - 0.01, 0.35, eave_z_left - r)
         downspout(width + down_r + 0.01, length - 0.35, eave_z_right - r)
-    elif roof_type in ('GABLE', 'GAMBREL'):
+    elif roof_type == 'GABLE':
         # Faîtage en X → égouts sur les côtés Y (avant/arrière)
         x0, x1 = -o_rake, width + o_rake
         gutter_run((x0, -o_eave, eave_z_left - r), (x1, -o_eave, eave_z_left - r))
@@ -549,6 +549,118 @@ def _create_tile_master(collection, color):
     return obj
 
 
+ROOF_WIN_W = 0.78   # largeur fenêtre de toit (standard 78×118)
+ROOF_WIN_L = 1.18   # longueur le long de la pente
+
+
+def roof_window_layout(props, wall_height, effective_pitch, o_eave, o_rake):
+    """Calepinage PARTAGÉ des fenêtres de toit (tuiles + objets).
+
+    GABLE uniquement. Elles sont posées sur le pan "visible":
+    faîtage en X → pan AVANT (y-), faîtage en Y → pan GAUCHE (x-).
+    Returns: (pan, [(u_center, v_center)], u_axis, v_axis, origin) ou None
+        pan ∈ {'front', 'left'}; u le long de l'égout, v monte la pente.
+    """
+    n = int(getattr(props, 'num_roof_windows', 0))
+    if props.roof_type != 'GABLE' or not getattr(props, 'include_roof_windows', False) or n <= 0:
+        return None
+    width, length = props.house_width, props.house_length
+    pitch_rad = math.radians(effective_pitch)
+    cosp, sinp = math.cos(pitch_rad), math.sin(pitch_rad)
+    h = wall_height
+    slope = math.tan(pitch_rad)
+    z_eave = h - o_eave * slope
+    ridge_along_y = length >= width
+    if ridge_along_y:
+        pan = 'left'
+        u_len = length + 2 * o_rake
+        slope_len = (width / 2 + o_eave) / cosp
+        origin = Vector((-o_eave, -o_rake, z_eave))
+        u_axis = Vector((0, 1, 0))
+        v_axis = Vector((cosp, 0, sinp))
+    else:
+        pan = 'front'
+        u_len = width + 2 * o_rake
+        slope_len = (length / 2 + o_eave) / cosp
+        origin = Vector((-o_rake, -o_eave, z_eave))
+        u_axis = Vector((1, 0, 0))
+        v_axis = Vector((0, cosp, sinp))
+    if slope_len < ROOF_WIN_L + 0.8:
+        print("[House] Fenêtres de toit: pan trop court — ignorées")
+        return None
+    v_center = max(ROOF_WIN_L / 2 + 0.35,
+                   min(slope_len - ROOF_WIN_L / 2 - 0.35, slope_len * 0.45))
+    centers = [((i + 1) * u_len / (n + 1), v_center) for i in range(n)]
+    return pan, centers, u_axis, v_axis, origin
+
+
+def build_roof_windows(props, collection, wall_height, effective_pitch,
+                       o_eave, o_rake):
+    """✅ v1.5: FENÊTRES DE TOIT (type velux) posées sur le pan.
+
+    Cadre + battant vitré légèrement saillant + solin zinc périphérique.
+    Les tuiles sont exclues de l'emprise par build_roof_tiles (même
+    calepinage partagé).
+    """
+    layout = roof_window_layout(props, wall_height, effective_pitch,
+                                o_eave, o_rake)
+    if layout is None:
+        return []
+    pan, centers, u_axis, v_axis, origin = layout
+    normal = u_axis.cross(v_axis).normalized()
+    if normal.z < 0:
+        normal = -normal
+
+    frame_mat = _simple_material("House_RoofWin_Frame", (0.28, 0.28, 0.30),
+                                 roughness=0.5)
+    zinc = _simple_material("House_Zinc", (0.62, 0.65, 0.67), roughness=0.35,
+                            metallic=0.9)
+    glass = None
+    try:
+        from . import look
+        glass = look.glass_material()
+    except Exception:
+        glass = _simple_material("House_Glass_Roof", (0.4, 0.5, 0.55),
+                                 roughness=0.05)
+
+    hw, hl = ROOF_WIN_W / 2, ROOF_WIN_L / 2
+    bm_f = bmesh.new()
+    bm_g = bmesh.new()
+    bm_z = bmesh.new()
+
+    def box_on_plane(bm, uc, vc, du, dv, off, th):
+        """Boîte alignée sur le pan: demi-tailles du×dv, décollée de off,
+        épaisseur th (le long de la normale)."""
+        c = origin + u_axis * uc + v_axis * vc + normal * (off + th / 2)
+        rot = Matrix((u_axis, v_axis, normal)).transposed().to_4x4()
+        b = bmesh.ops.create_cube(bm, size=1.0)
+        bmesh.ops.transform(bm, verts=b['verts'],
+                            matrix=Matrix.Diagonal((du * 2, dv * 2, th, 1.0)))
+        bmesh.ops.transform(bm, verts=b['verts'],
+                            matrix=Matrix.Translation(c) @ rot)
+
+    for uc, vc in centers:
+        # Solin périphérique (plaque zinc sous le cadre)
+        box_on_plane(bm_z, uc, vc, hw + 0.12, hl + 0.12, 0.015, 0.012)
+        # Cadre (4 côtés)
+        t, th = 0.06, 0.09
+        box_on_plane(bm_f, uc, vc - hl + t / 2, hw, t / 2, 0.03, th)
+        box_on_plane(bm_f, uc, vc + hl - t / 2, hw, t / 2, 0.03, th)
+        box_on_plane(bm_f, uc - hw + t / 2, vc, t / 2, hl - t, 0.03, th)
+        box_on_plane(bm_f, uc + hw - t / 2, vc, t / 2, hl - t, 0.03, th)
+        # Vitrage
+        box_on_plane(bm_g, uc, vc, hw - t, hl - t, 0.085, 0.012)
+
+    objs = [
+        _new_mesh_obj("Roof_Windows_Flashing", bm_z, collection, "roof_window", zinc),
+        _new_mesh_obj("Roof_Windows_Frame", bm_f, collection, "roof_window", frame_mat),
+    ]
+    g = _new_mesh_obj("Roof_Windows_Glass", bm_g, collection, "roof_window", glass)
+    objs.append(g)
+    print(f"[House] ✓ {len(centers)} fenêtre(s) de toit posée(s) (pan {pan})")
+    return objs
+
+
 def build_roof_tiles(props, collection, wall_height, effective_pitch, o_eave, o_rake):
     """Pose des tuiles instanciées (GN) sur les pans GABLE et SHED.
 
@@ -559,8 +671,8 @@ def build_roof_tiles(props, collection, wall_height, effective_pitch, o_eave, o_
     random.seed(42)
 
     roof_type = props.roof_type
-    if roof_type not in ('GABLE', 'SHED'):
-        print(f"[House] Tuiles: non supporté pour {roof_type} (GABLE/SHED seulement pour l'instant)")
+    if roof_type not in ('GABLE', 'SHED', 'HIP', 'GAMBREL'):
+        print(f"[House] Tuiles: non supporté pour {roof_type}")
         return []
 
     width = props.house_width
@@ -573,7 +685,7 @@ def build_roof_tiles(props, collection, wall_height, effective_pitch, o_eave, o_
     step_u = TILE_W                          # pas le long du faîtage
     lift = 0.02                              # au-dessus de la surface du toit
 
-    def cover_slope(origin, dir_u, dir_v, len_u, len_v, rot):
+    def cover_slope(origin, dir_u, dir_v, len_u, len_v, rot, keep=None):
         """Grille de tuiles sur un pan: origin à l'égout, v monte la pente
 
         ✅ FIX 1: Clamp au faîtage (la dernière rangée ne déborde plus sur
@@ -600,6 +712,8 @@ def build_roof_tiles(props, collection, wall_height, effective_pitch, o_eave, o_
             for iu in range(n_u):
                 p = origin + dir_u * (iu * step_u) + dir_v * (iv * step_v) \
                     + normal * 0.008
+                if keep is not None and not keep(p, p + dir_u * TILE_W):
+                    continue
                 # ✅ V2: Micro-variation par tuile (pose imparfaite réelle)
                 # — l'alignement parfait criait "généré par ordinateur"
                 j = math.radians(0.8)
@@ -619,6 +733,21 @@ def build_roof_tiles(props, collection, wall_height, effective_pitch, o_eave, o_
     rot_down_x = (Matrix.Rotation(pitch_rad, 3, 'Y') @
                   Matrix.Rotation(math.radians(90), 3, 'Z')).to_euler()
 
+    # ✅ v1.5: exclusion des tuiles sous les fenêtres de toit (GABLE)
+    rw_keep = None
+    rw = roof_window_layout(props, h, effective_pitch, o_eave, o_rake)
+    if rw is not None:
+        _pan, rw_centers, rw_u, rw_v, rw_origin = rw
+
+        def rw_keep(p, pf):
+            rel = p - rw_origin
+            u, v = rel.dot(rw_u), rel.dot(rw_v)
+            for (uc, vc) in rw_centers:
+                if abs(u + TILE_W / 2 - uc) < ROOF_WIN_W / 2 + 0.16 + TILE_W / 2 and \
+                        abs(v + TILE_L / 2 - vc) < ROOF_WIN_L / 2 + 0.16 + TILE_L / 2:
+                    return False
+            return True
+
     if roof_type == 'SHED':
         # Un seul pan: monte de x=0 vers x=width (plan par la façade à z=h)
         slope = math.tan(pitch_rad)
@@ -628,8 +757,10 @@ def build_roof_tiles(props, collection, wall_height, effective_pitch, o_eave, o_
         z_eave = h - o_eave * slope
         origin = Vector((-o_eave, -o_rake, z_eave + lift))
         cover_slope(origin, dir_u, dir_v, length + 2 * o_rake, slope_len, rot_up_x)
-    else:
+    elif roof_type == 'GABLE':
         # GABLE: 2 pans, faîtage selon la grande dimension
+        # ✅ FIX: branche EXPLICITE — le 'else' attrapait aussi HIP/GAMBREL
+        # et superposait un champ de tuiles GABLE fantôme à leur couverture
         ridge_along_y = length >= width
         if ridge_along_y:
             half = width / 2
@@ -639,7 +770,7 @@ def build_roof_tiles(props, collection, wall_height, effective_pitch, o_eave, o_
             cover_slope(Vector((-o_eave, -o_rake, z_eave + lift)),
                         Vector((0, 1, 0)),
                         Vector((math.cos(pitch_rad), 0, math.sin(pitch_rad))),
-                        length + 2 * o_rake, slope_len, rot_up_x)
+                        length + 2 * o_rake, slope_len, rot_up_x, keep=rw_keep)
             # Pan droit (monte vers -X)
             cover_slope(Vector((width + o_eave, -o_rake, z_eave + lift)),
                         Vector((0, 1, 0)),
@@ -654,13 +785,118 @@ def build_roof_tiles(props, collection, wall_height, effective_pitch, o_eave, o_
                         Vector((1, 0, 0)),
                         Vector((0, math.cos(pitch_rad), math.sin(pitch_rad))),
                         width + 2 * o_rake, slope_len,
-                        Euler((pitch_rad, 0, 0), 'XYZ'))
+                        Euler((pitch_rad, 0, 0), 'XYZ'), keep=rw_keep)
             # Pan arrière (monte vers -Y)
             cover_slope(Vector((-o_rake, length + o_eave, z_eave + lift)),
                         Vector((1, 0, 0)),
                         Vector((0, -math.cos(pitch_rad), math.sin(pitch_rad))),
                         width + 2 * o_rake, slope_len,
                         Euler((-pitch_rad, 0, math.radians(0)), 'XYZ'))
+
+    if roof_type == 'HIP':
+        # ✅ 4 pans, coupes d'ARÊTIERS à 45° en plan (pentes égales) —
+        # les tuiles coupées sont ensuite couvertes par les arêtiers
+        slope = math.tan(pitch_rad)
+        z_eave = h - o_eave * slope
+        cosp = math.cos(pitch_rad)
+        tol = 0.10
+        # Pans le long des GRANDS côtés (trapèzes) + petits côtés (triangles)
+        if length >= width:
+            half = width / 2
+            slope_len = (half + o_eave) / cosp
+            # Pan gauche (x-) trapèze: u le long de +Y, v monte +X
+            cover_slope(Vector((-o_eave, -o_eave, z_eave + lift)),
+                        Vector((0, 1, 0)),
+                        Vector((cosp, 0, math.sin(pitch_rad))),
+                        length + 2 * o_eave, slope_len, rot_up_x,
+                        keep=lambda p, pf: (p.y + o_eave >= (p.x + o_eave) - tol)
+                        and (pf.y <= length + o_eave - (p.x + o_eave) + tol))
+            # Pan droit (x+)
+            cover_slope(Vector((width + o_eave, -o_eave, z_eave + lift)),
+                        Vector((0, 1, 0)),
+                        Vector((-cosp, 0, math.sin(pitch_rad))),
+                        length + 2 * o_eave, slope_len, rot_down_x,
+                        keep=lambda p, pf: (p.y + o_eave >= (width + o_eave - p.x) - tol)
+                        and (pf.y <= length + o_eave - (width + o_eave - p.x) + tol))
+            # Pan avant (y-) triangle: u le long de +X, v monte +Y
+            tri_len = (half + o_eave) / cosp
+            cover_slope(Vector((-o_eave, -o_eave, z_eave + lift)),
+                        Vector((1, 0, 0)),
+                        Vector((0, cosp, math.sin(pitch_rad))),
+                        width + 2 * o_eave, tri_len,
+                        Euler((pitch_rad, 0, 0), 'XYZ'),
+                        keep=lambda p, pf: (p.x + o_eave >= (p.y + o_eave) - tol)
+                        and (pf.x <= width + o_eave - (p.y + o_eave) + tol))
+            # Pan arrière (y+)
+            cover_slope(Vector((-o_eave, length + o_eave, z_eave + lift)),
+                        Vector((1, 0, 0)),
+                        Vector((0, -cosp, math.sin(pitch_rad))),
+                        width + 2 * o_eave, tri_len,
+                        Euler((-pitch_rad, 0, 0), 'XYZ'),
+                        keep=lambda p, pf: (p.x + o_eave >= (length + o_eave - p.y) - tol)
+                        and (pf.x <= width + o_eave - (length + o_eave - p.y) + tol))
+        else:
+            half = length / 2
+            slope_len = (half + o_eave) / cosp
+            # Pans avant/arrière = trapèzes; gauche/droit = triangles
+            cover_slope(Vector((-o_eave, -o_eave, z_eave + lift)),
+                        Vector((1, 0, 0)),
+                        Vector((0, cosp, math.sin(pitch_rad))),
+                        width + 2 * o_eave, slope_len,
+                        Euler((pitch_rad, 0, 0), 'XYZ'),
+                        keep=lambda p, pf: (p.x + o_eave >= (p.y + o_eave) - tol)
+                        and (pf.x <= width + o_eave - (p.y + o_eave) + tol))
+            cover_slope(Vector((-o_eave, length + o_eave, z_eave + lift)),
+                        Vector((1, 0, 0)),
+                        Vector((0, -cosp, math.sin(pitch_rad))),
+                        width + 2 * o_eave, slope_len,
+                        Euler((-pitch_rad, 0, 0), 'XYZ'),
+                        keep=lambda p, pf: (p.x + o_eave >= (length + o_eave - p.y) - tol)
+                        and (pf.x <= width + o_eave - (length + o_eave - p.y) + tol))
+            tri_len = (half + o_eave) / cosp
+            cover_slope(Vector((-o_eave, -o_eave, z_eave + lift)),
+                        Vector((0, 1, 0)),
+                        Vector((cosp, 0, math.sin(pitch_rad))),
+                        length + 2 * o_eave, tri_len, rot_up_x,
+                        keep=lambda p, pf: (p.y + o_eave >= (p.x + o_eave) - tol)
+                        and (pf.y <= length + o_eave - (p.x + o_eave) + tol))
+            cover_slope(Vector((width + o_eave, -o_eave, z_eave + lift)),
+                        Vector((0, 1, 0)),
+                        Vector((-cosp, 0, math.sin(pitch_rad))),
+                        length + 2 * o_eave, tri_len, rot_down_x,
+                        keep=lambda p, pf: (p.y + o_eave >= (width + o_eave - p.x) - tol)
+                        and (pf.y <= length + o_eave - (width + o_eave - p.x) + tol))
+
+    if roof_type == 'GAMBREL':
+        # ✅ Mansarde: 4 surfaces rectangulaires (2 brisis raides 68° +
+        # 2 terrassons doux), égouts toujours en ±X, rives en ±Y
+        brisis_rad = math.radians(68.0)
+        bd = (width / 2) * 0.25
+        bh = bd * math.tan(brisis_rad)
+        z_eave = h - o_eave * math.tan(brisis_rad)
+        len_u = length + 2 * o_rake
+        cosb, sinb = math.cos(brisis_rad), math.sin(brisis_rad)
+        rot_b_up = (Matrix.Rotation(-brisis_rad, 3, 'Y') @
+                    Matrix.Rotation(math.radians(-90), 3, 'Z')).to_euler()
+        rot_b_down = (Matrix.Rotation(brisis_rad, 3, 'Y') @
+                      Matrix.Rotation(math.radians(90), 3, 'Z')).to_euler()
+        # Brisis gauche/droit
+        brisis_len = (o_eave + bd) / cosb
+        cover_slope(Vector((-o_eave, -o_rake, z_eave + lift)),
+                    Vector((0, 1, 0)), Vector((cosb, 0, sinb)),
+                    len_u, brisis_len, rot_b_up)
+        cover_slope(Vector((width + o_eave, -o_rake, z_eave + lift)),
+                    Vector((0, 1, 0)), Vector((-cosb, 0, sinb)),
+                    len_u, brisis_len, rot_b_down)
+        # Terrassons gauche/droit (pente utilisateur)
+        cosp2, sinp2 = math.cos(pitch_rad), math.sin(pitch_rad)
+        terr_len = (width / 2 - bd) / cosp2
+        cover_slope(Vector((bd, -o_rake, h + bh + lift)),
+                    Vector((0, 1, 0)), Vector((cosp2, 0, sinp2)),
+                    len_u, terr_len + 0.03, rot_up_x)
+        cover_slope(Vector((width - bd, -o_rake, h + bh + lift)),
+                    Vector((0, 1, 0)), Vector((-cosp2, 0, sinp2)),
+                    len_u, terr_len + 0.03, rot_down_x)
 
     if not positions:
         return []
@@ -670,6 +906,58 @@ def build_roof_tiles(props, collection, wall_height, effective_pitch, o_eave, o_
 
     # ✅ NOUVEAU: FAÎTIÈRES — demi-rond couvrant la jonction des deux pans
     ridge_objs = []
+
+    def cap_run(bm, p0, p1, radius=0.10):
+        """Demi-rond de couverture le long d'une arête p0→p1"""
+        axis = Vector(p1) - Vector(p0)
+        if axis.length < 0.05:
+            return
+        seg = bmesh.ops.create_cone(bm, cap_ends=True, segments=10,
+                                    radius1=radius, radius2=radius,
+                                    depth=axis.length)
+        quat = axis.normalized().to_track_quat('Z', 'Y')
+        center = (Vector(p0) + Vector(p1)) / 2
+        bmesh.ops.transform(bm, verts=seg['verts'],
+                            matrix=Matrix.Translation(center) @ quat.to_matrix().to_4x4())
+
+    if roof_type == 'HIP':
+        # Faîtage central + 4 ARÊTIERS jusqu'aux angles d'égout
+        slope = math.tan(pitch_rad)
+        z_eave = h - o_eave * slope
+        peak_h = h + (min(width, length) / 2) * slope
+        bm = bmesh.new()
+        if length >= width:
+            r0 = Vector((width / 2, width / 2, peak_h))
+            r1 = Vector((width / 2, length - width / 2, peak_h))
+        else:
+            r0 = Vector((length / 2, length / 2, peak_h))
+            r1 = Vector((width - length / 2, length / 2, peak_h))
+        cap_run(bm, r0 + Vector((0, 0, 0.03)), r1 + Vector((0, 0, 0.03)), 0.11)
+        corners = [Vector((-o_eave, -o_eave, z_eave)),
+                   Vector((width + o_eave, -o_eave, z_eave)),
+                   Vector((width + o_eave, length + o_eave, z_eave)),
+                   Vector((-o_eave, length + o_eave, z_eave))]
+        # associer chaque angle à l'extrémité de faîtage la plus proche
+        for c in corners:
+            end = r0 if (c - r0).length <= (c - r1).length else r1
+            cap_run(bm, c + Vector((0, 0, 0.05)), end + Vector((0, 0, 0.03)), 0.09)
+        mat = _simple_material("House_Tile", tile_color, roughness=0.75)
+        ridge_objs.append(_new_mesh_obj("Roof_Hips", bm, collection, "roof", mat))
+
+    if roof_type == 'GAMBREL':
+        # Faîtière + MEMBRONS (cassures brisis/terrasson)
+        brisis_rad = math.radians(68.0)
+        bd = (width / 2) * 0.25
+        bh = bd * math.tan(brisis_rad)
+        peak_h = h + bh + (width / 2 - bd) * math.tan(pitch_rad)
+        y0, y1 = -o_rake, length + o_rake
+        bm = bmesh.new()
+        cap_run(bm, (width / 2, y0, peak_h + 0.03), (width / 2, y1, peak_h + 0.03), 0.11)
+        for xb in (bd, width - bd):
+            cap_run(bm, (xb, y0, h + bh + 0.03), (xb, y1, h + bh + 0.03), 0.085)
+        mat = _simple_material("House_Tile", tile_color, roughness=0.75)
+        ridge_objs.append(_new_mesh_obj("Roof_Membrons", bm, collection, "roof", mat))
+
     if roof_type == 'GABLE':
         ridge_along_y = length >= width
         peak_h = h + ((width / 2) if ridge_along_y else (length / 2)) * math.tan(pitch_rad)

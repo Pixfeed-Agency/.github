@@ -267,6 +267,15 @@ def compute_all_brick_positions(house_width, house_length, total_height,
             bonding_pattern=bonding_pattern,
             roof_gap=roof_gap
         )
+    elif roof_type == 'GAMBREL':
+        # ✅ v1.5: pignon MANSARDE maçonné (profil brisis + terrasson)
+        front_positions = calculate_brick_positions_for_wall_gambrel(
+            house_width, roof_base, roof_pitch,
+            start_pos=Vector((0, 0, 0)),
+            direction='X',
+            openings=front_openings,
+            bonding_pattern=bonding_pattern
+        )
     else:
         front_positions = calculate_brick_positions_for_wall(
             house_width, eave_capped_height,
@@ -301,6 +310,14 @@ def compute_all_brick_positions(house_width, house_length, total_height,
             openings=back_openings,
             bonding_pattern=bonding_pattern,
             roof_gap=roof_gap
+        )
+    elif roof_type == 'GAMBREL':
+        back_positions = calculate_brick_positions_for_wall_gambrel(
+            house_width, roof_base, roof_pitch,
+            start_pos=back_start,
+            direction='X',
+            openings=back_openings,
+            bonding_pattern=bonding_pattern
         )
     else:
         back_positions = calculate_brick_positions_for_wall(
@@ -390,6 +407,9 @@ def compute_all_brick_positions(house_width, house_length, total_height,
     elif roof_type == 'GABLE':
         wall_tops = {'front': eave_capped_height, 'back': eave_capped_height,
                      'left': roof_base, 'right': roof_base}
+    elif roof_type == 'GAMBREL':
+        wall_tops = {'front': roof_base, 'back': roof_base,
+                     'left': eave_capped_height, 'right': eave_capped_height}
     else:
         wall_tops = {w: eave_capped_height for w in ('front', 'back', 'left', 'right')}
 
@@ -1605,6 +1625,65 @@ def calculate_brick_positions_for_wall_gable(wall_length, base_height, peak_heig
             # ✅ BRIQUES COUPÉES (ouvertures + rampant + bords du pignon)
             _emit_cell(positions, direction, start_pos, distance, cell, z, row_spans)
 
+    return positions
+
+
+def calculate_brick_positions_for_wall_gambrel(wall_length, base_height,
+                                                 terrasson_pitch_deg,
+                                                 start_pos, direction,
+                                                 openings=None,
+                                                 bonding_pattern='RUNNING'):
+    """✅ v1.5: Briques d'un mur PIGNON sous toit MANSARDE (gambrel).
+
+    Le profil monte en BRISIS (68°) sur 25% de la demi-largeur puis en
+    TERRASSON (pente utilisateur) jusqu'au faîtage — mêmes constantes que
+    _create_gambrel_roof. Briques coupées le long des deux rampants
+    (limite monotone par rangée → toujours portées).
+    """
+    brisis_rad = math.radians(68.0)
+    pitch_rad = math.radians(terrasson_pitch_deg)
+    bd = (wall_length / 2) * 0.25
+    bh = bd * math.tan(brisis_rad)
+    rh = bh + (wall_length / 2 - bd) * math.tan(pitch_rad)
+
+    positions = []
+    cell = BRICK_LENGTH + MORTAR_GAP
+    num_cols = int(wall_length / cell)
+    row_h = BRICK_HEIGHT + MORTAR_GAP
+    max_rows = int((base_height + rh) / row_h) + 1
+    spans = _wall_spans_1d(openings, None, wall_length)
+    apex_limit = base_height + rh - ROOF_GAP
+
+    for col in range(-1, num_cols + 2):
+        d0 = col * cell
+        for row in range(max_rows + 1):
+            if bonding_pattern == 'STACK':
+                offset = 0
+            elif bonding_pattern == 'FLEMISH':
+                offset = cell / 4 if row % 2 == 1 else 0
+            elif bonding_pattern == 'ENGLISH':
+                offset = (0, cell / 2, cell / 4, cell * 3 / 4)[row % 4]
+            else:
+                offset = cell / 2 if row % 2 == 1 else 0
+            z = row * row_h
+            brick_top = z + row_h
+            if brick_top > apex_limit:
+                break
+            rel = brick_top + ROOF_GAP - base_height
+            if rel <= 0:
+                row_spans = spans
+            else:
+                if rel <= bh:
+                    x_min = rel / math.tan(brisis_rad)
+                else:
+                    x_min = bd + (rel - bh) / max(math.tan(pitch_rad), 0.05)
+                x_max = wall_length - x_min
+                if x_min >= x_max - MIN_CUT_BRICK:
+                    break
+                row_spans = spans + [(-1e6, x_min, -1e6, 1e6),
+                                     (x_max, 1e6, -1e6, 1e6)]
+            _emit_cell(positions, direction, start_pos, d0 + offset, cell, z,
+                       row_spans)
     return positions
 
 

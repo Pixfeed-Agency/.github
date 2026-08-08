@@ -59,7 +59,9 @@ PASSAGE_HEIGHT = 2.05  # hauteur du passage vers l'aile
 # REPÈRE DE L'AILE
 # ============================================================
 
-def wing_frame(props, effective_pitch, main_wall_height, wing_wall_height=None):
+def wing_frame(props, effective_pitch, main_wall_height, wing_wall_height=None,
+               side=None, wing_width=None, wing_depth=None, wing_offset=None,
+               enabled=True):
     """Calcule le repère et les caractéristiques de l'aile, ou None.
 
     Repère LOCAL de l'aile: x ∈ [0, w] (largeur le long de la façade),
@@ -71,7 +73,7 @@ def wing_frame(props, effective_pitch, main_wall_height, wing_wall_height=None):
         attached_wall, valley (bool), pitch_deg, h (hauteur murs aile),
         span (a0, a1) sur le mur d'accroche.
     """
-    if not getattr(props, 'include_wing', False):
+    if not enabled:
         return None
 
     if props.roof_type != 'GABLE':
@@ -79,7 +81,7 @@ def wing_frame(props, effective_pitch, main_wall_height, wing_wall_height=None):
               f"(GABLE uniquement pour l'instant) — aile ignorée")
         return None
 
-    side = props.wing_side  # 'FRONT' / 'BACK' / 'LEFT' / 'RIGHT'
+    side = side or props.wing_side  # 'FRONT' / 'BACK' / 'LEFT' / 'RIGHT'
     W, L = props.house_width, props.house_length
 
     # Conflit garage: même côté → l'aile est ignorée (règle explicite)
@@ -89,9 +91,11 @@ def wing_frame(props, effective_pitch, main_wall_height, wing_wall_height=None):
         return None
 
     facade = W if side in ('FRONT', 'BACK') else L
-    w = max(2.0, min(props.wing_width, facade - 0.6))
-    d = max(1.5, props.wing_depth)
-    a0 = max(0.0, min(props.wing_offset, facade - w))
+    w = max(2.0, min(wing_width if wing_width is not None else props.wing_width,
+                     facade - 0.6))
+    d = max(1.5, wing_depth if wing_depth is not None else props.wing_depth)
+    a0 = wing_offset if wing_offset is not None else props.wing_offset
+    a0 = max(0.0, min(a0, facade - w))
 
     h_main = main_wall_height
     h = wing_wall_height if wing_wall_height is not None else \
@@ -144,7 +148,13 @@ def wing_frame(props, effective_pitch, main_wall_height, wing_wall_height=None):
         'LEFT':  {'front': 'left',  'left': 'back',  'right': 'front'},
     }[side]
 
+    # Emprise MONDE de l'aile (contrôle de chevauchement entre ailes)
+    corners = [M @ Vector((0, 0, 0)), M @ Vector((w, d, 0))]
+    xs = sorted(c.x for c in corners)
+    ys = sorted(c.y for c in corners)
+
     return {
+        'footprint': (xs[0], ys[0], xs[1], ys[1]),
         'side': side, 'w': w, 'd': d, 'a0': a0,
         'theta': theta, 'T': T, 'M': M,
         'attached_wall': attached_wall,
@@ -187,20 +197,20 @@ def opening_in_span(opening, frame, margin=0.35):
 # OUVERTURES ET FENÊTRES DE L'AILE (repère local)
 # ============================================================
 
-def wing_openings_local(frame, props, window_layout, window_vertical, wall_depth):
-    """Fenêtres de l'aile en coordonnées LOCALES.
+def wing_openings_local(frame, props, window_layout, window_verticals, wall_depth):
+    """Fenêtres de l'aile en coordonnées LOCALES — un jeu PAR ÉTAGE.
 
-    Returns (openings, specs): openings pour le moteur briques,
-    specs = [{'wall_local', 'along_center', 'width', 'height',
-              'z_bottom', 'z_center'}] pour les objets fenêtres.
+    window_verticals: liste [(hauteur, z_bas, z_centre)] par étage de l'aile.
+    Returns (openings, specs) comme avant.
     """
     w, d = frame['w'], frame['d']
     ww = window_layout['width']
-    wh, z_bottom, z_center = window_vertical
+    if not isinstance(window_verticals, list):
+        window_verticals = [window_verticals]
 
     openings, specs = [], []
 
-    def add(wall_local, along_center):
+    def add(wall_local, along_center, wh, z_bottom, z_center):
         spec = {'wall_local': wall_local, 'along_center': along_center,
                 'width': ww, 'height': wh,
                 'z_bottom': z_bottom, 'z_center': z_center}
@@ -215,21 +225,27 @@ def wing_openings_local(frame, props, window_layout, window_vertical, wall_depth
             o['x'] = 0 if wall_local == 'left' else w
         openings.append(o)
 
-    # Pignon extérieur: 1 ou 2 fenêtres selon la largeur.
-    # ✅ 2 fenêtres aux QUARTS et seulement si les volets ouverts des deux
-    # fenêtres ne se chevauchent pas (séparation w/2 ≥ 2·largeur fenêtre)
-    if w >= 4 * ww + 0.4:
-        add('front', w / 4)
-        add('front', 3 * w / 4)
-    elif w >= ww + 1.4:
-        add('front', w / 2)
-
-    # Murs latéraux: 1 fenêtre centrée si la profondeur le permet
-    if d >= ww + 1.4:
-        add('left', d / 2)
-        add('right', d / 2)
+    for (wh, z_bottom, z_center) in window_verticals:
+        # Pignon extérieur: 2 fenêtres aux QUARTS si les volets ouverts ne
+        # se chevauchent pas, sinon 1 centrée
+        if w >= 4 * ww + 0.4:
+            add('front', w / 4, wh, z_bottom, z_center)
+            add('front', 3 * w / 4, wh, z_bottom, z_center)
+        elif w >= ww + 1.4:
+            add('front', w / 2, wh, z_bottom, z_center)
+        # Murs latéraux: 1 fenêtre centrée si la profondeur le permet
+        if d >= ww + 1.4:
+            add('left', d / 2, wh, z_bottom, z_center)
+            add('right', d / 2, wh, z_bottom, z_center)
 
     return openings, specs
+
+
+def frames_overlap(f1, f2, margin=0.05):
+    """True si les emprises MONDE de deux ailes se chevauchent."""
+    a = f1['footprint']; b = f2['footprint']
+    return not (a[2] <= b[0] + margin or b[2] <= a[0] + margin or
+                a[3] <= b[1] + margin or b[3] <= a[1] + margin)
 
 
 def generate_wing_windows(frame, props, collection, specs, window_gen, wall_depth):

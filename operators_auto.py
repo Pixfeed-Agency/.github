@@ -97,27 +97,29 @@ class HOUSE_OT_generate_auto(Operator):
             # par le panneau Redo — une valeur périmée décalait toit/fenêtres
             # après un changement de type de mur)
             self.real_wall_height = None
+            self._interior_layout = None
 
             # ✅ MULTI-VOLUMES: repère de l'aile calculé AVANT les murs
             # (les briques de l'aile sont fusionnées dans le nuage principal
             # et les ouvertures de la façade couverte sont filtrées)
-            self._wing = None
-            self._wing_openings = None
-            self._wing_specs = None
+            # ✅ v1.5: LISTE d'ailes (plans en L, T, U) — chaque aile porte
+            # son repère, ses ouvertures locales et ses specs de fenêtres
+            self._wings = []
             if getattr(props, 'include_wing', False):
                 from . import volumes
-                self._wing = self._get_wing_frame(props)
-                if self._wing:
-                    layout = self._get_window_layout(props, style_config)
-                    wv = self._window_vertical(0.0, self._wing['h'],
-                                               layout['height_ratio'])
-                    self._wing_openings, self._wing_specs = \
+                layout = self._get_window_layout(props, style_config)
+                for frame in self._get_wing_frames(props):
+                    wvs = [self._window_vertical(i * frame['fh'], frame['fh'],
+                                                 layout['height_ratio'])
+                           for i in range(frame['floors'])]
+                    frame['openings'], frame['specs'] = \
                         volumes.wing_openings_local(
-                            self._wing, props, layout, wv,
+                            frame, props, layout, wvs,
                             self._get_wall_depth(props))
-                    print(f"[House] Aile {self._wing['w']:.1f}×"
-                          f"{self._wing['d']:.1f}m côté {self._wing['side']} "
-                          f"({'noues 45°' if self._wing['valley'] else 'appentis-pignon'})")
+                    self._wings.append(frame)
+                    print(f"[House] Aile {frame['w']:.1f}×{frame['d']:.1f}m "
+                          f"×{frame['floors']} étage(s) côté {frame['side']} "
+                          f"({'noues 45°' if frame['valley'] else 'appentis-pignon'})")
 
             # ✅ FIX: Fondations générées EN PREMIER (le commentaire le
             # promettait mais l'appel était après le toit)
@@ -163,10 +165,10 @@ class HOUSE_OT_generate_auto(Operator):
             print("[House] Charpente et finitions de toiture...")
             self._generate_roof_details(context, props, house_collection)
 
-            # ✅ MULTI-VOLUMES: aile (fondations, plancher, toit à noues)
-            if getattr(self, '_wing', None):
-                print("[House] Aile (multi-volumes)...")
-                self._generate_wing(context, props, house_collection)
+            # ✅ MULTI-VOLUMES: ailes (fondations, plancher, toit à noues)
+            for wing in getattr(self, '_wings', []):
+                print(f"[House] Aile côté {wing['side']}...")
+                self._generate_wing(context, props, house_collection, wing)
 
             if props.include_gutters:
                 print("[House] Gouttières...")
@@ -431,49 +433,86 @@ class HOUSE_OT_generate_auto(Operator):
     # supprimée — elle était écrasée par la définition complète plus bas
     # et provoquait une double génération des fondations.
 
-    def _get_wing_frame(self, props):
-        """✅ MULTI-VOLUMES: repère de l'aile (ou None si non applicable)."""
+    def _get_wing_frames(self, props):
+        """✅ v1.5: repères des ailes actives (1 ou 2), avec étages clampés
+        aux étages de la maison et contrôle de chevauchement."""
         from . import volumes
         eff = self._effective_pitch(props.roof_type, props.roof_pitch)
-        if props.wall_construction_type == 'BRICK_3D':
+        brick = props.wall_construction_type == 'BRICK_3D'
+        if brick:
             from .materials.brick_geometry import compute_real_wall_height
             h_main, _ = compute_real_wall_height(props.num_floors * props.floor_height)
-            h_wing, _ = compute_real_wall_height(props.floor_height)
         else:
             h_main = props.num_floors * props.floor_height
-            h_wing = props.floor_height
-        return volumes.wing_frame(props, eff, h_main, h_wing)
+
+        def make(side, w, d, off, floors):
+            floors = max(1, min(int(floors), props.num_floors))
+            if brick:
+                from .materials.brick_geometry import compute_real_wall_height
+                h_wing, _ = compute_real_wall_height(floors * props.floor_height)
+            else:
+                h_wing = floors * props.floor_height
+            f = volumes.wing_frame(props, eff, h_main, h_wing,
+                                   side=side, wing_width=w, wing_depth=d,
+                                   wing_offset=off)
+            if f:
+                f['floors'] = floors
+                f['fh'] = f['h'] / floors
+            return f
+
+        frames = []
+        f1 = make(props.wing_side, props.wing_width, props.wing_depth,
+                  props.wing_offset, getattr(props, 'wing_floors', 1))
+        if f1:
+            frames.append(f1)
+        if getattr(props, 'include_wing2', False):
+            f2 = make(props.wing2_side, props.wing2_width, props.wing2_depth,
+                      props.wing2_offset, getattr(props, 'wing2_floors', 1))
+            if f2:
+                if any(volumes.frames_overlap(f2, f) for f in frames):
+                    print("[House] ⚠️ Aile 2 en chevauchement avec l'aile 1 — ignorée")
+                else:
+                    frames.append(f2)
+        return frames
 
     def _covered_by_wing(self, wall, center_along, margin=0.35):
         """True si une position de fenêtre est masquée par l'aile."""
-        wing = getattr(self, '_wing', None)
-        if not wing or wing['attached_wall'] != wall:
-            return False
-        a0, a1 = wing['span']
-        return (a0 - margin) < center_along < (a1 + margin)
+        for wing in getattr(self, '_wings', []):
+            if wing['attached_wall'] != wall:
+                continue
+            a0, a1 = wing['span']
+            if (a0 - margin) < center_along < (a1 + margin):
+                return True
+        return False
 
     def _door_center_x(self, props):
         """✅ MULTI-VOLUMES: centre de la porte d'entrée — déplacée dans le
         plus grand segment libre si l'aile couvre le centre de la façade."""
         width = props.house_width
         cx = width / 2
-        wing = getattr(self, '_wing', None)
-        if wing and wing['attached_wall'] == 'front':
-            a0, a1 = wing['span']
+        spans = sorted(w['span'] for w in getattr(self, '_wings', [])
+                       if w['attached_wall'] == 'front')
+        if any((a0 - 0.35) < cx < (a1 + 0.35) for (a0, a1) in spans):
+            # segments libres entre les ailes
+            free, cursor = [], 0.0
+            for (a0, a1) in spans:
+                if a0 > cursor:
+                    free.append((cursor, a0))
+                cursor = max(cursor, a1)
+            if cursor < width:
+                free.append((cursor, width))
             dw = props.front_door_width
-            if (a0 - 0.35) < cx < (a1 + 0.35):
-                left_free, right_free = a0, width - a1
-                cx = a0 / 2 if left_free >= right_free else a1 + right_free / 2
-                cx = max(dw / 2 + 0.3, min(width - dw / 2 - 0.3, cx))
-                print(f"[House] Aile devant l'entrée → porte déplacée à x={cx:.2f}m")
+            free = [(s, e) for (s, e) in free if e - s >= dw + 0.6] or [(0.0, width)]
+            s, e = max(free, key=lambda f: f[1] - f[0])
+            cx = max(dw / 2 + 0.3, min(width - dw / 2 - 0.3, (s + e) / 2))
+            print(f"[House] Aile devant l'entrée → porte déplacée à x={cx:.2f}m")
         return cx
 
-    def _generate_wing(self, context, props, collection):
-        """✅ MULTI-VOLUMES: fondations, plancher et toit de l'aile.
+    def _generate_wing(self, context, props, collection, wing):
+        """✅ MULTI-VOLUMES: fondations, plancher et toit d'UNE aile.
         (Les murs sont fusionnés dans le nuage de briques, ou générés en
         mode murs simples par _generate_walls.)"""
         from . import volumes
-        wing = self._wing
         volumes.build_wing_foundation(props, collection, wing,
                                       self._plinth_visible(props))
         volumes.build_wing_floor(props, collection, wing)
@@ -553,11 +592,13 @@ class HOUSE_OT_generate_auto(Operator):
             # ✅ MULTI-VOLUMES: briques de l'aile calculées dans son repère
             # local (pignon maçonné, briques coupées, linteaux) puis
             # fusionnées dans le MÊME nuage Geometry Nodes
-            if getattr(self, '_wing', None):
+            if getattr(self, '_wings', None):
                 from . import volumes
-                brick_kwargs['extra_positions'] = \
-                    volumes.compute_wing_brick_positions(
-                        self._wing, props, self._wing_openings or [])
+                extra = []
+                for wing in self._wings:
+                    extra += volumes.compute_wing_brick_positions(
+                        wing, props, wing.get('openings') or [])
+                brick_kwargs['extra_positions'] = extra
 
             if props.brick_use_geonodes:
                 # ✅ NOUVEAU MOTEUR: 1 objet Geometry Nodes au lieu de
@@ -704,10 +745,10 @@ class HOUSE_OT_generate_auto(Operator):
             bm.free()
 
         # ✅ MULTI-VOLUMES: murs de l'aile (segments exacts + pignon prisme)
-        if getattr(self, '_wing', None):
+        for wing in getattr(self, '_wings', []):
             from . import volumes
             walls += volumes.build_wing_simple_walls(
-                self._wing, props, collection, self._wing_openings or [])
+                wing, props, collection, wing.get('openings') or [])
 
         return walls
 
@@ -836,15 +877,14 @@ class HOUSE_OT_generate_auto(Operator):
 
         # ✅ MULTI-VOLUMES: fenêtres masquées par l'aile supprimées +
         # ouverture de PASSAGE dans le mur mitoyen
-        wing = getattr(self, '_wing', None)
-        if wing:
+        for wing in getattr(self, '_wings', []):
             from . import volumes
             before = len(openings)
             openings = [o for o in openings
                         if o['type'] != 'window' or not volumes.opening_in_span(o, wing)]
             removed = before - len(openings)
             if removed:
-                print(f"[House] Aile: {removed} fenêtre(s) masquée(s) supprimée(s)")
+                print(f"[House] Aile {wing['side']}: {removed} fenêtre(s) masquée(s) supprimée(s)")
             openings.append(volumes.passage_opening(
                 wing, props, wall_depth, self._plinth_visible(props)))
 
@@ -879,7 +919,33 @@ class HOUSE_OT_generate_auto(Operator):
             dimensions = Vector((inset_width, inset_length, floor_thickness))
 
             floor_name = "Floor_Ground" if floor_num == 0 else f"Floor_{floor_num}"
-            floor, mesh = self._create_box_mesh(floor_name, location, dimensions)
+
+            # ✅ v1.5: TRÉMIE d'escalier découpée dans les dalles d'étage
+            tremie = None
+            if floor_num >= 1 and getattr(props, 'include_interiors', True):
+                style_config = self._apply_architectural_style(props)
+                il = self._get_interior_layout(props, style_config)
+                tremie = il.get('tremie')
+            if tremie is not None:
+                bm = bmesh.new()
+                x0, y0 = width/2 - inset_width/2, length/2 - inset_length/2
+                x1, y1 = width/2 + inset_width/2, length/2 + inset_length/2
+                z0, z1 = z_pos - floor_thickness/2, z_pos + floor_thickness/2
+                hx0, hy0, hx1, hy1 = tremie
+                hx0, hx1 = max(x0, hx0), min(x1, hx1)
+                hy0, hy1 = max(y0, hy0), min(y1, hy1)
+                boxes = []
+                if hx0 > x0: boxes.append((x0, y0, hx0, y1))
+                if hx1 < x1: boxes.append((hx1, y0, x1, y1))
+                if hy0 > y0: boxes.append((hx0, y0, hx1, hy0))
+                if hy1 < y1: boxes.append((hx0, hy1, hx1, y1))
+                from .features import _add_box as _fbox
+                for (bx0, by0, bx1, by1) in boxes:
+                    _fbox(bm, bx0, by0, z0, bx1, by1, z1)
+                floor, mesh = self._create_mesh_from_bmesh(floor_name, bm)
+                bm.free()
+            else:
+                floor, mesh = self._create_box_mesh(floor_name, location, dimensions)
             collection.objects.link(floor)
             floor["house_part"] = "floor"
             floors.append(floor)
@@ -922,7 +988,8 @@ class HOUSE_OT_generate_auto(Operator):
             roof = self._create_shed_roof(width, length, total_height, roof_pitch, roof_overhang, collection)
         elif roof_type == 'GAMBREL':
             # ✅ NOUVEAU: Vrai toit mansarde/gambrel avec 2 pentes
-            roof = self._create_gambrel_roof(width, length, total_height, roof_pitch, roof_overhang, collection)
+            roof = self._create_gambrel_roof(width, length, total_height, roof_pitch, roof_overhang, collection,
+                                             closed_gable=closed_gable)
         else:
             # Fallback pour types inconnus
             # ✅ FIX: Clamper avec 'GABLE' (le type inconnu passait la plage
@@ -1258,7 +1325,8 @@ class HOUSE_OT_generate_auto(Operator):
 
         return roof
 
-    def _create_gambrel_roof(self, width, length, height, pitch, overhang, collection):
+    def _create_gambrel_roof(self, width, length, height, pitch, overhang, collection,
+                             closed_gable=True):
         """Toit mansarde/gambrel - 2 pentes par côté (raide puis douce)"""
         pitch_rad = math.radians(pitch)
         roof_thickness = ROOF_THICKNESS_PITCHED
@@ -1349,6 +1417,17 @@ class HOUSE_OT_generate_auto(Operator):
             # Chants d'égout (extrémités gauche/droite)
             bm.faces.new([top_f[0], top_b[0], bot_b[0], bot_f[0]])
             bm.faces.new([top_b[-1], top_f[-1], bot_f[-1], bot_b[-1]])
+
+            # ✅ v1.5: PIGNONS FERMÉS (murs simples) — remplissage sous le
+            # profil en W du mur (les briques maçonnent ce pignon en mode
+            # BRICK_3D, closed_gable est alors False)
+            if closed_gable:
+                for yy, flip in ((0.0, False), (length, True)):
+                    ring = [bm.verts.new((x, yy, z - t)) for x, z in profile]
+                    b0 = bm.verts.new((0.0, yy, h - 0.05))
+                    b1 = bm.verts.new((width, yy, h - 0.05))
+                    poly = [b0] + ring + [b1]
+                    face = bm.faces.new(poly if flip else list(reversed(poly)))
 
             bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
 
@@ -1460,8 +1539,7 @@ class HOUSE_OT_generate_auto(Operator):
                     )
 
             # ✅ MULTI-VOLUMES: cutter du passage vers l'aile
-            wing = getattr(self, '_wing', None)
-            if wing:
+            for wing in getattr(self, '_wings', []):
                 from . import volumes
                 po = volumes.passage_opening(
                     wing, props, wall_thickness + DOOR_DEPTH_EXTRA,
@@ -1643,12 +1721,12 @@ class HOUSE_OT_generate_auto(Operator):
 
         # ✅ MULTI-VOLUMES: fenêtres de l'aile (mêmes réglages, repère
         # transformé) + leurs volets
-        wing = getattr(self, '_wing', None)
-        if wing and getattr(self, '_wing_specs', None):
-            from . import volumes
-            shutter_specs += volumes.generate_wing_windows(
-                wing, props, collection, self._wing_specs,
-                window_gen, wall_depth)
+        for wing in getattr(self, '_wings', []):
+            if wing.get('specs'):
+                from . import volumes
+                shutter_specs += volumes.generate_wing_windows(
+                    wing, props, collection, wing['specs'],
+                    window_gen, wall_depth)
 
         # ✅ NOUVEAU: Volets battants (option)
         if getattr(props, 'include_shutters', False) and shutter_specs:
@@ -1687,8 +1765,28 @@ class HOUSE_OT_generate_auto(Operator):
             collection=collection
         )
 
+    def _get_interior_layout(self, props, style_config):
+        """✅ v1.5: distribution intérieure PARTAGÉE (cloisons, escalier,
+        trémie) — utilisée par les dalles ET les intérieurs."""
+        if getattr(self, '_interior_layout', None) is not None:
+            return self._interior_layout
+        from . import interiors
+        wl = self._get_window_layout(props, style_config)
+        if getattr(self, 'real_wall_height', None):
+            fha = self.real_wall_height / props.num_floors
+        else:
+            fha = props.floor_height
+        W, L = props.house_width, props.house_length
+        nb, ns = wl['num_back'], wl['num_side']
+        self._interior_layout = interiors.interior_layout(
+            props, self._get_wall_depth(props), fha,
+            self._door_center_x(props),
+            [W / (nb + 1) * (i + 1) for i in range(nb)],
+            [L / (ns + 1) * (i + 1) for i in range(ns)])
+        return self._interior_layout
+
     def _generate_interiors(self, context, props, collection, style_config):
-        """✅ INTÉRIEURS: plafonds plâtre, cloisons avec passages, sols."""
+        """✅ INTÉRIEURS: plafonds, cloisons, sols, escalier, portes."""
         from . import interiors
         layout = self._get_window_layout(props, style_config)
         if getattr(self, 'real_wall_height', None):
@@ -1712,8 +1810,23 @@ class HOUSE_OT_generate_auto(Operator):
             [W / (nf + 1) * (i + 1) for i in range(nf)],
             [W / (nb + 1) * (i + 1) for i in range(nb)],
             [L / (ns + 1) * (i + 1) for i in range(ns)],
-            wing_frame=getattr(self, '_wing', None),
-            top_ceiling_z=wall_h - cap, slab_top=FLOOR_THICKNESS)
+            wing_frames=getattr(self, '_wings', []),
+            top_ceiling_z=wall_h - cap, slab_top=FLOOR_THICKNESS,
+            layout=self._get_interior_layout(props, style_config))
+
+        # ✅ v1.5: escalier (si ≥ 2 étages) + portes intérieures
+        il = self._get_interior_layout(props, style_config)
+        interiors.build_staircase(props, collection, il, fha,
+                                  FLOOR_THICKNESS, props.architectural_style)
+        interiors.build_interior_doors(props, collection, il, fha,
+                                       FLOOR_THICKNESS)
+
+        # ✅ v1.5: doublage intérieur peint (réservations aux ouvertures)
+        interiors.build_wall_liners(
+            props, collection, self._get_wall_depth(props),
+            self._calculate_openings_for_brick_walls(props),
+            fha, wall_h - cap, FLOOR_THICKNESS,
+            wing_frames=getattr(self, '_wings', []))
 
     def _generate_foundation(self, context, props, collection):
         """Génère les fondations visuelles (socle béton/pierre)
@@ -1906,6 +2019,9 @@ class HOUSE_OT_generate_auto(Operator):
         h, pitch, _peak, _el, _er, o_eave, o_rake = self._roof_metrics(props)
         features.build_roof_carpentry(props, collection, h, pitch, o_eave, o_rake,
                                       tile_color=tuple(props.tile_color)[:3])
+        # ✅ v1.5: fenêtres de toit (velux) — tuiles exclues par calepinage partagé
+        if getattr(props, 'include_roof_windows', False):
+            features.build_roof_windows(props, collection, h, pitch, o_eave, o_rake)
 
     def _generate_roof_tiles(self, context, props, collection):
         """✅ Couverture en tuiles instanciées (GN) — GABLE/SHED"""
@@ -2077,9 +2193,51 @@ class HOUSE_OT_mark_assets(bpy.types.Operator):
         return {'FINISHED'}
 
 
+class HOUSE_OT_export_assets(bpy.types.Operator):
+    """✅ v1.5: exporte les menuiseries marquées dans un .blend de
+    BIBLIOTHÈQUE D'ASSETS prêt à distribuer/brancher dans les
+    Préférences > Chemins de fichiers > Asset Libraries."""
+    bl_idname = "house.export_asset_library"
+    bl_label = "Exporter la bibliothèque d'assets (.blend)"
+    bl_description = ("Marque les menuiseries comme assets puis les écrit "
+                      "dans un fichier .blend de bibliothèque réutilisable")
+
+    filepath: bpy.props.StringProperty(subtype='FILE_PATH',
+                                       default="house_assets.blend")
+    filter_glob: bpy.props.StringProperty(default="*.blend", options={'HIDDEN'})
+
+    def invoke(self, context, event):
+        if not self.filepath:
+            self.filepath = "house_assets.blend"
+        context.window_manager.fileselect_add(self)
+        return {'RUNNING_MODAL'}
+
+    def execute(self, context):
+        bpy.ops.house.mark_assets()
+        ids = {o for o in bpy.data.objects if o.asset_data}
+        # inclure les matériaux/mesh liés (écrits automatiquement comme
+        # dépendances par libraries.write)
+        if not ids:
+            self.report({'WARNING'}, "Aucun asset à exporter — générez "
+                                     "d'abord une maison")
+            return {'CANCELLED'}
+        fp = self.filepath
+        if not fp.lower().endswith('.blend'):
+            fp += '.blend'
+        try:
+            bpy.data.libraries.write(fp, ids, fake_user=True)
+        except Exception as e:
+            self.report({'ERROR'}, f"Écriture échouée: {e}")
+            return {'CANCELLED'}
+        self.report({'INFO'}, f"{len(ids)} asset(s) exportés → {fp}")
+        print(f"[House] ✓ Bibliothèque d'assets écrite: {fp} ({len(ids)} objets)")
+        return {'FINISHED'}
+
+
 classes = (
     HOUSE_OT_generate_auto,
     HOUSE_OT_mark_assets,
+    HOUSE_OT_export_assets,
 )
 
 

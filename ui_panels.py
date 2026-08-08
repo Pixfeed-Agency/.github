@@ -74,6 +74,7 @@ class HOUSE_PT_main_panel(Panel):
         # ✅ ASSETS: menuiseries réutilisables via l'Asset Browser
         layout.separator()
         layout.operator("house.mark_assets", icon='ASSET_MANAGER')
+        layout.operator("house.export_asset_library", icon='EXPORT')
     
     def draw_manual_mode(self, context, layout, props):
         """Interface pour le mode manuel"""
@@ -136,6 +137,11 @@ class HOUSE_PT_roof_panel(Panel):
             col.prop(props, "tile_color", text="Couleur tuiles")
         col.prop(props, "include_gutters", text="Gouttières")
         col.prop(props, "include_chimney", text="Cheminée")
+        col.prop(props, "include_roof_windows", text="Fenêtres de toit")
+        if props.include_roof_windows:
+            col.prop(props, "num_roof_windows", text="Nombre")
+            if props.roof_type != 'GABLE':
+                col.label(text="Toit GABLE requis", icon='ERROR')
 
         # ✅ UX: Avertir DANS l'UI quand la pente sera clampée à la plage
         # normative du type de toit (avant: clamp silencieux, console only)
@@ -393,6 +399,8 @@ class HOUSE_PT_elements_panel(Panel):
         # ✅ INTÉRIEURS
         box = layout.box()
         box.prop(props, "include_interiors", text="Intérieurs (plafonds, cloisons)", toggle=True)
+        if props.include_interiors:
+            box.prop(props, "interior_wall_color", text="Peinture murs")
 
         # ✅ MULTI-VOLUMES: aile en L (module volumes.py)
         box = layout.box()
@@ -403,6 +411,15 @@ class HOUSE_PT_elements_panel(Panel):
             col.prop(props, "wing_width", text="Largeur")
             col.prop(props, "wing_depth", text="Profondeur")
             col.prop(props, "wing_offset", text="Position")
+            col.prop(props, "wing_floors", text="Étages")
+            box.prop(props, "include_wing2", text="Seconde aile (T/U)", toggle=True)
+            if props.include_wing2:
+                col = box.column(align=True)
+                col.prop(props, "wing2_side", text="Côté")
+                col.prop(props, "wing2_width", text="Largeur")
+                col.prop(props, "wing2_depth", text="Profondeur")
+                col.prop(props, "wing2_offset", text="Position")
+                col.prop(props, "wing2_floors", text="Étages")
             if props.roof_type != 'GABLE':
                 box.label(text="Toit GABLE requis pour l'aile", icon='ERROR')
 

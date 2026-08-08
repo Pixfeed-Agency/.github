@@ -1,5 +1,56 @@
 # Changelog — House Generator
 
+## v1.5.0 — Toits complets, plans T/U, escalier, doublage, velux, bibliothèque d'assets
+
+**Chaque bloc validé au rendu Cycles headless.**
+
+### ① Toits HIP et MANSARDE enfin complets
+- **HIP**: tuiles sur les 4 pans avec coupes d'ARÊTIERS exactes (45° en
+  plan, pentes égales), arêtiers + faîtière demi-ronds, gouttières
+  périphériques (déjà en place) — plus de dalle nue
+- **MANSARDE (gambrel)**: tuiles sur les 4 surfaces (2 brisis 68° +
+  2 terrassons), FAÎTIÈRE + MEMBRONS aux cassures, et surtout **pignons
+  MAÇONNÉS suivant le profil en W** (briques coupées le long des deux
+  rampants) — fini la maison ouverte aux pignons; pignons fermés aussi
+  en mode murs simples
+- Bug corrigé au passage: le `else` de la couverture GABLE attrapait
+  HIP/GAMBREL et superposait un champ de tuiles fantôme
+
+### ③ Ailes à ÉTAGES + SECONDE AILE (plans en T et U)
+- `wing_floors` / `wing2_floors`: aile de 1 à 3 étages (clampée aux
+  étages de la maison — noues seulement à égouts alignés, sinon
+  appentis, règle affichée)
+- **Seconde aile** avec ses propres côté/dimensions/position →
+  plans en T et en U; contrôle de NON-CHEVAUCHEMENT des emprises
+- Fenêtres de l'aile PAR ÉTAGE, plafonds/sols de l'aile par étage
+
+### ④ ESCALIER automatique + PORTES INTÉRIEURES
+- Dès 2 étages: volée droite (giron 25cm, hauteur ≈ 17-18cm) le long du
+  refend, **TRÉMIE découpée dans les dalles ET les plafonds**, position
+  du passage de porte déplacée automatiquement hors de la volée
+- **Styles intelligents**: BOIS (marches à nez + contremarches + limons
+  + garde-corps bois) en Traditionnel/Méditerranéen; **BÉTON + garde-corps
+  métal fin** en Moderne/Contemporain/Asiatique
+- **Portes intérieures** posées dans les passages des cloisons à chaque
+  étage (battants articulés)
+
+### ⑤ DOUBLAGE INTÉRIEUR PEINT
+- Panneaux plâtre (3.5cm) côté intérieur des murs extérieurs ET des
+  ailes, **réservations exactes** aux fenêtres/portes/passages (liste
+  d'ouvertures partagée avec la maçonnerie), couleur au choix
+  (`Peinture murs`) — fini la brique apparente involontaire; les
+  tableaux de fenêtres restent en brique (retour naturel)
+
+### ⑥ FENÊTRES DE TOIT (velux)
+- Option `Fenêtres de toit` (1-4) sur le pan visible des toits GABLE:
+  cadre + vitrage + solin zinc périphérique, **tuiles exclues de
+  l'emprise** par calepinage partagé (aucun chevauchement)
+
+### ⑦ BIBLIOTHÈQUE D'ASSETS
+- Bouton **« Exporter la bibliothèque d'assets (.blend) »**: marque les
+  menuiseries puis écrit un .blend de bibliothèque (dépendances
+  incluses) prêt à brancher dans Préférences > Asset Libraries
+
 ## v1.4.1 — Peinture/PBR validés, cheminée V2, Asset Browser
 
 ### 🎨 Finitions de façade au choix (validé au rendu)

@@ -248,6 +248,23 @@ class HouseGeneratorProperties(PropertyGroup):
         update=regenerate_house
     )
 
+    include_roof_windows: BoolProperty(
+        name="Fenêtres de toit",
+        description="Fenêtres de toit (type velux) sur le pan visible "
+                    "(toit GABLE)",
+        default=False,
+        update=regenerate_house
+    )
+
+    num_roof_windows: IntProperty(
+        name="Nombre de fenêtres de toit",
+        description="Nombre de fenêtres de toit sur le pan",
+        default=2,
+        min=1,
+        max=4,
+        update=regenerate_house
+    )
+
     include_shutters: BoolProperty(
         name="Volets",
         description="Ajouter des volets battants de part et d'autre des fenêtres",
@@ -453,6 +470,16 @@ class HouseGeneratorProperties(PropertyGroup):
         update=regenerate_house
     )
     
+    interior_wall_color: FloatVectorProperty(
+        name="Couleur murs intérieurs",
+        description="Peinture du doublage intérieur des murs extérieurs",
+        subtype='COLOR',
+        size=3,
+        default=(0.87, 0.85, 0.80),
+        min=0.0, max=1.0,
+        update=regenerate_house
+    )
+
     include_interiors: BoolProperty(
         name="Intérieurs",
         description="Plafonds en plâtre, cloisons de distribution avec "
@@ -514,6 +541,60 @@ class HouseGeneratorProperties(PropertyGroup):
         min=0.0,
         max=20.0,
         unit='LENGTH',
+        update=regenerate_house
+    )
+
+    wing_floors: IntProperty(
+        name="Étages de l'aile",
+        description="Nombre d'étages de l'aile (limité aux étages de la "
+                    "maison — noues seulement à égouts alignés)",
+        default=1,
+        min=1,
+        max=3,
+        update=regenerate_house
+    )
+
+    include_wing2: BoolProperty(
+        name="Seconde aile (plans en T/U)",
+        description="Deuxième volume accolé — permet les plans en T et en U",
+        default=False,
+        update=regenerate_house
+    )
+
+    wing2_side: EnumProperty(
+        name="Côté aile 2",
+        description="Façade de la seconde aile",
+        items=[
+            ('FRONT', "Avant", ""),
+            ('BACK', "Arrière", ""),
+            ('LEFT', "Gauche", ""),
+            ('RIGHT', "Droite", ""),
+        ],
+        default='BACK',
+        update=regenerate_house
+    )
+
+    wing2_width: FloatProperty(
+        name="Largeur aile 2",
+        default=4.0, min=2.0, max=12.0, unit='LENGTH',
+        update=regenerate_house
+    )
+
+    wing2_depth: FloatProperty(
+        name="Profondeur aile 2",
+        default=3.5, min=1.5, max=10.0, unit='LENGTH',
+        update=regenerate_house
+    )
+
+    wing2_offset: FloatProperty(
+        name="Position aile 2",
+        default=0.0, min=0.0, max=20.0, unit='LENGTH',
+        update=regenerate_house
+    )
+
+    wing2_floors: IntProperty(
+        name="Étages de l'aile 2",
+        default=1, min=1, max=3,
         update=regenerate_house
     )
 
