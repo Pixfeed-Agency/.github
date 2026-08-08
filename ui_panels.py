@@ -174,6 +174,12 @@ class HOUSE_PT_walls_panel(Panel):
             box.separator()
             box.label(text="Qualité géométrie 3D:", icon='MESH_GRID')
             box.prop(props, "brick_3d_quality", text="")
+
+            # ✅ NOUVEAU: Moteur Geometry Nodes (1 objet au lieu de milliers)
+            box.separator()
+            box.prop(props, "brick_use_geonodes", text="Moteur Geometry Nodes", toggle=True)
+            if props.brick_use_geonodes:
+                box.label(text="1 objet, viewport fluide", icon='GEOMETRY_NODES')
             
             total_height = props.num_floors * props.floor_height
             brick_count_approx = int((props.house_width * 2 + props.house_length * 2) * total_height / 0.014)

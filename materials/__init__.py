@@ -18,11 +18,12 @@ brick_geometry.py, jamais appelé, avec des imports cassés
 """
 
 from . import brick_geometry
+from . import brick_geonodes
 from . import pbr_scanner
 from . import presets
 
 # Liste des modules de matériaux
-__all__ = ['brick_geometry', 'pbr_scanner', 'presets']
+__all__ = ['brick_geometry', 'brick_geonodes', 'pbr_scanner', 'presets']
 
 
 def register():

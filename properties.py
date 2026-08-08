@@ -545,6 +545,18 @@ class HouseGeneratorProperties(PropertyGroup):
         type=bpy.types.Material
     )
 
+    # ✅ NOUVEAU MOTEUR: Geometry Nodes (1 objet au lieu de milliers)
+    brick_use_geonodes: BoolProperty(
+        name="Moteur Geometry Nodes",
+        description=(
+            "Instancie les briques via Geometry Nodes: 1 seul objet au lieu "
+            "de milliers, viewport fluide, mémoire minimale. "
+            "Même rendu visuel que le moteur classique"
+        ),
+        default=False,
+        update=regenerate_house
+    )
+
     # ✅ NOUVELLE PROPRIÉTÉ: Couleur du mortier personnalisable
     mortar_color: FloatVectorProperty(
         name="Couleur mortier",

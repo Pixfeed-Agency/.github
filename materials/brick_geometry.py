@@ -98,6 +98,257 @@ def generate_house_walls_bricks(
     )
 
 
+def create_brick_master(collection, quality, brick_material_mode='PRESET',
+                        brick_color=None, brick_preset='BRICK_RED',
+                        custom_material=None, mortar_color=None):
+    """✅ REFACTOR: Crée la brique maître avec ses 2 matériaux (partagé
+    entre le moteur instancing et le moteur Geometry Nodes)
+
+    Slot 0 = Matériau brique, Slot 1 = Matériau mortier
+    """
+    print("\n[BrickGeometry] Création de la brique maître...")
+
+    brick_master = create_single_brick_mesh(quality)
+    brick_master.name = "Brick_Master"
+
+    # IMPORTANT : Linker AVANT de cacher
+    collection.objects.link(brick_master)
+    # ✅ FIX: hide_viewport (niveau datablock) au lieu de hide_set qui lève
+    # RuntimeError si la collection n'est pas dans le view layer actif
+    brick_master.hide_viewport = True
+    brick_master.hide_render = True
+
+    # Obtenir le matériau brique
+    if brick_material_mode == 'COLOR':
+        brick_mat = create_brick_material_solid_color(brick_color)
+    elif brick_material_mode == 'PRESET':
+        brick_mat = create_brick_material_preset(brick_preset)
+    elif brick_material_mode == 'CUSTOM' and custom_material:
+        brick_mat = custom_material
+    else:
+        # Fallback
+        brick_mat = create_brick_material_preset('BRICK_RED')
+
+    # Obtenir le matériau mortier avec couleur personnalisable
+    mortar_mat = create_mortar_material(color=mortar_color)
+
+    # Assigner les matériaux aux slots
+    brick_master.data.materials.clear()
+    brick_master.data.materials.append(brick_mat)   # Slot 0
+    brick_master.data.materials.append(mortar_mat)  # Slot 1
+
+    print(f"[BrickGeometry] ✓ Brique maître créée: {BRICK_LENGTH*100:.1f}cm x {BRICK_DEPTH*100:.1f}cm x {BRICK_HEIGHT*100:.1f}cm")
+    print(f"[BrickGeometry] ✓ Matériau appliqué: {brick_material_mode}")
+
+    return brick_master
+
+
+def compute_real_wall_height(total_height):
+    """✅ Hauteur RÉELLE des murs = nombre entier de rangées de briques.
+    Helper UNIQUE (le calcul était dupliqué à 3 endroits)."""
+    num_rows = int(total_height / (BRICK_HEIGHT + MORTAR_GAP))
+    return num_rows * (BRICK_HEIGHT + MORTAR_GAP), num_rows
+
+
+def compute_all_brick_positions(house_width, house_length, total_height,
+                                openings=None, roof_type='GABLE',
+                                roof_pitch=35.0, bonding_pattern='RUNNING'):
+    """✅ REFACTOR: Calcule TOUTES les positions de briques (4 murs adaptés
+    au toit + linteaux) — logique PARTAGÉE entre le moteur instancing et
+    le moteur Geometry Nodes.
+
+    Returns:
+        list[(Vector, Euler)]: positions et rotations de chaque brique
+    """
+    # ✅ FIX COHÉRENCE: Le TOIT est posé à la hauteur RÉELLE des murs
+    # (nombre entier de rangées, jusqu'à 7.6cm sous la hauteur demandée).
+    # Toutes les collisions briques/toit doivent utiliser cette MÊME base,
+    # sinon les briques du haut peuvent mordre la dalle de ~5cm.
+    roof_base, _rows = compute_real_wall_height(total_height)
+
+    # ✅ ROOF-AWARE: Calculer les hauteurs/formes des murs selon le toit
+    # (math importé au niveau module)
+    if roof_type == 'SHED':
+        pitch_rad = math.radians(roof_pitch)
+        roof_height = house_width * math.tan(pitch_rad)
+        print(f"[BrickGeometry] ✓ SHED ROOF: hauteur additionnelle = {roof_height:.3f}m (pente {roof_pitch}°)")
+    else:
+        roof_height = 0
+
+    # ✅ NOUVEAU: PIGNONS MAÇONNÉS sous toit GABLE — les murs pignons
+    # suivent le triangle du toit (le faîtage court le long de la plus
+    # grande dimension, même logique que _create_gable_roof)
+    gable_ridge_along_y = house_length >= house_width
+    if roof_type == 'GABLE':
+        pitch_rad = math.radians(roof_pitch)
+        if gable_ridge_along_y:
+            gable_peak = (house_width / 2) * math.tan(pitch_rad)
+            print(f"[BrickGeometry] ✓ GABLE: pignons avant/arrière maçonnés (faîtage +{gable_peak:.2f}m)")
+        else:
+            gable_peak = (house_length / 2) * math.tan(pitch_rad)
+            print(f"[BrickGeometry] ✓ GABLE: pignons gauche/droit maçonnés (faîtage +{gable_peak:.2f}m)")
+    else:
+        gable_peak = 0
+
+    # ✅ Pour les toits en pente, les murs SOUS LES ÉGOUTS s'arrêtent sous
+    # la face inférieure de la dalle (sinon ils la transpercent aux égouts)
+    pitched = roof_type in ('GABLE', 'HIP', 'GAMBREL', 'SHED')
+    eave_capped_height = roof_base - (ROOF_GAP if pitched else 0)
+
+    print("\n[BrickGeometry] Calcul des positions des briques...")
+
+    # Calculer les positions de toutes les briques pour les 4 murs
+    brick_positions = []
+
+    # MUR AVANT (Y=0)
+    print("[BrickGeometry] → Mur AVANT (façade)...")
+    front_openings = [o for o in (openings or []) if o.get('wall') == 'front']
+    if roof_type == 'SHED':
+        # Hauteur variable selon X (rampant monopente)
+        front_positions = calculate_brick_positions_for_wall_sloped(
+            house_width, roof_base, roof_height,
+            start_pos=Vector((0, 0, 0)),
+            direction='X',
+            openings=front_openings,
+            bonding_pattern=bonding_pattern
+        )
+    elif roof_type == 'GABLE' and gable_ridge_along_y:
+        # ✅ Pignon triangulaire maçonné
+        front_positions = calculate_brick_positions_for_wall_gable(
+            house_width, roof_base, gable_peak,
+            start_pos=Vector((0, 0, 0)),
+            direction='X',
+            openings=front_openings,
+            bonding_pattern=bonding_pattern
+        )
+    else:
+        front_positions = calculate_brick_positions_for_wall(
+            house_width, eave_capped_height,
+            start_pos=Vector((0, 0, 0)),
+            direction='X',
+            openings=front_openings,
+            bonding_pattern=bonding_pattern
+        )
+    brick_positions.extend(front_positions)
+    print(f"[BrickGeometry]   {len(front_positions)} briques")
+
+    # MUR ARRIÈRE (Y=length)
+    # ✅ FIX: Décaler le départ vers l'INTÉRIEUR — à y=house_length, les
+    # briques (épaisseur 11.2cm) débordaient hors de l'emprise de la maison
+    print("[BrickGeometry] → Mur ARRIÈRE...")
+    back_start = Vector((0, house_length - (BRICK_DEPTH + MORTAR_GAP), 0))
+    back_openings = [o for o in (openings or []) if o.get('wall') == 'back']
+    if roof_type == 'SHED':
+        back_positions = calculate_brick_positions_for_wall_sloped(
+            house_width, roof_base, roof_height,
+            start_pos=back_start,
+            direction='X',
+            openings=back_openings,
+            bonding_pattern=bonding_pattern
+        )
+    elif roof_type == 'GABLE' and gable_ridge_along_y:
+        back_positions = calculate_brick_positions_for_wall_gable(
+            house_width, roof_base, gable_peak,
+            start_pos=back_start,
+            direction='X',
+            openings=back_openings,
+            bonding_pattern=bonding_pattern
+        )
+    else:
+        back_positions = calculate_brick_positions_for_wall(
+            house_width, eave_capped_height,
+            start_pos=back_start,
+            direction='X',
+            openings=back_openings,
+            bonding_pattern=bonding_pattern
+        )
+    brick_positions.extend(back_positions)
+    print(f"[BrickGeometry]   {len(back_positions)} briques")
+
+    # MUR GAUCHE (X=0)
+    print("[BrickGeometry] → Mur GAUCHE...")
+    left_openings = [o for o in (openings or []) if o.get('wall') == 'left']
+    # ✅ FIX: La rotation 90° projette l'épaisseur de la brique vers -X ;
+    # partir de x=BRICK_DEPTH+MORTAR_GAP garde le mur DANS l'emprise
+    left_start = Vector((BRICK_DEPTH + MORTAR_GAP, 0, 0))
+    if roof_type == 'GABLE' and not gable_ridge_along_y:
+        # ✅ Pignon maçonné côté gauche (faîtage le long de X)
+        left_positions = calculate_brick_positions_for_wall_gable(
+            house_length, roof_base, gable_peak,
+            start_pos=left_start,
+            direction='Y',
+            openings=left_openings,
+            bonding_pattern=bonding_pattern
+        )
+    else:
+        # SHED: côté bas → sous la dalle; autres toits en pente: idem
+        left_positions = calculate_brick_positions_for_wall(
+            house_length, eave_capped_height,
+            start_pos=left_start,
+            direction='Y',
+            openings=left_openings,
+            bonding_pattern=bonding_pattern
+        )
+    brick_positions.extend(left_positions)
+    print(f"[BrickGeometry]   {len(left_positions)} briques")
+
+    # MUR DROIT (X=width)
+    print("[BrickGeometry] → Mur DROIT...")
+    right_openings = [o for o in (openings or []) if o.get('wall') == 'right']
+    if roof_type == 'SHED':
+        # Monopente: mur haut, sous la dalle
+        right_wall_height = roof_base + roof_height - ROOF_GAP
+        print(f"[BrickGeometry]   Hauteur adaptée (sous dalle toit): {right_wall_height:.3f}m")
+        right_positions = calculate_brick_positions_for_wall(
+            house_length, right_wall_height,
+            start_pos=Vector((house_width, 0, 0)),
+            direction='Y',
+            openings=right_openings,
+            bonding_pattern=bonding_pattern
+        )
+    elif roof_type == 'GABLE' and not gable_ridge_along_y:
+        right_positions = calculate_brick_positions_for_wall_gable(
+            house_length, roof_base, gable_peak,
+            start_pos=Vector((house_width, 0, 0)),
+            direction='Y',
+            openings=right_openings,
+            bonding_pattern=bonding_pattern
+        )
+    else:
+        right_positions = calculate_brick_positions_for_wall(
+            house_length, eave_capped_height,
+            start_pos=Vector((house_width, 0, 0)),
+            direction='Y',
+            openings=right_openings,
+            bonding_pattern=bonding_pattern
+        )
+    brick_positions.extend(right_positions)
+    print(f"[BrickGeometry]   {len(right_positions)} briques")
+
+    # ✅ NOUVEAU: Calculer les lintaux au-dessus des ouvertures
+    print("\n[BrickGeometry] Calcul des lintaux (briques de support au-dessus des ouvertures)...")
+
+    # Lintaux pour chaque mur (avec vérification collision toit)
+    front_lintels = calculate_lintel_positions(openings, 'front', house_width, house_length, roof_type, roof_pitch, roof_base)
+    brick_positions.extend(front_lintels)
+
+    back_lintels = calculate_lintel_positions(openings, 'back', house_width, house_length, roof_type, roof_pitch, roof_base)
+    brick_positions.extend(back_lintels)
+
+    left_lintels = calculate_lintel_positions(openings, 'left', house_width, house_length, roof_type, roof_pitch, roof_base)
+    brick_positions.extend(left_lintels)
+
+    right_lintels = calculate_lintel_positions(openings, 'right', house_width, house_length, roof_type, roof_pitch, roof_base)
+    brick_positions.extend(right_lintels)
+
+    total_lintels = len(front_lintels) + len(back_lintels) + len(left_lintels) + len(right_lintels)
+    print(f"[BrickGeometry] ✓ {total_lintels} briques de linteau ajoutées")
+
+    print(f"\n[BrickGeometry] Total positions calculées: {len(brick_positions)}")
+
+    return brick_positions
+
+
 def generate_walls_with_instancing(
     house_width,
     house_length,
@@ -116,171 +367,22 @@ def generate_walls_with_instancing(
 ):
     """Génère les murs avec instancing pour optimiser les performances
 
-    Pour SHED roof: adapte les hauteurs des murs
-    - Mur GAUCHE (X=0): hauteur normale
-    - Mur DROIT (X=width): hauteur + roof_height
-    - Murs AVANT/ARRIÈRE: hauteur variable (triangle/escalier)
+    Murs adaptés au toit: rampants SHED, pignons GABLE maçonnés,
+    murs capés sous les égouts pour tous les toits en pente.
     """
-    
+
     walls = []
-    
-    print("\n[BrickGeometry] Création de la brique maître...")
-    
-    # ✅ MODIFIÉ : Passer quality en paramètre
-    brick_master = create_single_brick_mesh(quality)
-    brick_master.name = "Brick_Master"
-    
-    # IMPORTANT : Linker AVANT de cacher
-    collection.objects.link(brick_master)
-    # ✅ FIX: hide_viewport (niveau datablock) au lieu de hide_set qui lève
-    # RuntimeError si la collection n'est pas dans le view layer actif
-    brick_master.hide_viewport = True
-    brick_master.hide_render = True
 
-    # ✅ APPLIQUER LES 2 MATÉRIAUX À LA BRIQUE MAÎTRE
-    # Slot 0 = Matériau brique
-    # Slot 1 = Matériau mortier
+    brick_master = create_brick_master(
+        collection, quality, brick_material_mode, brick_color,
+        brick_preset, custom_material, mortar_color)
 
-    # Obtenir le matériau brique
-    if brick_material_mode == 'COLOR':
-        brick_mat = create_brick_material_solid_color(brick_color)
-    elif brick_material_mode == 'PRESET':
-        brick_mat = create_brick_material_preset(brick_preset)
-    elif brick_material_mode == 'CUSTOM' and custom_material:
-        brick_mat = custom_material
-    else:
-        # Fallback
-        brick_mat = create_brick_material_preset('BRICK_RED')
+    # ✅ REFACTOR: Positions calculées par la logique partagée
+    brick_positions = compute_all_brick_positions(
+        house_width, house_length, total_height,
+        openings=openings, roof_type=roof_type,
+        roof_pitch=roof_pitch, bonding_pattern=bonding_pattern)
 
-    # Obtenir le matériau mortier avec couleur personnalisable
-    # ✅ COMPLÉTÉ: Paramètre mortar_color intégré
-    mortar_mat = create_mortar_material(color=mortar_color)
-
-    # Assigner les matériaux aux slots
-    brick_master.data.materials.clear()
-    brick_master.data.materials.append(brick_mat)   # Slot 0
-    brick_master.data.materials.append(mortar_mat)  # Slot 1
-    
-    print(f"[BrickGeometry] ✓ Brique maître créée: {BRICK_LENGTH*100:.1f}cm x {BRICK_DEPTH*100:.1f}cm x {BRICK_HEIGHT*100:.1f}cm")
-    print(f"[BrickGeometry] ✓ Matériau appliqué: {brick_material_mode}")
-
-    # ✅ SHED ROOF: Calculer les hauteurs variables des murs
-    # (math importé au niveau module)
-    if roof_type == 'SHED':
-        pitch_rad = math.radians(roof_pitch)
-        roof_height = house_width * math.tan(pitch_rad)
-        print(f"[BrickGeometry] ✓ SHED ROOF: hauteur additionnelle = {roof_height:.3f}m (pente {roof_pitch}°)")
-    else:
-        roof_height = 0
-
-    print("\n[BrickGeometry] Calcul des positions des briques...")
-
-    # Calculer les positions de toutes les briques pour les 4 murs
-    brick_positions = []
-
-    # MUR AVANT (Y=0) - Pour SHED: hauteur variable de total_height à total_height+roof_height
-    print("[BrickGeometry] → Mur AVANT (façade)...")
-    if roof_type == 'SHED':
-        # Hauteur variable selon X
-        front_positions = calculate_brick_positions_for_wall_sloped(
-            house_width, total_height, roof_height,
-            start_pos=Vector((0, 0, 0)),
-            direction='X',
-            openings=[o for o in (openings or []) if o.get('wall') == 'front'],
-            bonding_pattern=bonding_pattern
-        )
-    else:
-        front_positions = calculate_brick_positions_for_wall(
-            house_width, total_height,
-            start_pos=Vector((0, 0, 0)),
-            direction='X',
-            openings=[o for o in (openings or []) if o.get('wall') == 'front'],
-            bonding_pattern=bonding_pattern
-        )
-    brick_positions.extend(front_positions)
-    print(f"[BrickGeometry]   {len(front_positions)} briques")
-
-    # MUR ARRIÈRE (Y=length) - Pour SHED: hauteur variable
-    # ✅ FIX: Décaler le départ vers l'INTÉRIEUR — à y=house_length, les
-    # briques (épaisseur 11.2cm) débordaient hors de l'emprise de la maison
-    print("[BrickGeometry] → Mur ARRIÈRE...")
-    back_start = Vector((0, house_length - (BRICK_DEPTH + MORTAR_GAP), 0))
-    if roof_type == 'SHED':
-        back_positions = calculate_brick_positions_for_wall_sloped(
-            house_width, total_height, roof_height,
-            start_pos=back_start,
-            direction='X',
-            openings=[o for o in (openings or []) if o.get('wall') == 'back'],
-            bonding_pattern=bonding_pattern
-        )
-    else:
-        back_positions = calculate_brick_positions_for_wall(
-            house_width, total_height,
-            start_pos=back_start,
-            direction='X',
-            openings=[o for o in (openings or []) if o.get('wall') == 'back'],
-            bonding_pattern=bonding_pattern
-        )
-    brick_positions.extend(back_positions)
-    print(f"[BrickGeometry]   {len(back_positions)} briques")
-
-    # MUR GAUCHE (X=0) - Pour SHED: s'arrêter SOUS la face inférieure du toit
-    # (la dalle du toit descend de ROOF_GAP sous la ligne de toit à x=0)
-    print("[BrickGeometry] → Mur GAUCHE...")
-    if roof_type == 'SHED':
-        left_wall_height = total_height - ROOF_GAP
-        print(f"[BrickGeometry]   Hauteur adaptée (sous dalle toit): {left_wall_height:.3f}m")
-    else:
-        left_wall_height = total_height
-    # ✅ FIX: La rotation 90° projette l'épaisseur de la brique vers -X ;
-    # partir de x=BRICK_DEPTH+MORTAR_GAP garde le mur DANS l'emprise
-    left_positions = calculate_brick_positions_for_wall(
-        house_length, left_wall_height,
-        start_pos=Vector((BRICK_DEPTH + MORTAR_GAP, 0, 0)),
-        direction='Y',
-        openings=[o for o in (openings or []) if o.get('wall') == 'left'],
-        bonding_pattern=bonding_pattern
-    )
-    brick_positions.extend(left_positions)
-    print(f"[BrickGeometry]   {len(left_positions)} briques")
-
-    # MUR DROIT (X=width) - Pour SHED: hauteur augmentée MAIS sous la dalle du toit
-    print("[BrickGeometry] → Mur DROIT...")
-    if roof_type == 'SHED':
-        right_wall_height = total_height + roof_height - ROOF_GAP
-        print(f"[BrickGeometry]   Hauteur adaptée (sous dalle toit): {right_wall_height:.3f}m")
-    else:
-        right_wall_height = total_height
-    right_positions = calculate_brick_positions_for_wall(
-        house_length, right_wall_height,
-        start_pos=Vector((house_width, 0, 0)),
-        direction='Y',
-        openings=[o for o in (openings or []) if o.get('wall') == 'right'],
-        bonding_pattern=bonding_pattern
-    )
-    brick_positions.extend(right_positions)
-    print(f"[BrickGeometry]   {len(right_positions)} briques")
-
-    # ✅ NOUVEAU: Calculer les lintaux au-dessus des ouvertures
-    print("\n[BrickGeometry] Calcul des lintaux (briques de support au-dessus des ouvertures)...")
-
-    # Lintaux pour chaque mur (avec vérification collision toit)
-    front_lintels = calculate_lintel_positions(openings, 'front', house_width, house_length, roof_type, roof_pitch, total_height)
-    brick_positions.extend(front_lintels)
-
-    back_lintels = calculate_lintel_positions(openings, 'back', house_width, house_length, roof_type, roof_pitch, total_height)
-    brick_positions.extend(back_lintels)
-
-    left_lintels = calculate_lintel_positions(openings, 'left', house_width, house_length, roof_type, roof_pitch, total_height)
-    brick_positions.extend(left_lintels)
-
-    right_lintels = calculate_lintel_positions(openings, 'right', house_width, house_length, roof_type, roof_pitch, total_height)
-    brick_positions.extend(right_lintels)
-
-    total_lintels = len(front_lintels) + len(back_lintels) + len(left_lintels) + len(right_lintels)
-    print(f"[BrickGeometry] ✓ {total_lintels} briques de linteau ajoutées")
-
-    print(f"\n[BrickGeometry] Total positions calculées: {len(brick_positions)}")
     
     # Créer toutes les instances
     print("\n[BrickGeometry] Création des instances de briques...")
@@ -302,8 +404,7 @@ def generate_walls_with_instancing(
     # Note: Le mortier est maintenant INTÉGRÉ à chaque brique, pas besoin de mortier séparé!
 
     # ✅ FIX : Calculer la hauteur RÉELLE des murs (pour positionner le toit correctement)
-    num_rows = int(total_height / (BRICK_HEIGHT + MORTAR_GAP))
-    real_wall_height = num_rows * (BRICK_HEIGHT + MORTAR_GAP)
+    real_wall_height, num_rows = compute_real_wall_height(total_height)
 
     print("\n" + "="*70)
     print("[BrickGeometry] ✅ MAISON EN BRIQUES GÉNÉRÉE AVEC SUCCÈS!")
@@ -1264,39 +1365,47 @@ def is_mortar_in_opening(mortar_x, mortar_y, mortar_z, mortar_width, mortar_heig
 
 
 def calculate_lintel_positions(openings, wall_type, house_width, house_length, roof_type='GABLE', roof_pitch=35.0, base_height=3.0):
-    """Calcule les positions des lintaux (briques de support) au-dessus des ouvertures
+    """✅ NORMES: Linteaux en COURS DE SOLDATS (briques verticales)
+
+    Un vrai linteau maçonné est un rang de briques debout ("soldier
+    course") au-dessus de l'ouverture — pas des briques couchées empilées
+    (qui ne "portent" rien visuellement et se superposaient aux briques
+    du mur). Rotations validées numériquement:
+      - Murs avant/arrière: Euler (0, -90°, 0)
+          longueur→+Z (0.232m vertical), profondeur→+Y, hauteur→-X
+      - Murs gauche/droit:  Euler (0, -90°, 90°)
+          longueur→+Z, profondeur→-X, hauteur→-Y
 
     Args:
-        openings: Liste des ouvertures avec leurs propriétés
-        wall_type: Type de mur ('front', 'back', 'left', 'right')
-        house_width: Largeur de la maison
-        house_length: Longueur de la maison
-        roof_type: Type de toit (pour vérifier collision)
-        roof_pitch: Pente du toit en degrés
-        base_height: Hauteur de base des murs
+        openings: Liste des ouvertures
+        wall_type: 'front', 'back', 'left', 'right'
+        house_width, house_length: Dimensions de la maison
+        roof_type, roof_pitch: Pour la collision avec la dalle du toit
+        base_height: Hauteur nominale des murs
 
     Returns:
-        Liste de tuples (position, rotation) pour les briques de linteau
+        Liste de (position Vector, rotation Euler) des briques du linteau
     """
     if not openings:
         return []
 
     positions = []
-    LINTEL_OVERHANG = 0.1  # 10cm de dépassement de chaque côté pour support structurel
-    LINTEL_ROWS = 1  # Nombre de rangées de briques pour le linteau
 
-    print(f"[BrickGeometry] Calcul des lintaux pour mur {wall_type}...")
+    print(f"[BrickGeometry] Calcul des linteaux (soldats) pour mur {wall_type}...")
 
-    # ✅ NOUVEAU: Calculer hauteur variable du toit pour SHED roof
-    # (math importé au niveau module)
+    # Variation de hauteur du toit pour SHED (collision dalle)
     roof_height_variation = 0
     if roof_type == 'SHED':
         pitch_rad = math.radians(roof_pitch)
         roof_height_variation = house_width * math.tan(pitch_rad)
-        print(f"[BrickGeometry]   SHED roof détecté: variation hauteur = {roof_height_variation:.3f}m")
+
+    row_h = BRICK_HEIGHT + MORTAR_GAP        # 0.077m: pas de la grille de rangées
+    cell_along = BRICK_HEIGHT + MORTAR_GAP   # 0.077m: emprise d'un soldat le long du mur
+    soldier_h = BRICK_LENGTH + MORTAR_GAP    # 0.232m: hauteur d'un soldat (brique debout)
+
+    wall_span = house_width if wall_type in ('front', 'back') else house_length
 
     for opening in openings:
-        # Ne traiter que les ouvertures du bon mur
         if opening.get('wall') != wall_type:
             continue
 
@@ -1306,168 +1415,64 @@ def calculate_lintel_positions(openings, wall_type, house_width, house_length, r
         opening_width = opening.get('width', 0)
         opening_height = opening.get('height', 0)
 
-        # ✅ FIX: Aligner le linteau sur la GRILLE des rangées de briques.
-        # Un linteau hors-grille se superposait aux briques du mur déjà
-        # présentes au-dessus de l'ouverture (double géométrie interpénétrée).
-        row_height = BRICK_HEIGHT + MORTAR_GAP
-        lintel_row = math.ceil((opening_z + opening_height) / row_height)
-        lintel_z = lintel_row * row_height
+        # ✅ Aligné sur la grille des rangées du mur
+        lintel_row = math.ceil((opening_z + opening_height) / row_h)
+        lintel_z = lintel_row * row_h
+        lintel_top = lintel_z + soldier_h
 
-        # Déterminer la direction et les positions selon le type de mur
-        if wall_type == 'front':
-            # Mur avant: briques le long de X
-            lintel_start_x = max(0, opening_x - LINTEL_OVERHANG)
-            lintel_end_x = min(house_width, opening_x + opening_width + LINTEL_OVERHANG)
-            lintel_length = lintel_end_x - lintel_start_x
+        # Coordonnée le long du mur (x pour front/back, y pour left/right)
+        along_start = opening_x if wall_type in ('front', 'back') else opening_y
+        lintel_start = max(0, along_start - LINTEL_OVERHANG)
+        lintel_end = min(wall_span, along_start + opening_width + LINTEL_OVERHANG)
 
-            # Calculer le nombre de briques nécessaires
-            num_bricks = int(lintel_length / (BRICK_LENGTH + MORTAR_GAP)) + 1
+        # ✅ Clamp au sommet du mur (toits non-SHED): si le soldat ne tient
+        # pas sous le sommet, pas de linteau (ouverture proche du plafond)
+        if roof_type != 'SHED' and lintel_top > base_height + 0.001:
+            print(f"[BrickGeometry]   Linteau omis (dépasserait le mur: {lintel_top:.2f}m > {base_height:.2f}m)")
+            continue
 
-            for row in range(LINTEL_ROWS):
-                z = lintel_z + row * (BRICK_HEIGHT + MORTAR_GAP)
-                for i in range(num_bricks):
-                    x = lintel_start_x + i * (BRICK_LENGTH + MORTAR_GAP)
+        # Clamp dalle SHED pour les murs latéraux (hauteur constante par mur)
+        if roof_type == 'SHED' and wall_type == 'left':
+            if lintel_top > base_height - ROOF_GAP:
+                continue
+        if roof_type == 'SHED' and wall_type == 'right':
+            if lintel_top > base_height + roof_height_variation - ROOF_GAP:
+                continue
 
-                    # Ne pas dépasser les limites
-                    if x + BRICK_LENGTH > lintel_end_x:
-                        continue
+        num_bricks = int((lintel_end - lintel_start) / cell_along) + 1
 
-                    # ✅ FIX: brick_top inclut le mortier intégré de la brique maître
-                    brick_top = z + BRICK_HEIGHT + MORTAR_GAP
+        for i in range(num_bricks):
+            coord = lintel_start + i * cell_along
+            if coord + cell_along > lintel_end + 0.001:
+                continue
 
-                    # ✅ FIX: Clamp au sommet du mur pour TOUS les toits
-                    # (les linteaux flottaient au-dessus du mur en GABLE/FLAT)
-                    if roof_type != 'SHED' and brick_top > base_height + 0.001:
-                        continue
-
-                    # ✅ FIX: Vérifier collision avec la FACE INFÉRIEURE du toit (dalle épaisse)
-                    if roof_type == 'SHED':
-                        ratio = x / house_width if house_width > 0 else 0
-                        roof_bottom_at_pos = base_height + (roof_height_variation * ratio) - ROOF_GAP
-
-                        # Si le linteau atteint la dalle du toit, skip
-                        if brick_top > roof_bottom_at_pos:
-                            continue
-
-                    pos = Vector((x, 0, z))
-                    rot = Euler((0, 0, 0), 'XYZ')
-                    positions.append((pos, rot))
-
-        elif wall_type == 'back':
-            # Mur arrière: briques le long de X
-            lintel_start_x = max(0, opening_x - LINTEL_OVERHANG)
-            lintel_end_x = min(house_width, opening_x + opening_width + LINTEL_OVERHANG)
-            lintel_length = lintel_end_x - lintel_start_x
-
-            num_bricks = int(lintel_length / (BRICK_LENGTH + MORTAR_GAP)) + 1
-
-            for row in range(LINTEL_ROWS):
-                z = lintel_z + row * (BRICK_HEIGHT + MORTAR_GAP)
-                for i in range(num_bricks):
-                    x = lintel_start_x + i * (BRICK_LENGTH + MORTAR_GAP)
-
-                    if x + BRICK_LENGTH > lintel_end_x:
-                        continue
-
-                    # ✅ FIX: brick_top inclut le mortier intégré
-                    brick_top = z + BRICK_HEIGHT + MORTAR_GAP
-
-                    # ✅ FIX: Clamp au sommet du mur pour tous les toits
-                    if roof_type != 'SHED' and brick_top > base_height + 0.001:
-                        continue
-
-                    # ✅ FIX: Vérifier collision avec la FACE INFÉRIEURE du toit (dalle épaisse)
-                    if roof_type == 'SHED':
-                        ratio = x / house_width if house_width > 0 else 0
-                        roof_bottom_at_pos = base_height + (roof_height_variation * ratio) - ROOF_GAP
-
-                        # Si le linteau atteint la dalle du toit, skip
-                        if brick_top > roof_bottom_at_pos:
-                            continue
-
-                    # ✅ FIX: Aligné sur le mur arrière (décalé vers l'intérieur)
-                    pos = Vector((x, house_length - (BRICK_DEPTH + MORTAR_GAP), z))
-                    rot = Euler((0, 0, 0), 'XYZ')
-                    positions.append((pos, rot))
-
-        elif wall_type == 'left':
-            # Mur gauche: briques le long de Y (tournées à 90°)
-            # ✅ FIX: Espacement = BRICK_LENGTH (la rotation 90° aligne la
-            # LONGUEUR de la brique le long du mur — BRICK_DEPTH faisait se
-            # chevaucher les briques du linteau)
-            lintel_start_y = max(0, opening_y - LINTEL_OVERHANG)
-            lintel_end_y = min(house_length, opening_y + opening_width + LINTEL_OVERHANG)
-            lintel_length = lintel_end_y - lintel_start_y
-
-            num_bricks = int(lintel_length / (BRICK_LENGTH + MORTAR_GAP)) + 1
-
-            for row in range(LINTEL_ROWS):
-                z = lintel_z + row * (BRICK_HEIGHT + MORTAR_GAP)
-
-                # ✅ FIX: brick_top inclut le mortier intégré
-                brick_top = z + BRICK_HEIGHT + MORTAR_GAP
-
-                # ✅ FIX: Clamp au sommet du mur pour tous les toits
-                if roof_type != 'SHED' and brick_top > base_height + 0.001:
+            # Clamp dalle SHED par position pour les murs avant/arrière
+            # (le toit monte avec x — vérifier au début du soldat, côté bas)
+            if roof_type == 'SHED' and wall_type in ('front', 'back'):
+                ratio = coord / house_width if house_width > 0 else 0
+                roof_bottom = base_height + roof_height_variation * ratio - ROOF_GAP
+                if lintel_top > roof_bottom:
                     continue
 
-                # ✅ FIX: Face inférieure de la dalle du toit (mur gauche = côté bas)
-                if roof_type == 'SHED':
-                    roof_bottom_at_left = base_height - ROOF_GAP
+            if wall_type == 'front':
+                # Occupe x∈[pos-0.077, pos], y∈[pos, pos+0.112]
+                pos = Vector((coord + cell_along, 0, lintel_z))
+                rot = Euler((0, math.radians(-90), 0), 'XYZ')
+            elif wall_type == 'back':
+                # Aligné sur le mur arrière (décalé vers l'intérieur)
+                pos = Vector((coord + cell_along, house_length - (BRICK_DEPTH + MORTAR_GAP), lintel_z))
+                rot = Euler((0, math.radians(-90), 0), 'XYZ')
+            elif wall_type == 'left':
+                # Occupe x∈[pos-0.112, pos], y∈[pos-0.077, pos]
+                pos = Vector((BRICK_DEPTH + MORTAR_GAP, coord + cell_along, lintel_z))
+                rot = Euler((0, math.radians(-90), math.radians(90)), 'XYZ')
+            else:  # right
+                pos = Vector((house_width, coord + cell_along, lintel_z))
+                rot = Euler((0, math.radians(-90), math.radians(90)), 'XYZ')
 
-                    # Si le linteau atteint la dalle du toit, skip cette rangée
-                    if brick_top > roof_bottom_at_left:
-                        continue
+            positions.append((pos, rot))
 
-                for i in range(num_bricks):
-                    y = lintel_start_y + i * (BRICK_LENGTH + MORTAR_GAP)
-
-                    if y + BRICK_LENGTH > lintel_end_y:
-                        continue
-
-                    # ✅ FIX: Aligné sur le mur gauche (rotation 90° → épaisseur vers -X)
-                    pos = Vector((BRICK_DEPTH + MORTAR_GAP, y, z))
-                    rot = Euler((0, 0, math.radians(90)), 'XYZ')
-                    positions.append((pos, rot))
-
-        elif wall_type == 'right':
-            # Mur droit: briques le long de Y (tournées à 90°)
-            # ✅ FIX: Espacement = BRICK_LENGTH (voir mur gauche)
-            lintel_start_y = max(0, opening_y - LINTEL_OVERHANG)
-            lintel_end_y = min(house_length, opening_y + opening_width + LINTEL_OVERHANG)
-            lintel_length = lintel_end_y - lintel_start_y
-
-            num_bricks = int(lintel_length / (BRICK_LENGTH + MORTAR_GAP)) + 1
-
-            for row in range(LINTEL_ROWS):
-                z = lintel_z + row * (BRICK_HEIGHT + MORTAR_GAP)
-
-                # ✅ FIX: brick_top inclut le mortier intégré
-                brick_top = z + BRICK_HEIGHT + MORTAR_GAP
-
-                # ✅ FIX: Clamp au sommet du mur pour tous les toits
-                if roof_type != 'SHED' and brick_top > base_height + 0.001:
-                    continue
-
-                # ✅ FIX: Face inférieure de la dalle du toit (mur droit = côté haut)
-                if roof_type == 'SHED':
-                    roof_bottom_at_right = base_height + roof_height_variation - ROOF_GAP
-
-                    # Si le linteau atteint la dalle du toit, skip cette rangée
-                    if brick_top > roof_bottom_at_right:
-                        continue
-
-                for i in range(num_bricks):
-                    y = lintel_start_y + i * (BRICK_LENGTH + MORTAR_GAP)
-
-                    if y + BRICK_LENGTH > lintel_end_y:
-                        continue
-
-                    pos = Vector((house_width, y, z))
-                    rot = Euler((0, 0, math.radians(90)), 'XYZ')
-                    positions.append((pos, rot))
-
-    print(f"[BrickGeometry]   ✓ {len(positions)} briques de linteau calculées pour {wall_type}")
+    print(f"[BrickGeometry]   ✓ {len(positions)} briques de linteau (soldats) pour {wall_type}")
     return positions
 
 
@@ -1556,6 +1561,84 @@ def calculate_brick_positions_for_wall(wall_length, wall_height, start_pos, dire
             pos, rot = _calculate_brick_transform(direction, distance_along_wall, z, start_pos)
 
             # Vérifier si dans une ouverture
+            if is_brick_in_opening(pos.x, pos.y, z, BRICK_LENGTH, BRICK_HEIGHT, openings):
+                continue
+
+            positions.append((pos, rot))
+
+    return positions
+
+
+def calculate_brick_positions_for_wall_gable(wall_length, base_height, peak_height, start_pos, direction, openings=None, bonding_pattern='RUNNING'):
+    """✅ NOUVEAU: Briques d'un mur PIGNON sous toit à 2 pans (GABLE)
+
+    La ligne de toit forme un triangle: base_height aux deux extrémités,
+    base_height + peak_height au centre du mur. Les briques remplissent le
+    pignon en restant sous la FACE INFÉRIEURE de la dalle du toit (ROOF_GAP).
+
+    Args:
+        wall_length: Longueur du mur (le faîtage est à wall_length/2)
+        base_height: Hauteur des murs à l'égout
+        peak_height: Hauteur ADDITIONNELLE au faîtage
+        start_pos: Position de départ
+        direction: 'X' ou 'Y'
+        openings: Liste des ouvertures
+        bonding_pattern: 'RUNNING', 'STACK', 'FLEMISH', 'ENGLISH'
+
+    Returns:
+        Liste de (position, rotation) pour chaque brique
+    """
+    positions = []
+    brick_spacing = BRICK_LENGTH
+    cell = brick_spacing + MORTAR_GAP
+    num_bricks_width = int(wall_length / cell)
+    max_possible_rows = int((base_height + peak_height) / (BRICK_HEIGHT + MORTAR_GAP)) + 1
+
+    half = wall_length / 2.0
+
+    def roof_bottom_at(x):
+        """Face inférieure de la dalle à la position x (triangle du pignon)"""
+        if half <= 0:
+            return base_height - ROOF_GAP
+        ratio = 1.0 - abs(x - half) / half  # 0 aux égouts, 1 au faîtage
+        return base_height + peak_height * max(0.0, ratio) - ROOF_GAP
+
+    for col in range(num_bricks_width + 1):
+        distance_base = col * cell
+
+        if distance_base + cell > wall_length + 0.001:
+            continue
+
+        for row in range(max_possible_rows + 1):
+            # Offset selon le pattern d'appareillage (identique aux autres murs)
+            if bonding_pattern == 'STACK':
+                offset = 0
+            elif bonding_pattern == 'FLEMISH':
+                offset = cell / 4 if row % 2 == 1 else 0
+            elif bonding_pattern == 'ENGLISH':
+                offset = (0, cell / 2, cell / 4, cell * 3 / 4)[row % 4]
+            else:  # RUNNING (défaut)
+                offset = cell / 2 if row % 2 == 1 else 0
+
+            distance = distance_base + offset
+
+            if distance + cell > wall_length + 0.001:
+                continue
+
+            z = row * (BRICK_HEIGHT + MORTAR_GAP)
+            brick_top = z + BRICK_HEIGHT + MORTAR_GAP
+
+            # ✅ Le toit est le plus BAS à l'extrémité de la brique la plus
+            # éloignée du faîtage — vérifier les DEUX bouts et garder le min
+            limit = min(roof_bottom_at(distance), roof_bottom_at(distance + cell))
+
+            if brick_top > limit:
+                # Sous le faîtage la rangée peut continuer plus haut pour les
+                # colonnes plus proches du centre → continue, pas break
+                continue
+
+            pos, rot = _calculate_brick_transform(direction, distance, z, start_pos)
+
             if is_brick_in_opening(pos.x, pos.y, z, BRICK_LENGTH, BRICK_HEIGHT, openings):
                 continue
 

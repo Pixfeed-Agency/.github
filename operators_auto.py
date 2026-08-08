@@ -247,6 +247,29 @@ class HOUSE_OT_generate_auto(Operator):
             return BRICK_DEPTH + MORTAR_GAP  # 0.112m (brique + mortier)
         return props.wall_thickness
 
+    # ✅ NORMES ARCHITECTURALES: Plages de pente réalistes par type de toit.
+    # Le slider (5-60°) est GLOBAL, mais chaque type de toit a sa plage
+    # normative — une monopente à 35° donnait un mur pignon de 10m!
+    PITCH_RANGES = {
+        'SHED':    (5.0, 25.0),   # Monopente: bac acier ~5°, tuiles max ~25°
+        'GABLE':   (15.0, 50.0),  # 2 pans: tuiles 15-50° selon région
+        'HIP':     (15.0, 50.0),  # 4 pans: idem
+        'GAMBREL': (15.0, 30.0),  # Mansarde: pente du TERRASSON (le brisis est fixe)
+    }
+
+    @classmethod
+    def _effective_pitch(cls, roof_type, pitch):
+        """Pente effective clampée à la plage normative du type de toit.
+
+        UNIQUE source de vérité — utilisée par les toits, les murs adaptés
+        (SHED/GABLE) et la génération de briques, pour que tout reste aligné.
+        """
+        lo, hi = cls.PITCH_RANGES.get(roof_type, (5.0, 60.0))
+        clamped = max(lo, min(hi, pitch))
+        if abs(clamped - pitch) > 1e-6:
+            print(f"[House] Pente {pitch:.0f}° hors norme pour {roof_type} → clampée à {clamped:.0f}° (plage {lo:.0f}-{hi:.0f}°)")
+        return clamped
+
     def _get_window_layout(self, props, style_config):
         """✅ Paramètres fenêtres PARTAGÉS (ouvertures + objets visuels)
 
@@ -405,25 +428,40 @@ class HOUSE_OT_generate_auto(Operator):
             
             # Générer les murs avec le nouveau système
             # ✅ FIX : Capturer la hauteur réelle des murs pour positionner le toit correctement
-            # ✅ NOUVEAU : Passer roof_type et roof_pitch pour adapter les murs (shed roof)
-            # ✅ NOUVEAU : Passer mortar_color pour personnaliser la couleur du mortier
-            # ✅ NOUVEAU : Passer bonding_pattern pour varier l'appareillage des briques
-            walls, real_wall_height = brick_geometry.generate_house_walls_bricks(
-                width,
-                length,
-                total_height,
-                collection,
-                props.brick_3d_quality,
-                openings,
-                brick_material_mode,
-                brick_color,
-                brick_preset,
-                custom_material,
+            # ✅ NOUVEAU : roof_type/roof_pitch (murs adaptés), mortar_color,
+            # bonding_pattern, et choix du moteur (Geometry Nodes ou instancing)
+            brick_kwargs = dict(
+                openings=openings,
+                brick_material_mode=brick_material_mode,
+                brick_color=brick_color,
+                brick_preset=brick_preset,
+                custom_material=custom_material,
                 roof_type=props.roof_type,
-                roof_pitch=props.roof_pitch,
-                mortar_color=tuple(props.mortar_color),  # Convertir FloatVectorProperty en tuple
-                bonding_pattern=props.brick_bonding_pattern
+                # ✅ NORMES: Pente clampée à la plage du type de toit
+                roof_pitch=self._effective_pitch(props.roof_type, props.roof_pitch),
+                mortar_color=tuple(props.mortar_color),
+                bonding_pattern=props.brick_bonding_pattern,
             )
+
+            if props.brick_use_geonodes:
+                # ✅ NOUVEAU MOTEUR: 1 objet Geometry Nodes au lieu de
+                # milliers d'instances (fallback auto si erreur)
+                from .materials import brick_geonodes
+                try:
+                    walls, real_wall_height = brick_geonodes.generate_walls_geonodes(
+                        width, length, total_height, collection,
+                        props.brick_3d_quality, **brick_kwargs)
+                except Exception as e:
+                    print(f"[House] ⚠️ Moteur GN échoué ({e}) → fallback instancing")
+                    import traceback
+                    traceback.print_exc()
+                    walls, real_wall_height = brick_geometry.generate_house_walls_bricks(
+                        width, length, total_height, collection,
+                        props.brick_3d_quality, **brick_kwargs)
+            else:
+                walls, real_wall_height = brick_geometry.generate_house_walls_bricks(
+                    width, length, total_height, collection,
+                    props.brick_3d_quality, **brick_kwargs)
 
             # Stocker la hauteur réelle pour l'utiliser dans _generate_roof
             self.real_wall_height = real_wall_height
@@ -441,7 +479,8 @@ class HOUSE_OT_generate_auto(Operator):
 
         # ✅ FIX: Calculer hauteur additionnelle pour SHED roof
         if props.roof_type == 'SHED':
-            pitch_rad = math.radians(props.roof_pitch)
+            # ✅ NORMES: Pente clampée (une monopente à 35° donnait +7m!)
+            pitch_rad = math.radians(self._effective_pitch('SHED', props.roof_pitch))
             roof_height = width * math.tan(pitch_rad)
             print(f"[House] Murs simples adaptés SHED roof: +{roof_height:.3f}m à droite")
         else:
@@ -702,7 +741,9 @@ class HOUSE_OT_generate_auto(Operator):
             print(f"[House] Toit positionné à la hauteur calculée: {total_height:.3f}m")
 
         roof_type = props.roof_type
-        roof_pitch = props.roof_pitch
+        # ✅ NORMES: Pente clampée à la plage normative du type de toit —
+        # même valeur que celle utilisée pour les murs adaptés (cohérence)
+        roof_pitch = self._effective_pitch(roof_type, props.roof_pitch)
         roof_overhang = props.roof_overhang
         
         if roof_type == 'FLAT':
@@ -728,40 +769,118 @@ class HOUSE_OT_generate_auto(Operator):
         return roof
     
     def _create_flat_roof(self, width, length, height, overhang, collection):
-        """Toit plat"""
+        """Toit plat (toit-terrasse)
+
+        ✅ NORMES: Ajout de l'ACROTÈRE — le muret périphérique obligatoire
+        des toits-terrasses (généralement 15cm à 1m de haut). C'est LE
+        marqueur visuel d'un toit plat réel; avant, le toit était une
+        simple dalle posée.
+        """
         thickness = ROOF_THICKNESS_FLAT
-        
-        location = Vector((width/2, length/2, height + thickness/2))
-        dimensions = Vector((width + overhang*2, length + overhang*2, thickness))
-        
-        roof, mesh = self._create_box_mesh("Roof_Flat", location, dimensions)
+        parapet_height = 0.45   # Hauteur d'acrotère courante
+        parapet_thick = 0.15    # Épaisseur du muret
+
+        bm = bmesh.new()
+
+        def add_box(x0, y0, z0, x1, y1, z1):
+            """Boîte alignée sur les axes [x0..x1]×[y0..y1]×[z0..z1]"""
+            vb = [bm.verts.new(c) for c in ((x0, y0, z0), (x1, y0, z0), (x1, y1, z0), (x0, y1, z0))]
+            vt = [bm.verts.new(c) for c in ((x0, y0, z1), (x1, y0, z1), (x1, y1, z1), (x0, y1, z1))]
+            bm.faces.new(vb[::-1])
+            bm.faces.new(vt)
+            for i in range(4):
+                j = (i + 1) % 4
+                bm.faces.new([vb[i], vb[j], vt[j], vt[i]])
+
+        try:
+            o = overhang
+            x0, x1 = -o, width + o
+            y0, y1 = -o, length + o
+            z_slab_top = height + thickness
+
+            # Dalle de toiture
+            add_box(x0, y0, height, x1, y1, z_slab_top)
+
+            # Acrotère: 4 murets sur le pourtour de la dalle
+            pt = parapet_thick
+            z_top = z_slab_top + parapet_height
+            add_box(x0, y0, z_slab_top, x1, y0 + pt, z_top)          # Avant
+            add_box(x0, y1 - pt, z_slab_top, x1, y1, z_top)          # Arrière
+            add_box(x0, y0 + pt, z_slab_top, x0 + pt, y1 - pt, z_top)  # Gauche
+            add_box(x1 - pt, y0 + pt, z_slab_top, x1, y1 - pt, z_top)  # Droite
+
+            roof, mesh = self._create_mesh_from_bmesh("Roof_Flat", bm)
+
+        finally:
+            bm.free()
+
+        print(f"[House] Toit PLAT: dalle {thickness:.2f}m + acrotère {parapet_height:.2f}m")
         return roof
     
+    @staticmethod
+    def _rake_overhang(overhang):
+        """✅ NORMES: Débord de RIVE (pignon) plus court que le débord
+        d'ÉGOUT — en construction réelle, la rive fait 10-30cm quand
+        l'égout fait 30-60cm. Avant, les deux étaient identiques."""
+        return max(0.1, min(0.3, overhang * 0.4))
+
     def _create_gable_roof(self, width, length, height, pitch, overhang, collection):
-        """Toit à 2 pans"""
+        """Toit à 2 pans
+
+        ✅ NORMES: Le faîtage court le long de la PLUS GRANDE dimension
+        (avant: toujours le long de Y, donnant un toit anormalement haut
+        et pentu pour toute maison plus large que longue).
+        """
         pitch_rad = math.radians(pitch)
-        roof_height = (width/2) * math.tan(pitch_rad)
         roof_thickness = ROOF_THICKNESS_PITCHED
-        
+
+        o_eave = overhang                    # Débord d'égout (bas de pente)
+        o_rake = self._rake_overhang(overhang)  # Débord de rive (pignons)
+
+        ridge_along_y = length >= width  # Faîtage parallèle au grand côté
+
         bm = bmesh.new()
-        
+
         try:
             h = height
-            rh = roof_height
-            o = overhang
-            
-            v1 = bm.verts.new((-o, -o, h))
-            v2 = bm.verts.new((width + o, -o, h))
-            v3 = bm.verts.new((width + o, length + o, h))
-            v4 = bm.verts.new((-o, length + o, h))
-            
-            v5 = bm.verts.new((width/2, -o, h + rh))
-            v6 = bm.verts.new((width/2, length + o, h + rh))
-            
-            f1 = bm.faces.new([v1, v2, v5])
-            f2 = bm.faces.new([v2, v3, v6, v5])
-            f3 = bm.faces.new([v3, v4, v6])
-            f4 = bm.faces.new([v4, v1, v5, v6])
+
+            if ridge_along_y:
+                # Faîtage le long de Y — pentes descendant vers ±X,
+                # pignons sur les façades avant/arrière (rives en Y)
+                rh = (width / 2) * math.tan(pitch_rad)
+
+                v1 = bm.verts.new((-o_eave, -o_rake, h))
+                v2 = bm.verts.new((width + o_eave, -o_rake, h))
+                v3 = bm.verts.new((width + o_eave, length + o_rake, h))
+                v4 = bm.verts.new((-o_eave, length + o_rake, h))
+
+                v5 = bm.verts.new((width/2, -o_rake, h + rh))
+                v6 = bm.verts.new((width/2, length + o_rake, h + rh))
+
+                f1 = bm.faces.new([v1, v2, v5])          # Pignon avant (Y-)
+                f2 = bm.faces.new([v2, v3, v6, v5])      # Pan droit (X+)
+                f3 = bm.faces.new([v3, v4, v6])          # Pignon arrière (Y+)
+                f4 = bm.faces.new([v4, v1, v5, v6])      # Pan gauche (X-)
+            else:
+                # Faîtage le long de X — pentes descendant vers ±Y,
+                # pignons sur les murs gauche/droit (rives en X)
+                rh = (length / 2) * math.tan(pitch_rad)
+
+                v1 = bm.verts.new((-o_rake, -o_eave, h))
+                v2 = bm.verts.new((width + o_rake, -o_eave, h))
+                v3 = bm.verts.new((width + o_rake, length + o_eave, h))
+                v4 = bm.verts.new((-o_rake, length + o_eave, h))
+
+                v5 = bm.verts.new((-o_rake, length/2, h + rh))
+                v6 = bm.verts.new((width + o_rake, length/2, h + rh))
+
+                f1 = bm.faces.new([v1, v2, v6, v5])      # Pan avant (Y-)
+                f2 = bm.faces.new([v2, v3, v6])          # Pignon droit (X+)
+                f3 = bm.faces.new([v3, v4, v5, v6])      # Pan arrière (Y+)
+                f4 = bm.faces.new([v4, v1, v5])          # Pignon gauche (X-)
+
+            print(f"[House] Toit GABLE: faîtage {'Y' if ridge_along_y else 'X'} "
+                  f"(grand côté), hauteur {rh:.2f}m, rives {o_rake:.2f}m / égouts {o_eave:.2f}m")
 
             # ✅ FIX: Utiliser solidify au lieu d'une extrusion -Z manuelle.
             # L'extrusion verticale des pignons (f1/f3) créait des faces
@@ -770,10 +889,10 @@ class HOUSE_OT_generate_auto(Operator):
             bmesh.ops.solidify(bm, geom=list(bm.faces), thickness=roof_thickness)
 
             roof, mesh = self._create_mesh_from_bmesh("GableRoof", bm)
-            
+
         finally:
             bm.free()
-        
+
         return roof
     
     def _create_hip_roof(self, width, length, height, pitch, overhang, collection):
@@ -868,7 +987,10 @@ class HOUSE_OT_generate_auto(Operator):
 
         try:
             h = height
-            o = overhang
+            # ✅ NORMES: Les bords bas (x=0) et haut (x=width) sont des
+            # ÉGOUTS (plein débord); les côtés Y sont des RIVES (débord court)
+            o_eave = overhang
+            o_rake = self._rake_overhang(overhang)
             t = roof_thickness
 
             # ✅ FIX: La pente doit être tan(pitch) sur TOUTE la surface, y
@@ -882,16 +1004,16 @@ class HOUSE_OT_generate_auto(Operator):
                 return h + slope * x
 
             # Face supérieure du toit (4 vertices)
-            v1_top = bm.verts.new((-o, -o, roof_z(-o)))
-            v2_top = bm.verts.new((width + o, -o, roof_z(width + o)))
-            v3_top = bm.verts.new((width + o, length + o, roof_z(width + o)))
-            v4_top = bm.verts.new((-o, length + o, roof_z(-o)))
+            v1_top = bm.verts.new((-o_eave, -o_rake, roof_z(-o_eave)))
+            v2_top = bm.verts.new((width + o_eave, -o_rake, roof_z(width + o_eave)))
+            v3_top = bm.verts.new((width + o_eave, length + o_rake, roof_z(width + o_eave)))
+            v4_top = bm.verts.new((-o_eave, length + o_rake, roof_z(-o_eave)))
 
             # Face inférieure du toit (4 vertices décalés vers le bas)
-            v1_bot = bm.verts.new((-o, -o, roof_z(-o) - t))
-            v2_bot = bm.verts.new((width + o, -o, roof_z(width + o) - t))
-            v3_bot = bm.verts.new((width + o, length + o, roof_z(width + o) - t))
-            v4_bot = bm.verts.new((-o, length + o, roof_z(-o) - t))
+            v1_bot = bm.verts.new((-o_eave, -o_rake, roof_z(-o_eave) - t))
+            v2_bot = bm.verts.new((width + o_eave, -o_rake, roof_z(width + o_eave) - t))
+            v3_bot = bm.verts.new((width + o_eave, length + o_rake, roof_z(width + o_eave) - t))
+            v4_bot = bm.verts.new((-o_eave, length + o_rake, roof_z(-o_eave) - t))
 
             # Créer les 6 faces pour fermer le volume
             # Face supérieure (inclinée)
@@ -918,35 +1040,42 @@ class HOUSE_OT_generate_auto(Operator):
         pitch_rad = math.radians(pitch)
         roof_thickness = ROOF_THICKNESS_PITCHED
 
-        # ✅ GAMBREL: 2 segments par côté
-        # Segment inférieur: raide (pitch complet)
-        # Segment supérieur: doux (pitch / 2.5)
+        # ✅ NORMES MANSARDE: Les proportions étaient INVERSÉES par rapport
+        # à un vrai comble à la Mansart. En réalité:
+        #   - BRISIS (segment bas): TRÈS RAIDE, ~60-75° (fixé ici à 68°)
+        #     sur une courte distance horizontale (~25% de la demi-largeur)
+        #   - TERRASSON (segment haut): DOUX, 15-30° (= pente utilisateur,
+        #     clampée par _effective_pitch)
+        # Avant: brisis = pente utilisateur (35°) et terrasson = pente/2.5,
+        # ce qui donnait un simple gable "cassé", pas une mansarde.
+        BRISIS_ANGLE = 68.0
+        brisis_rad = math.radians(BRISIS_ANGLE)
 
-        # Break point (cassure) à 60% de la demi-largeur
-        break_ratio = 0.6
+        # Le brisis couvre 25% de la demi-largeur (course horizontale courte)
+        break_ratio = 0.25
         break_distance = (width / 2) * break_ratio
 
-        # Hauteur jusqu'à la cassure (pente raide)
-        lower_pitch_rad = pitch_rad
-        break_height = break_distance * math.tan(lower_pitch_rad)
+        # Hauteur du brisis (raide → haut malgré la courte distance)
+        break_height = break_distance * math.tan(brisis_rad)
 
-        # Pente supérieure plus douce
-        upper_pitch_rad = pitch_rad / 2.5
-
-        # Reste de distance horizontale jusqu'au sommet
+        # Terrasson: pente douce utilisateur sur le reste
+        terrasson_rad = pitch_rad
         remaining_distance = (width / 2) * (1 - break_ratio)
-
-        # Hauteur additionnelle du segment supérieur
-        upper_height = remaining_distance * math.tan(upper_pitch_rad)
+        upper_height = remaining_distance * math.tan(terrasson_rad)
 
         # Hauteur totale du toit
         total_roof_height = break_height + upper_height
+
+        print(f"[House] Toit MANSARDE: brisis {BRISIS_ANGLE:.0f}° ({break_height:.2f}m), "
+              f"terrasson {pitch:.0f}° ({upper_height:.2f}m), total {total_roof_height:.2f}m")
 
         bm = bmesh.new()
 
         try:
             h = height
+            # ✅ NORMES: Égouts en X (bas des brisis), rives courtes en Y
             o = overhang
+            o_rake = self._rake_overhang(overhang)
             rh = total_roof_height
             t = roof_thickness
 
@@ -956,22 +1085,22 @@ class HOUSE_OT_generate_auto(Operator):
 
             # ✅ GÉOMÉTRIE COMPLÈTE CORRIGÉE
             # Base (4 coins)
-            v1 = bm.verts.new((-o, -o, h))
-            v2 = bm.verts.new((width + o, -o, h))
-            v3 = bm.verts.new((width + o, length + o, h))
-            v4 = bm.verts.new((-o, length + o, h))
+            v1 = bm.verts.new((-o, -o_rake, h))
+            v2 = bm.verts.new((width + o, -o_rake, h))
+            v3 = bm.verts.new((width + o, length + o_rake, h))
+            v4 = bm.verts.new((-o, length + o_rake, h))
 
             # Break points gauche (4 vertices)
-            v5_front = bm.verts.new((break_x_left, -o, h + break_height))
-            v5_back = bm.verts.new((break_x_left, length + o, h + break_height))
+            v5_front = bm.verts.new((break_x_left, -o_rake, h + break_height))
+            v5_back = bm.verts.new((break_x_left, length + o_rake, h + break_height))
 
             # Break points droite (4 vertices)
-            v6_front = bm.verts.new((break_x_right, -o, h + break_height))
-            v6_back = bm.verts.new((break_x_right, length + o, h + break_height))
+            v6_front = bm.verts.new((break_x_right, -o_rake, h + break_height))
+            v6_back = bm.verts.new((break_x_right, length + o_rake, h + break_height))
 
             # Sommet (ridge - 2 vertices)
-            v_top_front = bm.verts.new((width/2, -o, h + rh))
-            v_top_back = bm.verts.new((width/2, length + o, h + rh))
+            v_top_front = bm.verts.new((width/2, -o_rake, h + rh))
+            v_top_back = bm.verts.new((width/2, length + o_rake, h + rh))
 
             # ✅ FACES PRINCIPALES (surface extérieure)
             # Pente GAUCHE (2 trapèzes)
@@ -1249,7 +1378,15 @@ class HOUSE_OT_generate_auto(Operator):
         )
 
     def _generate_foundation(self, context, props, collection):
-        """Génère les fondations visuelles (socle béton/pierre)"""
+        """Génère les fondations visuelles (socle béton/pierre)
+
+        ✅ FIX MAJEUR: L'ancien socle était centré à -height/2 → son sommet
+        affleurait exactement z=0: il était ENTIÈREMENT enterré et donc
+        invisible! Un soubassement réel dépasse de 15-25cm du sol.
+        ✅ NORMES: Ajout d'un SEUIL (perron) devant la porte pour franchir
+        le soubassement — sans lui, le bas de la porte était masqué par
+        la bande de socle.
+        """
 
         if props.foundation_height <= 0:
             print("[House] Fondations désactivées (hauteur = 0)")
@@ -1259,10 +1396,15 @@ class HOUSE_OT_generate_auto(Operator):
         length = props.house_length
         height = props.foundation_height
 
+        # Partie VISIBLE au-dessus du sol (soubassement): 40% plafonné à 20cm
+        visible = min(0.2, height * 0.4)
+
         # Les fondations dépassent légèrement des murs
         foundation_overhang = 0.15  # 15cm de débord
 
-        print(f"[House] Génération fondations: {width+2*foundation_overhang}x{length+2*foundation_overhang}x{height}m")
+        print(f"[House] Génération fondations: "
+              f"{width+2*foundation_overhang:.2f}x{length+2*foundation_overhang:.2f}x{height:.2f}m "
+              f"(visible: {visible*100:.0f}cm)")
 
         bm = bmesh.new()
 
@@ -1279,13 +1421,34 @@ class HOUSE_OT_generate_auto(Operator):
             ))
             bmesh.ops.transform(bm, matrix=scale_matrix, verts=bm.verts)
 
-            # Position (centrée en X/Y, enterrée en Z)
+            # ✅ FIX: Sommet du socle à +visible (et non à 0)
             translate_vec = Vector((
                 width/2,
                 length/2,
-                -height/2  # Moitié enterrée
+                visible - height/2
             ))
             bmesh.ops.translate(bm, verts=bm.verts, vec=translate_vec)
+
+            # ✅ NOUVEAU: SEUIL DE PORTE (perron) — marche devant l'entrée
+            door_width = props.front_door_width
+            step_width = door_width + 0.4          # 20cm de chaque côté
+            step_depth = 0.6 + foundation_overhang  # Dépasse le socle
+            x0 = width/2 - step_width/2
+            x1 = width/2 + step_width/2
+
+            step_verts_b = [bm.verts.new(c) for c in (
+                (x0, -step_depth, 0), (x1, -step_depth, 0),
+                (x1, 0.02, 0), (x0, 0.02, 0))]
+            step_verts_t = [bm.verts.new(c) for c in (
+                (x0, -step_depth, visible), (x1, -step_depth, visible),
+                (x1, 0.02, visible), (x0, 0.02, visible))]
+            bm.faces.new(step_verts_b[::-1])
+            bm.faces.new(step_verts_t)
+            for i in range(4):
+                j = (i + 1) % 4
+                bm.faces.new([step_verts_b[i], step_verts_b[j], step_verts_t[j], step_verts_t[i]])
+
+            bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
 
             foundation_mesh = bpy.data.meshes.new("Foundation_Mesh")
             bm.to_mesh(foundation_mesh)
@@ -1301,7 +1464,7 @@ class HOUSE_OT_generate_auto(Operator):
         # Appliquer matériau béton/pierre
         self._apply_foundation_material(foundation_obj)
 
-        print("[House] ✓ Fondations générées")
+        print("[House] ✓ Fondations générées (socle visible + seuil de porte)")
 
     def _apply_foundation_material(self, obj):
         """Applique un matériau béton aux fondations"""
