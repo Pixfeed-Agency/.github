@@ -105,17 +105,26 @@ class HOUSE_OT_generate_auto(Operator):
             # ✅ v1.5: LISTE d'ailes (plans en L, T, U) — chaque aile porte
             # son repère, ses ouvertures locales et ses specs de fenêtres
             self._wings = []
-            if getattr(props, 'include_wing', False):
+            self._garage_as_wing = False
+            if getattr(props, 'include_wing', False) or \
+                    getattr(props, 'include_garage', False):
                 from . import volumes
                 layout = self._get_window_layout(props, style_config)
                 for frame in self._get_wing_frames(props):
-                    wvs = [self._window_vertical(i * frame['fh'], frame['fh'],
-                                                 layout['height_ratio'])
-                           for i in range(frame['floors'])]
-                    frame['openings'], frame['specs'] = \
-                        volumes.wing_openings_local(
-                            frame, props, layout, wvs,
-                            self._get_wall_depth(props))
+                    if frame.get('garage'):
+                        ops, fl, op = volumes.garage_openings_local(
+                            frame, props, self._get_wall_depth(props))
+                        frame['openings'], frame['specs'] = ops, []
+                        frame['garage_opening'] = op
+                        frame['garage_front_local'] = fl
+                    else:
+                        wvs = [self._window_vertical(i * frame['fh'], frame['fh'],
+                                                     layout['height_ratio'])
+                               for i in range(frame['floors'])]
+                        frame['openings'], frame['specs'] = \
+                            volumes.wing_openings_local(
+                                frame, props, layout, wvs,
+                                self._get_wall_depth(props))
                     self._wings.append(frame)
                     print(f"[House] Aile {frame['w']:.1f}×{frame['d']:.1f}m "
                           f"×{frame['floors']} étage(s) côté {frame['side']} "
@@ -178,8 +187,8 @@ class HOUSE_OT_generate_auto(Operator):
                 print("[House] Cheminée...")
                 self._generate_chimney(context, props, house_collection)
 
-            if props.include_garage:
-                print("[House] Garage...")
+            if props.include_garage and not getattr(self, '_garage_as_wing', False):
+                print("[House] Garage (volume simple hérité)...")
                 self._generate_garage(context, props, house_collection)
 
             if props.include_terrace:
@@ -461,18 +470,40 @@ class HOUSE_OT_generate_auto(Operator):
             return f
 
         frames = []
-        f1 = make(props.wing_side, props.wing_width, props.wing_depth,
-                  props.wing_offset, getattr(props, 'wing_floors', 1))
-        if f1:
-            frames.append(f1)
-        if getattr(props, 'include_wing2', False):
-            f2 = make(props.wing2_side, props.wing2_width, props.wing2_depth,
-                      props.wing2_offset, getattr(props, 'wing2_floors', 1))
-            if f2:
-                if any(volumes.frames_overlap(f2, f) for f in frames):
-                    print("[House] ⚠️ Aile 2 en chevauchement avec l'aile 1 — ignorée")
+        if getattr(props, 'include_wing', False):
+            f1 = make(props.wing_side, props.wing_width, props.wing_depth,
+                      props.wing_offset, getattr(props, 'wing_floors', 1))
+            if f1:
+                frames.append(f1)
+            if getattr(props, 'include_wing2', False):
+                f2 = make(props.wing2_side, props.wing2_width, props.wing2_depth,
+                          props.wing2_offset, getattr(props, 'wing2_floors', 1))
+                if f2:
+                    if any(volumes.frames_overlap(f2, f) for f in frames):
+                        print("[House] ⚠️ Aile 2 en chevauchement avec l'aile 1 — ignorée")
+                    else:
+                        frames.append(f2)
+
+        # ✅ v1.7: le GARAGE est une AILE maçonnée avec vraie toiture
+        # (positions LEFT/RIGHT/FRONT; ATTACHED = RIGHT)
+        if getattr(props, 'include_garage', False) and \
+                props.roof_type in ('GABLE', 'HIP', 'GAMBREL'):
+            gpos = getattr(props, 'garage_position', 'RIGHT')
+            side = {'LEFT': 'LEFT', 'RIGHT': 'RIGHT', 'FRONT': 'FRONT',
+                    'ATTACHED': 'RIGHT'}[gpos]
+            if side in ('LEFT', 'RIGHT'):
+                gw, gd, goff = props.garage_depth, props.garage_width, 0.0
+            else:
+                gw, gd, goff = props.garage_width, props.garage_depth, 0.0
+            fg = make(side, gw, gd, goff, 1)
+            if fg:
+                if any(volumes.frames_overlap(fg, f) for f in frames):
+                    print("[House] ⚠️ Garage en chevauchement avec une aile — "
+                          "garage simple conservé")
                 else:
-                    frames.append(f2)
+                    fg['garage'] = True
+                    frames.append(fg)
+                    self._garage_as_wing = True
         return frames
 
     def _covered_by_wing(self, wall, center_along, margin=0.35):
@@ -522,6 +553,10 @@ class HOUSE_OT_generate_auto(Operator):
             o_rake=self._rake_overhang(props.roof_overhang),
             tile_color=tuple(props.tile_color)[:3],
             make_tiles=(props.roof_covering == 'TILES'))
+        if wing.get('garage'):
+            volumes.build_garage_wing_door(
+                wing, props, collection, wing.get('garage_opening'),
+                wing.get('garage_front_local'))
 
     def _generate_walls(self, context, props, collection):
         """Génère les murs extérieurs (SIMPLE ou BRIQUES 3D) - ULTIMATE"""

@@ -76,19 +76,13 @@ def wing_frame(props, effective_pitch, main_wall_height, wing_wall_height=None,
     if not enabled:
         return None
 
-    if props.roof_type != 'GABLE':
+    if props.roof_type not in ('GABLE', 'HIP', 'GAMBREL'):
         print(f"[House] ⚠️ Aile: toit principal {props.roof_type} non supporté "
-              f"(GABLE uniquement pour l'instant) — aile ignorée")
+              f"(GABLE/croupe/mansarde) — aile ignorée")
         return None
 
     side = side or props.wing_side  # 'FRONT' / 'BACK' / 'LEFT' / 'RIGHT'
     W, L = props.house_width, props.house_length
-
-    # Conflit garage: même côté → l'aile est ignorée (règle explicite)
-    if props.include_garage and side in ('LEFT', 'RIGHT') and \
-            getattr(props, 'garage_position', 'RIGHT') == side:
-        print(f"[House] ⚠️ Aile et garage sur le même côté ({side}) — aile ignorée")
-        return None
 
     facade = W if side in ('FRONT', 'BACK') else L
     w = max(2.0, min(wing_width if wing_width is not None else props.wing_width,
@@ -102,9 +96,18 @@ def wing_frame(props, effective_pitch, main_wall_height, wing_wall_height=None,
         min(h_main, props.floor_height)
 
     # Faîtage principal le long de la plus grande dimension (convention
-    # partagée avec _create_gable_roof et compute_all_brick_positions)
+    # partagée avec les créateurs de toit et compute_all_brick_positions)
     main_ridge_along_y = L >= W
-    eave_walls = ('left', 'right') if main_ridge_along_y else ('front', 'back')
+    main_rt = props.roof_type
+    if main_rt == 'HIP':
+        # ✅ v1.7: tous les murs d'une croupe sont des murs d'ÉGOUT
+        eave_walls = ('front', 'back', 'left', 'right')
+    else:
+        eave_walls = ('left', 'right') if main_ridge_along_y else ('front', 'back')
+    if main_rt == 'GAMBREL':
+        # égouts mansarde toujours en ±X → murs left/right; le brisis à 68°
+        # interdit une noue → aile sur PIGNONS (front/back) seulement
+        eave_walls = ('left', 'right')
     attached_wall = side.lower()
 
     pitch = effective_pitch
@@ -114,19 +117,55 @@ def wing_frame(props, effective_pitch, main_wall_height, wing_wall_height=None,
     # même hauteur (aile et maison de plain-pied) → pénétration du pan
     valley = (attached_wall in eave_walls) and (abs(h - h_main) < 0.02)
 
-    if not valley and attached_wall not in eave_walls:
-        # Accroche sur un PIGNON: le faîtage de l'aile doit passer sous le
-        # rampant du triangle → réduire la pente si nécessaire (règle de
-        # construction: appentis à pignon)
+    if main_rt == 'GAMBREL' and attached_wall in eave_walls:
+        print("[House] ⚠️ Aile: sur une mansarde, l'aile s'accroche aux "
+              "PIGNONS (avant/arrière) — le brisis à 68° interdit la noue. "
+              "Aile ignorée")
+        return None
+
+    if main_rt == 'HIP' and valley:
+        # ✅ v1.7: la noue exige que l'emprise pénétrée reste sur le PAN
+        # UNIQUE du mur d'accroche: l'aile doit rester entre les arêtiers
+        # (retrait de w/2 + marge à chaque bout de façade)
+        pen = w / 2 + 0.35
+        if a0 < pen or (a0 + w) > facade - pen:
+            if h < h_main - 0.02:
+                valley = False  # appentis sous l'égout (maison à étages)
+            else:
+                print("[House] ⚠️ Aile croupe: l'emprise chevauche un "
+                      "arêtier (décalez l'aile vers le centre de la façade) "
+                      "— aile ignorée")
+                return None
+
+    def _pignon_height(center):
+        """Hauteur du mur pignon du toit principal à l'abscisse `center`
+        le long de la façade (pour caler l'appentis dessous)."""
         half_f = facade / 2
+        if main_rt == 'GAMBREL':
+            brisis = math.tan(math.radians(68.0))
+            bd = (facade / 2) * 0.25
+            bh = bd * brisis
+            x = center
+            if x < bd:
+                return h_main + x * brisis
+            if x > facade - bd:
+                return h_main + (facade - x) * brisis
+            return h_main + bh + (min(x, facade - x) - bd) * slope
+        if main_rt == 'HIP':
+            return h_main  # murs d'égout partout
+        return h_main + slope * (half_f - abs(center - half_f))
+
+    if not valley and attached_wall not in eave_walls or \
+            (not valley and main_rt == 'HIP'):
+        # APPENTIS: le faîtage de l'aile doit passer sous le mur/rampant
         center = a0 + w / 2
-        pignon_z = h_main + slope * (half_f - abs(center - half_f))
+        pignon_z = _pignon_height(center)
         ridge_z = h + slope * (w / 2)
         if ridge_z > pignon_z - 0.05:
             new_slope = max(0.15, (pignon_z - 0.05 - h) / (w / 2))
             pitch = math.degrees(math.atan(new_slope))
             print(f"[House] Aile: pente réduite à {pitch:.0f}° pour passer "
-                  f"sous le rampant du pignon (règle appentis)")
+                  f"sous le mur d'accroche (règle appentis)")
 
     # Transformation locale → monde (rotation z puis translation)
     if side == 'FRONT':
@@ -246,6 +285,76 @@ def frames_overlap(f1, f2, margin=0.05):
     a = f1['footprint']; b = f2['footprint']
     return not (a[2] <= b[0] + margin or b[2] <= a[0] + margin or
                 a[3] <= b[1] + margin or b[3] <= a[1] + margin)
+
+
+def garage_openings_local(frame, props, wall_depth):
+    """✅ v1.7: ouvertures d'un GARAGE-AILE — une porte sectionnelle sur
+    le mur qui fait face à la rue (monde AVANT), pas de fenêtres."""
+    w, d = frame['w'], frame['d']
+    # mur local orienté vers l'avant (voir wall_map)
+    front_local = next((lw for lw, ww in frame['wall_map'].items()
+                        if ww == 'front'), 'front')
+    span = w if front_local == 'front' else d
+    gw = min(2.6, span - 1.0)
+    if gw < 1.8:
+        print("[House] Garage-aile: façade trop étroite pour la porte")
+        return [], front_local, None
+    o = {'width': gw, 'height': 2.05, 'z': 0.2, 'depth': wall_depth,
+         'wall': front_local, 'type': 'door'}
+    if front_local == 'front':
+        o['x'] = span / 2 - gw / 2
+        o['y'] = 0
+    else:
+        o['y'] = span / 2 - gw / 2
+        o['x'] = 0 if front_local == 'left' else w
+    return [o], front_local, o
+
+
+def build_garage_wing_door(frame, props, collection, opening, front_local):
+    """Porte sectionnelle ARTICULÉE du garage-aile (driver 'ouverture'
+    qui monte les panneaux), posée dans l'ouverture maçonnée."""
+    if opening is None:
+        return []
+    gw, gh = opening['width'], opening['height']
+    z0 = opening['z']
+    n_panels = 4
+    ph = gh / n_panels
+    bm = bmesh.new()
+    t0, t1 = 0.035, 0.075
+    for i in range(n_panels):
+        pz0 = i * ph + 0.008
+        pz1 = (i + 1) * ph - 0.008
+        if front_local == 'front':
+            a = opening['x']
+            _add_box(bm, a + 0.02, t0, pz0 - z0, a + gw - 0.02, t1, pz1 - z0)
+        elif front_local == 'left':
+            a = opening['y']
+            _add_box(bm, t0, a + 0.02, pz0 - z0, t1, a + gw - 0.02, pz1 - z0)
+        else:  # right
+            a = opening['y']
+            _add_box(bm, frame['w'] - t1, a + 0.02, pz0 - z0,
+                     frame['w'] - t0, a + gw - 0.02, pz1 - z0)
+    mat = _simple_material("House_Garage_Door", (0.88, 0.88, 0.86), roughness=0.5)
+    obj = _new_mesh_obj("Garage_Door", bm, collection, "garage", mat)
+    # origine au bas de la porte (locale), transformée dans le monde
+    obj.matrix_world = frame['M'] @ Matrix.Translation(Vector((0, 0, z0)))
+    obj["ouverture"] = 0.0
+    try:
+        ui = obj.id_properties_ui("ouverture")
+        ui.update(min=0.0, max=1.0, description="0 = fermée, 1 = ouverte (monte)")
+    except Exception:
+        pass
+    fcu = obj.driver_add('location', 2)
+    drv = fcu.driver
+    drv.type = 'SCRIPTED'
+    var = drv.variables.new()
+    var.name = 'o'
+    var.type = 'SINGLE_PROP'
+    var.targets[0].id = obj
+    var.targets[0].data_path = '["ouverture"]'
+    drv.expression = f'{z0:.3f} + o * {gh - 0.15:.3f}'
+    print("[House] ✓ Garage-aile: porte sectionnelle articulée posée")
+    return [obj]
 
 
 def generate_wing_windows(frame, props, collection, specs, window_gen, wall_depth):

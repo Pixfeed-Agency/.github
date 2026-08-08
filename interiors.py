@@ -462,7 +462,10 @@ def build_wall_liners(props, collection, wall_depth, openings,
     objs = [_new_mesh_obj("Interior_Liners", bm, collection, "interior", mat)]
 
     # Ailes: doublage des 3 murs (le mitoyen est le doublage du principal)
+    # — le garage garde sa brique apparente (réaliste)
     for wf in (wing_frames or []):
+        if wf.get('garage'):
+            continue
         w, d = wf['w'], wf['d']
         floors = wf.get('floors', 1)
         fh = wf.get('fh', wf['h'])

@@ -140,8 +140,8 @@ class HOUSE_PT_roof_panel(Panel):
         col.prop(props, "include_roof_windows", text="Fenêtres de toit")
         if props.include_roof_windows:
             col.prop(props, "num_roof_windows", text="Nombre")
-            if props.roof_type not in ('GABLE', 'SHED'):
-                col.label(text="Toit GABLE ou monopente requis", icon='ERROR')
+            if props.roof_type == 'FLAT':
+                col.label(text="Pas de velux sur toit plat", icon='ERROR')
 
         # ✅ UX: Avertir DANS l'UI quand la pente sera clampée à la plage
         # normative du type de toit (avant: clamp silencieux, console only)
@@ -420,8 +420,8 @@ class HOUSE_PT_elements_panel(Panel):
                 col.prop(props, "wing2_depth", text="Profondeur")
                 col.prop(props, "wing2_offset", text="Position")
                 col.prop(props, "wing2_floors", text="Étages")
-            if props.roof_type != 'GABLE':
-                box.label(text="Toit GABLE requis pour l'aile", icon='ERROR')
+            if props.roof_type not in ('GABLE', 'HIP', 'GAMBREL'):
+                box.label(text="Toit GABLE/croupe/mansarde requis", icon='ERROR')
 
         # ✅ IMPLÉMENTÉ: garage, terrasse, balcon (module features.py)
         box = layout.box()
