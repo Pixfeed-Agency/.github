@@ -36,6 +36,10 @@ MORTAR_THICKNESS = 0.006 # 6mm d'épaisseur de mortier de chaque côté
 ROOF_THICKNESS_PITCHED = 0.15  # Doit correspondre à operators_auto.ROOF_THICKNESS_PITCHED
 ROOF_CLEARANCE = 0.02          # Gap de sécurité sous la face inférieure du toit
 ROOF_GAP = ROOF_THICKNESS_PITCHED + ROOF_CLEARANCE  # Marge totale sous la ligne de toit
+
+# ✅ FIX: Constante des linteaux (sa définition avait disparu lors de la
+# réécriture des linteaux en soldats → NameError à la génération!)
+LINTEL_OVERHANG = 0.15  # Appui du linteau de chaque côté de l'ouverture
 # ============================================================
 # GÉNÉRATION DES MURS DE LA MAISON EN BRIQUES (OPTIMISÉ)
 # ============================================================
