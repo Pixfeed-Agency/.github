@@ -410,6 +410,7 @@ class HOUSE_PT_elements_panel(Panel):
         box = layout.box()
         box.prop(props, "include_interiors", text="Intérieurs (plafonds, cloisons)", toggle=True)
         if props.include_interiors:
+            box.prop(props, "num_bedrooms", text="Chambres")
             box.prop(props, "interior_wall_color", text="Peinture murs")
 
         # ✅ MULTI-VOLUMES: aile en L (module volumes.py)

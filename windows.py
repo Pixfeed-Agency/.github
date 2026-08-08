@@ -273,6 +273,16 @@ class WindowGenerator:
             if self.quality in ['MEDIUM', 'HIGH']:
                 self._apply_bevels(bm)
 
+            # ✅ v1.9: QUINCAILLERIE — poignée à l'opposé des gonds +
+            # tringle de crémone le long du montant
+            handle_x = sash_width / 2 - sash_w / 2
+            self._add_box(bm, center=Vector((handle_x, -0.028, 0)),
+                          size=(0.022, 0.018, 0.11))
+            self._add_box(bm, center=Vector((handle_x, -0.042, 0.028)),
+                          size=(0.018, 0.014, 0.075))
+            self._add_box(bm, center=Vector((handle_x, 0.0, 0)),
+                          size=(0.012, 0.012, sash_height * 0.8))
+
             # ✅ Charnière → origine: décaler le battant pour que son bord
             # gauche (gonds) soit à x=0 local
             bmesh.ops.translate(bm, verts=bm.verts, vec=(sash_width / 2, 0, 0))

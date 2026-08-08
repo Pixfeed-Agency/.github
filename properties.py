@@ -499,6 +499,16 @@ class HouseGeneratorProperties(PropertyGroup):
         update=regenerate_house
     )
     
+    num_bedrooms: IntProperty(
+        name="Chambres",
+        description="Nombre de chambres derrière le refend (la pièce de "
+                    "vie reste côté entrée)",
+        default=2,
+        min=1,
+        max=4,
+        update=regenerate_house
+    )
+
     interior_wall_color: FloatVectorProperty(
         name="Couleur murs intérieurs",
         description="Peinture du doublage intérieur des murs extérieurs",

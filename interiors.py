@@ -106,7 +106,15 @@ def interior_layout(props, wall_depth, floor_height_actual, door_center_x,
     t = wall_depth
     y_refend = _avoid(L * 0.55, window_ys_side, 0.75, L * 0.35, L * 0.7)
     door_pass = _avoid(door_center_x, [], 0, t + 0.7, W - t - 0.7)
-    x_split = _avoid(W * 0.5, list(window_xs_back), 0.75, W * 0.3, W * 0.7)
+    # ✅ v1.9: N chambres derrière le refend → N-1 cloisons longitudinales
+    # (chambre mini 2.6m — le nombre est réduit si la façade est courte)
+    n_rooms = max(1, min(int(getattr(props, 'num_bedrooms', 2)),
+                         int((W - 2 * t) / 2.6)))
+    x_splits = [_avoid(t + (W - 2 * t) * (i + 1) / n_rooms,
+                       list(window_xs_back), 0.70,
+                       t + 1.2, W - t - 1.2)
+                for i in range(n_rooms - 1)]
+    x_split = x_splits[0] if x_splits else W * 0.5  # compat historique
 
     stair = tremie = None
     if props.num_floors >= 2:
@@ -156,7 +164,8 @@ def interior_layout(props, wall_depth, floor_height_actual, door_center_x,
                 tremie = (xA1 - 0.35, yB_end - 0.05, W - t, y1 + 0.02)
 
     return {'y_refend': y_refend, 'door_pass': door_pass,
-            'x_split': x_split, 'stair': stair, 'tremie': tremie}
+            'x_split': x_split, 'x_splits': x_splits, 'n_rooms': n_rooms,
+            'stair': stair, 'tremie': tremie}
 
 
 def build_staircase(props, collection, layout, floor_height_actual,
@@ -376,17 +385,18 @@ def build_interior_doors(props, collection, layout, floor_height_actual,
             made += 1
         except Exception as e:
             print(f"[House] Porte intérieure (refend) échouée: {e}")
-        # porte du refend longitudinal (mur Y à x=x_split)
-        try:
-            y_door = (layout['y_refend'] + L) / 2
-            gen.generate_door(
-                door_type='SINGLE', width=dw, height=DOORWAY_H - 0.06,
-                location=Vector((layout['x_split'] - PARTITION_T / 2,
-                                 y_door - dw / 2, z)),
-                orientation='left', collection=collection)
-            made += 1
-        except Exception as e:
-            print(f"[House] Porte intérieure (refend long.) échouée: {e}")
+        # portes des cloisons de chambres (une par refend longitudinal)
+        for xs in layout.get('x_splits', [layout['x_split']]):
+            try:
+                y_door = layout['y_refend'] + 0.75
+                gen.generate_door(
+                    door_type='SINGLE', width=dw, height=DOORWAY_H - 0.06,
+                    location=Vector((xs - PARTITION_T / 2,
+                                     y_door - dw / 2, z)),
+                    orientation='left', collection=collection)
+                made += 1
+            except Exception as e:
+                print(f"[House] Porte intérieure (chambre) échouée: {e}")
     print(f"[House] ✓ {made} porte(s) intérieure(s) posée(s)")
     return []
 
@@ -594,9 +604,10 @@ def build_interiors(props, collection, wall_depth, floor_height_actual,
         door_pass = layout['door_pass']
         _partition_with_doorway(bm, 'X', y_refend, t, W - t, z0, z1, door_pass)
 
-        # 2. Cloison de REFEND longitudinal côté arrière: deux pièces.
-        _partition_with_doorway(bm, 'Y', layout['x_split'], y_refend, L - t,
-                                z0, z1, (y_refend + L - t) / 2)
+        # 2. ✅ v1.9: cloisons longitudinales côté arrière (N chambres)
+        for xs in layout.get('x_splits', [layout['x_split']]):
+            _partition_with_doorway(bm, 'Y', xs, y_refend, L - t,
+                                    z0, z1, y_refend + 0.75)
 
     objs.append(_new_mesh_obj("Interior_Partitions", bm, collection,
                               "interior", plaster))

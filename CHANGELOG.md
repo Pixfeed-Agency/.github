@@ -1,5 +1,21 @@
 # Changelog — House Generator
 
+## v1.9.0 — Distribution paramétrable, quincaillerie, parcelle
+
+### 🛏️ DISTRIBUTION INTÉRIEURE PARAMÉTRABLE
+- Nouveau réglage **Chambres (1-4)**: N-1 refends longitudinaux derrière
+  le refend principal, chacun avec sa PORTE battante posée; nombre
+  auto-réduit si la façade est courte (chambre mini 2.6m), cloisons
+  décalées hors des fenêtres
+
+### 🔧 QUINCAILLERIE des fenêtres battantes
+- Poignée + béquille et tringle de CRÉMONE sur l'ouvrant (côté opposé
+  aux gonds) — elles pivotent avec le battant
+
+### 🌳 PARCELLE
+- HAIE périphérique avec portail aligné sur l'allée d'entrée
+  (option Environnement)
+
 ## v1.8.0 — Lucarnes jacobines, presets régionaux, export glTF
 
 ### 🏠 LUCARNES JACOBINES (style de fenêtre de toit au choix)

@@ -76,10 +76,11 @@ CHANGELOG). Restent les limites listées après la liste historique.*
 - ✅ v1.7: ② environnement (terrain, allées, arbres, ciel Nishita,
   exposition photo, caméra auto) — reste: HDRI importables, herbe
   en particules, clôtures/haies
-- Articulation des autres menuiseries + quincaillerie (gonds, crémones)
+- ✅ v1.9: quincaillerie CASEMENT (poignée + crémone); reste gonds
+  apparents et quincaillerie des autres types
 - Escalier quart-tournant / limon central; rampe normée
-- Distribution intérieure paramétrable (nombre de chambres, cuisine,
-  SdB avec équipements simples)
+- ✅ v1.9: nombre de chambres paramétrable (1-4) avec portes; reste
+  cuisine/SdB équipées
 - Textures PBR: UV continues par mur (aujourd'hui box par brique),
   displacement optionnel
 - ✅ v1.8: presets régionaux (longère, chalet, bastide, meulière)

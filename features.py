@@ -1985,6 +1985,20 @@ def build_environment(props, collection, garage_front=None, door_x=None):
         poly.use_smooth = True
     objs.append(leaves)
 
+    # --- HAIE périphérique (parcelle) ---
+    hedge = _simple_material("Env_Hedge", (0.06, 0.13, 0.04), roughness=0.9)
+    bm = bmesh.new()
+    px0, py0 = cx - 16.0, -10.5
+    px1, py1 = cx + 16.0, cy + 14.0
+    hh, ht = 1.1, 0.5
+    gate = (door_x - 2.2, door_x + 2.2) if door_x is not None else (cx - 2.2, cx + 2.2)
+    _add_box(bm, px0, py0, 0, max(px0 + 0.1, gate[0]), py0 + ht, hh)
+    _add_box(bm, min(px1 - 0.1, gate[1]), py0, 0, px1, py0 + ht, hh)
+    _add_box(bm, px0, py1 - ht, 0, px1, py1, hh)
+    _add_box(bm, px0, py0, 0, px0 + ht, py1, hh)
+    _add_box(bm, px1 - ht, py0, 0, px1, py1, hh)
+    objs.append(_new_mesh_obj("Env_Hedge", bm, collection, "environment", hedge))
+
     # --- CIEL physique + color management (exposition photo) ---
     look.setup_sky_and_view(sun_elevation_deg=35.0, sun_rotation_deg=150.0,
                             exposure=-4.6)
