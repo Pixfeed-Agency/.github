@@ -357,6 +357,24 @@ def build_garage(props, collection, plinth_visible):
     mat_door = _simple_material("House_Garage_Door", (0.88, 0.88, 0.86), roughness=0.5)
     door = _new_mesh_obj("Garage_Door", bm, collection, "garage", mat_door)
 
+    # ✅ ARTICULATION: porte sectionnelle OUVRABLE — propriété 'ouverture'
+    # (0=fermée, 1=ouverte) pilotant la montée par driver
+    door["ouverture"] = 0.0
+    try:
+        ui = door.id_properties_ui("ouverture")
+        ui.update(min=0.0, max=1.0, description="0 = fermée, 1 = ouverte (monte)")
+    except Exception:
+        pass
+    fcu = door.driver_add('location', 2)
+    drv = fcu.driver
+    drv.type = 'SCRIPTED'
+    var = drv.variables.new()
+    var.name = 'o'
+    var.type = 'SINGLE_PROP'
+    var.targets[0].id = door
+    var.targets[0].data_path = '["ouverture"]'
+    drv.expression = f'o * {door_h - 0.15:.3f}'
+
     print(f"[House] ✓ Garage {g_w:.1f}×{g_d:.1f}m ({'droite' if on_right else 'gauche'}) + porte sectionnelle")
     return [walls, roof, door]
 

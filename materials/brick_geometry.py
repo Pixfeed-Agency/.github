@@ -140,15 +140,25 @@ def create_brick_master(collection, quality, brick_material_mode='PRESET',
     if brick_material_mode == 'COLOR':
         brick_mat = create_brick_material_solid_color(brick_color)
     elif brick_material_mode == 'PRESET':
-        brick_mat = create_brick_material_preset(brick_preset)
+        if str(brick_preset).startswith('PBR_'):
+            # Textures PBR scannées: chemin existant
+            brick_mat = create_brick_material_preset(brick_preset)
+        else:
+            # ✅ MONTÉE EN GAMME: matériau V2 — variation PAR BRIQUE
+            # (Object Info Random), marbrures de cuisson, grain, bump.
+            from .. import look
+            from .presets import PRESET_PALETTES
+            palette = PRESET_PALETTES.get(brick_preset)
+            brick_mat = look.brick_material(palette)
     elif brick_material_mode == 'CUSTOM' and custom_material:
         brick_mat = custom_material
     else:
         # Fallback
         brick_mat = create_brick_material_preset('BRICK_RED')
 
-    # Obtenir le matériau mortier avec couleur personnalisable
-    mortar_mat = create_mortar_material(color=mortar_color)
+    # ✅ MONTÉE EN GAMME: mortier granuleux V2 (bump sable)
+    from .. import look as _look
+    mortar_mat = _look.mortar_material(tuple(mortar_color)[:3] if mortar_color else (0.78, 0.75, 0.70))
 
     # Assigner les matériaux aux slots
     brick_master.data.materials.clear()

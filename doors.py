@@ -98,8 +98,33 @@ class DoorGenerator:
             traceback.print_exc()
             return []
 
+    def _make_openable(self, obj, sign=1.0, max_angle_deg=105.0):
+        """✅ ARTICULATION RÉELLE: propriété 'ouverture' (0=fermée,
+        1=grande ouverte) pilotant la rotation par DRIVER, pivot sur
+        les gonds (l'origine de l'objet est sur la ligne de charnières).
+
+        L'utilisateur sélectionne le battant → panneau N (custom
+        properties) → glisse 'ouverture' → la porte s'ouvre. Animable.
+        """
+        obj["ouverture"] = 0.0
+        try:
+            ui = obj.id_properties_ui("ouverture")
+            ui.update(min=0.0, max=1.0, soft_min=0.0, soft_max=1.0,
+                      description="0 = fermée, 1 = grande ouverte")
+        except Exception:
+            pass
+        fcu = obj.driver_add('rotation_euler', 2)
+        drv = fcu.driver
+        drv.type = 'SCRIPTED'
+        var = drv.variables.new()
+        var.name = 'o'
+        var.type = 'SINGLE_PROP'
+        var.targets[0].id = obj
+        var.targets[0].data_path = '["ouverture"]'
+        drv.expression = f'{sign:.0f} * o * {math.radians(max_angle_deg):.5f}'
+
     def _create_single_door(self, width, height, location, orientation, collection):
-        """Crée une porte simple battant"""
+        """Crée une porte simple battant OUVRABLE (gonds à gauche)"""
         objects = []
 
         # Cadre de porte
@@ -109,7 +134,7 @@ class DoorGenerator:
         collection.objects.link(frame)
         objects.append(frame)
 
-        # Panneau de porte
+        # Panneau de porte (l'origine du mesh est SUR la ligne de gonds)
         panel = self._create_door_panel(width - self.frame_width * 2, height - self.frame_width, orientation)
         panel.name = "Door_Panel"
 
@@ -118,6 +143,9 @@ class DoorGenerator:
         panel.location = location + panel_offset
         collection.objects.link(panel)
         objects.append(panel)
+
+        # ✅ Battant articulé (s'ouvre vers l'intérieur)
+        self._make_openable(panel, sign=1.0)
 
         # Appliquer matériaux
         self._apply_door_materials(frame, panel)
@@ -145,14 +173,22 @@ class DoorGenerator:
         collection.objects.link(panel_left)
         objects.append(panel_left)
 
-        # Panneau droit
-        panel_right = self._create_door_panel(panel_width, height - self.frame_width, orientation)
+        # Panneau droit — géométrie MIROIR (gonds à DROITE: l'origine du
+        # mesh doit être sur la ligne de gonds pour que la rotation ouvre)
+        panel_right = self._create_door_panel(panel_width, height - self.frame_width, orientation,
+                                              mirror=True)
         panel_right.name = "Door_Panel_Right"
 
-        offset_right = self._get_panel_offset(width, orientation, 'double_right')
+        # Origine posée sur le jambage DROIT
+        offset_right = Vector((width - self.frame_width, 0, self._get_panel_offset(width, orientation, 'double_right').z))
+        offset_right.y = self._get_panel_offset(width, orientation, 'double_right').y
         panel_right.location = location + offset_right
         collection.objects.link(panel_right)
         objects.append(panel_right)
+
+        # ✅ Battants articulés (gauche s'ouvre en +, droit en -)
+        self._make_openable(panel_left, sign=1.0)
+        self._make_openable(panel_right, sign=-1.0)
 
         # Montant central (sauf porte coulissante)
         if with_mullion:
@@ -295,50 +331,67 @@ class DoorGenerator:
 
         return obj
 
-    def _create_door_panel(self, width, height, orientation):
-        """Crée le panneau de porte"""
+    def _create_door_panel(self, width, height, orientation, mirror=False):
+        """✅ V2: VRAI panneau de menuiserie — montants + traverses +
+        panneaux moulurés en retrait (fini la boîte plate).
+
+        L'origine du mesh est SUR LA LIGNE DE GONDS (x=0) pour que la
+        rotation du driver 'ouverture' pivote comme une vraie porte.
+        mirror=True construit le battant en x∈[-width,0] (gonds à droite).
+        """
         bm = bmesh.new()
         mesh = None
 
         try:
             th = self.door_thickness
+            stile = 0.11          # montants verticaux
+            rail_b = 0.20         # traverse basse (plus haute: norme)
+            rail_t = 0.11         # traverse haute
+            rail_m = 0.09         # traverse intermédiaire
+            recess = th * 0.42    # profondeur de moulure
 
-            # Panneau simple (rectangle avec épaisseur)
-            bmesh.ops.create_cube(bm, size=1.0)
+            def box(x0, y0, z0, x1, y1, z1):
+                vb = [bm.verts.new(c) for c in ((x0, y0, z0), (x1, y0, z0), (x1, y1, z0), (x0, y1, z0))]
+                vt = [bm.verts.new(c) for c in ((x0, y0, z1), (x1, y0, z1), (x1, y1, z1), (x0, y1, z1))]
+                bm.faces.new(vb[::-1]); bm.faces.new(vt)
+                for i in range(4):
+                    j = (i + 1) % 4
+                    bm.faces.new([vb[i], vb[j], vt[j], vt[i]])
 
-            # Mise à l'échelle
-            scale_matrix = Matrix.Diagonal((width, th, height, 1.0))
-            bmesh.ops.transform(bm, matrix=scale_matrix, verts=bm.verts)
+            # Cadre du battant (pleine épaisseur)
+            box(0, 0, 0, stile, th, height)                              # montant gonds
+            box(width - stile, 0, 0, width, th, height)                  # montant serrure
+            box(stile, 0, 0, width - stile, th, rail_b)                  # traverse basse
+            box(stile, 0, height - rail_t, width - stile, th, height)    # traverse haute
+            mid_z = height * 0.62
+            box(stile, 0, mid_z - rail_m / 2, width - stile, th, mid_z + rail_m / 2)  # traverse médiane
 
-            # Décalage pour centrer
-            bmesh.ops.translate(bm, verts=bm.verts, vec=(width/2, th/2, height/2))
+            # 2 panneaux moulurés EN RETRAIT (épaisseur réduite, centrés)
+            y0p = recess / 2
+            y1p = th - recess / 2
+            box(stile, y0p, rail_b, width - stile, y1p, mid_z - rail_m / 2)          # panneau bas
+            box(stile, y0p, mid_z + rail_m / 2, width - stile, y1p, height - rail_t)  # panneau haut
 
-            # ✅ FIX: Appliquer la qualité — bevel_amount était défini par
-            # niveau (LOW/MEDIUM/HIGH) mais jamais utilisé
+            # Chanfreins de qualité
             if self.bevel_amount > 0:
-                bmesh.ops.bevel(
-                    bm,
-                    geom=list(bm.edges),
-                    offset=self.bevel_amount,
-                    segments=2,
-                    profile=0.5,
-                    affect='EDGES'
-                )
+                bmesh.ops.bevel(bm, geom=list(bm.edges), offset=self.bevel_amount,
+                                segments=2, profile=0.5, affect='EDGES')
 
-            # ✅ NOUVEAU: POIGNÉE (la constante DOOR_HANDLE_HEIGHT existait
-            # sans qu'aucune poignée ne soit jamais générée!)
+            # ✅ POIGNÉE (côté serrure)
             hz = min(DOOR_HANDLE_HEIGHT, height - 0.3)
-            hx = width - 0.09          # côté opposé aux charnières
-            # Platine
+            hx = width - 0.09
             ret = bmesh.ops.create_cube(bm, size=1.0)
             bmesh.ops.transform(bm, verts=ret['verts'],
                                 matrix=Matrix.Diagonal((0.035, 0.012, 0.16, 1.0)))
             bmesh.ops.translate(bm, verts=ret['verts'], vec=(hx, -0.006, hz))
-            # Béquille (barre horizontale)
             ret = bmesh.ops.create_cube(bm, size=1.0)
             bmesh.ops.transform(bm, verts=ret['verts'],
                                 matrix=Matrix.Diagonal((0.11, 0.018, 0.018, 1.0)))
             bmesh.ops.translate(bm, verts=ret['verts'], vec=(hx - 0.045, -0.028, hz))
+
+            # ✅ Battant miroir: gonds à droite → géométrie en x∈[-width, 0]
+            if mirror:
+                bmesh.ops.translate(bm, verts=bm.verts, vec=(-width, 0, 0))
 
             bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
 
