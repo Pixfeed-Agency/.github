@@ -214,6 +214,18 @@ def configs():
                   None,   # caméra auto de l'environnement
                   expect=("Env_Ground", "Env_Grass", "House_Camera"),
                   fast=True))
+    # --- Niveaux de détail (chantier n°4) ---
+    C.append(_cfg("detail_draft", dict(BASE,
+                                       wall_construction_type='SIMPLE',
+                                       wall_material_color=(0.55, 0.455, 0.325),
+                                       detail_level='DRAFT'),
+                  ((13, -10.5, 6.5), (4, 2.5, 2.0), 32)))
+    C.append(_cfg("detail_photo", dict(BASE,
+                                       wall_construction_type='SIMPLE',
+                                       wall_material_color=(0.55, 0.455, 0.325),
+                                       detail_level='PHOTO'),
+                  ((13, -10.5, 6.5), (4, 2.5, 2.0), 32),
+                  expect=("Window_Sill_Photo",)))
     # --- Preset régional (chemin apply_preset complet) ---
     C.append(_cfg("preset_bastide", dict(house_preset='BASTIDE',
                                          random_seed=42),

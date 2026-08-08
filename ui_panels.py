@@ -61,6 +61,7 @@ class HOUSE_PT_main_panel(Panel):
         box = layout.box()
         box.label(text="Style architectural", icon='HOME')
         box.prop(props, "architectural_style", text="")
+        box.prop(props, "detail_level", text="Détail")
 
         # ✅ v1.8: presets régionaux (silhouettes complètes)
         box = layout.box()

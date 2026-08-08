@@ -95,3 +95,19 @@ CHANGELOG). Restent les limites listées après la liste historique.*
 - ✅ v1.7: export glTF (.glb); reste IFC (nécessite ifcopenshell)
 - LOD: masters de briques/tuiles multi-résolution pilotés par la
   distance caméra
+
+## 🏗️ Chantiers qualité (ordre logique acté)
+
+1. ✅ v1.10.0 — Banc de non-régression visuel (26 configs golden-image,
+   seuils calibrés, rapport HTML, exit code CI)
+2. ✅ v1.10.1 — Invariants géométriques pytest (17 tests par raycasts;
+   a attrapé le chevauchement des volets dès son premier run)
+3. ✅ v1.11.0 — Pipeline déclaratif (21 étapes, requires/provides,
+   validation statique à l'import, tags par domaine)
+4. ✅ v1.12.0 — Niveau de détail BROUILLON/NORMAL/PHOTO (NORMAL
+   inchangé au pixel près; PHOTO = appuis débordants + doublis +
+   volets entrouverts + chanfreins; BROUILLON = régénération rapide)
+5. Proxy viewport + régénération incrémentale (rejouer les seules
+   étapes du tag invalidé — la base est posée par le pipeline)
+6. Mode PROGRAMME ("3 chambres, SdB, garage" → House résout le plan)
+7. Slots d'assets (menuiseries haute qualité importables)

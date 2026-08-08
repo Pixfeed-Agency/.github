@@ -20,6 +20,11 @@ from mathutils import Vector, Matrix, Euler
 # HELPERS
 # ============================================================
 
+def detail_level(props):
+    """✅ v1.12: niveau de détail global (DRAFT / NORMAL / PHOTO)."""
+    return getattr(props, 'detail_level', 'NORMAL')
+
+
 def _new_mesh_obj(name, bm, collection, part, material=None):
     """bmesh → objet lié à la collection, avec tag house_part"""
     bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
@@ -1140,6 +1145,19 @@ def build_roof_tiles(props, collection, wall_height, effective_pitch, o_eave, o_
         tilt = Matrix.Rotation(-delta, 3, dir_u)
         rot_m = tilt @ rot.to_matrix()
         base_rot = rot_m.to_euler()
+        # ✅ PHOTO: DOUBLIS — rangée de départ doublée à l'égout (règle
+        # de pose réelle: la 1re rangée repose sur un rang de doublage)
+        if detail_level(props) == 'PHOTO':
+            for iu in range(n_u):
+                pd = origin + dir_u * (iu * step_u) - dir_v * (step_v * 0.45) \
+                    + normal * 0.004
+                if keep is not None and not keep(pd, pd + dir_u * TILE_W):
+                    continue
+                jd = math.radians(0.8)
+                rd = Euler((base_rot.x + random.uniform(-jd, jd),
+                            base_rot.y + random.uniform(-jd, jd),
+                            base_rot.z + random.uniform(-jd, jd)), 'XYZ')
+                positions.append((pd, rd))
         iv = 0
         while iv * step_v + TILE_L <= len_v + 0.03 + 1e-6:
             for iu in range(n_u):
@@ -1527,8 +1545,8 @@ def build_shutters(props, collection, window_specs):
             # Battant construit OUVERT, à plat contre le mur, charnière à
             # l'origine (bord côté fenêtre)
             # ✅ v1.9.1: volet à LAMES (4 planches + 2 barres) au lieu
-            # d'une plaque pleine
-            n_pl = 4
+            # d'une plaque pleine (Brouillon: plaque simple)
+            n_pl = 1 if detail_level(props) == 'DRAFT' else 4
             if wall in ('front', 'back'):
                 y0 = -t if wall == 'front' else 0.0
                 x_out = side * w_leaf
@@ -1580,6 +1598,11 @@ def build_shutters(props, collection, window_specs):
             var.targets[0].data_path = '["fermeture"]'
             sgn = signs[(wall, side)]
             drv.expression = f'{sgn} * f * {math.pi:.6f}'
+            # ✅ PHOTO: micro-désordre — battants entrouverts d'angles
+            # légèrement différents (déterministe par index)
+            if detail_level(props) == 'PHOTO':
+                obj["fermeture"] = 0.015 + 0.05 * (((idx * 7 + (side + 1))
+                                                    * 2654435761) % 97) / 97.0
             created.append(obj)
 
     print(f"[House] ✓ Volets ARTICULÉS: {len(created)} battants (propriété 'fermeture')")
@@ -1790,6 +1813,9 @@ def build_roof_carpentry(props, collection, wall_height, effective_pitch,
     ce qu'on voit d'une vraie toiture en levant les yeux.
     ✅ v1.6: les 5 types de toit sont finis sérieusement.
     """
+    if detail_level(props) == 'DRAFT':
+        print("[House] Charpente: sautée (niveau Brouillon)")
+        return []
     if props.roof_type != 'GABLE':
         return _carpentry_other_roofs(props, collection, wall_height,
                                       effective_pitch, o_eave, o_rake)
@@ -2083,6 +2109,35 @@ def _scatter_grass(collection, cx, cy, radius, exclude_rects, seed=7):
     return [obj, master]
 
 
+PHOTO_BEVEL_PREFIXES = (
+    "Roof_Fascia", "Roof_Bargeboard", "Wing_Fascia", "Wing_Bargeboard",
+    "Chimney_Cap", "Chimney", "Foundation", "Wing_Foundation", "Gutters",
+    "Wing_Gutters", "Dormer_Walls", "Balcony",
+)
+
+
+def apply_photo_finish(props, collection):
+    """✅ v1.12 PHOTO: adoucir les ARÊTES des finitions dures (fascias,
+    rives, cheminée, fondations…) par un léger Bevel — le 'rasoir CG'
+    est un des marqueurs anti-photo les plus forts."""
+    if detail_level(props) != 'PHOTO':
+        return []
+    touched = 0
+    for obj in collection.objects:
+        if obj.type != 'MESH' or not obj.name.startswith(PHOTO_BEVEL_PREFIXES):
+            continue
+        if any(m.type == 'BEVEL' for m in obj.modifiers):
+            continue
+        mod = obj.modifiers.new("PhotoBevel", 'BEVEL')
+        mod.width = 0.007
+        mod.segments = 2
+        mod.limit_method = 'ANGLE'
+        mod.angle_limit = math.radians(50)
+        touched += 1
+    print(f"[House] ✓ Finition PHOTO: arêtes adoucies sur {touched} objets")
+    return []
+
+
 def build_environment(props, collection, garage_front=None, door_x=None):
     """Terrain gazonné, allée d'entrée, arbres simples, ciel physique
     Nishita + AgX, et caméra cadrée automatiquement.
@@ -2094,6 +2149,7 @@ def build_environment(props, collection, garage_front=None, door_x=None):
     W, L = props.house_width, props.house_length
     cx, cy = W / 2, L / 2
     objs = []
+    draft = detail_level(props) == 'DRAFT'
 
     # --- TERRAIN: grand disque de pelouse ---
     bm = bmesh.new()
@@ -2134,7 +2190,7 @@ def build_environment(props, collection, garage_front=None, door_x=None):
         nt.links.new(bp.outputs['Normal'], bsdf.inputs['Normal'])
     bm_t = bmesh.new()
     bm_l = bmesh.new()
-    spots = [(cx - 12.0, L + 9.0, 1.25), (cx + 3.0, L + 12.0, 1.5),
+    spots = [] if draft else [(cx - 12.0, L + 9.0, 1.25), (cx + 3.0, L + 12.0, 1.5),
              (cx + 13.0, L + 8.0, 1.1), (cx + 20.0, L + 2.0, 1.3),
              (cx - 18.0, L + 3.0, 1.15)]
     for (tx, ty, s) in spots:
@@ -2166,7 +2222,8 @@ def build_environment(props, collection, garage_front=None, door_x=None):
         exclude.append((garage_front[0] - 0.1, -9.2, garage_front[1] + 0.1, 0.0))
     for wgf in ((),):
         pass
-    objs += _scatter_grass(collection, cx, cy - 2.0, 20.0, exclude)
+    if not draft:
+        objs += _scatter_grass(collection, cx, cy - 2.0, 20.0, exclude)
 
     # --- HAIE périphérique (parcelle) ---
     hedge = _simple_material("Env_Hedge", (0.05, 0.11, 0.035), roughness=0.95)

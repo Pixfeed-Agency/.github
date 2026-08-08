@@ -228,6 +228,11 @@ def _st_materials(op, context, props, collection):
     op._apply_materials(context, props, collection, op.style_config)
 
 
+def _st_photo_finish(op, context, props, collection):
+    from . import features
+    features.apply_photo_finish(props, collection)
+
+
 def _st_lighting(op, context, props, collection):
     op._add_scene_lighting(context, props)
 
@@ -312,6 +317,9 @@ HOUSE_STEPS = [
     Step("materials", _st_materials,
          requires=("style_config",),
          cond=lambda p: p.use_materials,
+         tags=("materials",)),
+    Step("photo_finish", _st_photo_finish,
+         cond=lambda p: getattr(p, 'detail_level', 'NORMAL') == 'PHOTO',
          tags=("materials",)),
     Step("lighting", _st_lighting,
          cond=lambda p: p.auto_lighting,

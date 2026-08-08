@@ -111,11 +111,19 @@ class WindowGenerator:
 
                 collection.objects.link(frame_obj)
                 collection.objects.link(sash_obj)
-                try:
-                    self._add_sheer_curtain(width, height, location,
-                                            orientation, collection)
-                except Exception as e:
-                    print(f"[Windows] Voilage échoué: {e}")
+                detail = self._detail_level()
+                if detail != 'DRAFT':
+                    try:
+                        self._add_sheer_curtain(width, height, location,
+                                                orientation, collection)
+                    except Exception as e:
+                        print(f"[Windows] Voilage échoué: {e}")
+                if detail == 'PHOTO':
+                    try:
+                        self._add_photo_sill(width, height, location,
+                                             orientation, collection)
+                    except Exception as e:
+                        print(f"[Windows] Appui photo échoué: {e}")
                 return [frame_obj, sash_obj]
             elif window_type == 'SLIDING':
                 window_obj = self._create_sliding_window(width, height, location, orientation)
@@ -164,12 +172,20 @@ class WindowGenerator:
                         print(f"[Windows] Vantail mobile échoué: {e}")
                         sash_obj = None
 
-                # ✅ v1.9.1: voilage intérieur
-                try:
-                    self._add_sheer_curtain(width, height, location,
-                                            orientation, collection)
-                except Exception as e:
-                    print(f"[Windows] Voilage échoué: {e}")
+                # ✅ v1.9.1: voilage intérieur (sauf niveau BROUILLON)
+                detail = self._detail_level()
+                if detail != 'DRAFT':
+                    try:
+                        self._add_sheer_curtain(width, height, location,
+                                                orientation, collection)
+                    except Exception as e:
+                        print(f"[Windows] Voilage échoué: {e}")
+                if detail == 'PHOTO':
+                    try:
+                        self._add_photo_sill(width, height, location,
+                                             orientation, collection)
+                    except Exception as e:
+                        print(f"[Windows] Appui photo échoué: {e}")
 
                 out = [window_obj]
                 if glass_obj:
@@ -199,6 +215,72 @@ class WindowGenerator:
     # CASEMENT WINDOW (Fenêtre à battant) - Standard européen
     # ============================================================
     
+    def _detail_level(self):
+        """Niveau de détail global (chantier n°4) lu depuis la scène —
+        le générateur de fenêtres n'a pas accès direct aux props."""
+        try:
+            p = bpy.context.scene.house_generator
+            return getattr(p, 'detail_level', 'NORMAL')
+        except Exception:
+            return 'NORMAL'
+
+    def _wall_half_depth(self):
+        """Demi-épaisseur du mur porteur (le nu extérieur est à
+        +Y·(épaisseur/2) de l'origine fenêtre, cf. _get_orientation_matrix)."""
+        try:
+            p = bpy.context.scene.house_generator
+            if getattr(p, 'wall_construction_type', 'SIMPLE') == 'BRICK_3D':
+                from .materials.brick_geometry import BRICK_DEPTH, MORTAR_GAP
+                return (BRICK_DEPTH + MORTAR_GAP) / 2
+            return getattr(p, 'wall_thickness', 0.3) / 2
+        except Exception:
+            return 0.15
+
+    def _add_photo_sill(self, width, height, location, orientation, collection):
+        """✅ v1.12: PHOTO — appui de fenêtre BÉTON débordant.
+
+        Sur une vraie façade l'appui déborde de ~5cm du nu du mur, avec une
+        pente de rejet d'eau, et projette une ombre horizontale sous chaque
+        fenêtre — un des "tells" photo les plus lisibles. L'appui intégré au
+        dormant (4cm) reste noyé dans l'épaisseur du mur; celui-ci ressort."""
+        import bmesh as _bm
+        hw = width / 2 + 0.04
+        hh = height / 2
+        y0 = -0.02                              # ancré sous le dormant
+        y1 = self._wall_half_depth() + 0.05     # nez: 5cm devant le nu
+        zt = -hh + 0.004                        # dessus, sous la traverse basse
+        slope = 0.014                           # pente vers l'extérieur
+        th = 0.05                               # épaisseur du nez
+        bm = _bm.new()
+        pts = [
+            (-hw, y0, zt), (hw, y0, zt),
+            (-hw, y1, zt - slope), (hw, y1, zt - slope),
+            (-hw, y1, zt - slope - th), (hw, y1, zt - slope - th),
+            (-hw, y0, zt - slope - th), (hw, y0, zt - slope - th),
+        ]
+        vs = [bm.verts.new(p) for p in pts]
+        for f in ((0, 1, 3, 2), (2, 3, 5, 4), (4, 5, 7, 6),
+                  (6, 7, 1, 0), (0, 2, 4, 6), (7, 5, 3, 1)):
+            bm.faces.new([vs[i] for i in f])
+        rotation_matrix = self._get_orientation_matrix(orientation)
+        _bm.ops.transform(bm, matrix=rotation_matrix, verts=bm.verts)
+        _bm.ops.translate(bm, verts=bm.verts, vec=location)
+        obj = self._bmesh_to_object(bm, "Window_Sill_Photo")
+        bm.free()
+        obj["house_part"] = "window"
+        mat = bpy.data.materials.get("House_Sill_Concrete")
+        if mat is None:
+            mat = bpy.data.materials.new("House_Sill_Concrete")
+            mat.use_nodes = True
+            bsdf = mat.node_tree.nodes.get('Principled BSDF')
+            if bsdf:
+                bsdf.inputs['Base Color'].default_value = (0.60, 0.58, 0.54, 1)
+                bsdf.inputs['Roughness'].default_value = 0.9
+        obj.data.materials.clear()
+        obj.data.materials.append(mat)
+        collection.objects.link(obj)
+        return obj
+
     def _add_sheer_curtain(self, width, height, location, orientation, collection):
         """✅ v1.9.1: VOILAGE blanc ondulé derrière la vitre — c'est lui
         qui transforme un rectangle noir en fenêtre HABITÉE (cf. photos

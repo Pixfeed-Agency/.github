@@ -176,6 +176,21 @@ class HouseGeneratorProperties(PropertyGroup):
     # STYLE ARCHITECTURAL
     # ============================================================
     
+    detail_level: EnumProperty(
+        name="Niveau de détail",
+        description="Budget de détail constructif de la génération",
+        items=[
+            ('DRAFT', "Brouillon", "Rapide: sans charpente visible, "
+                                   "voilages, quincaillerie ni végétation"),
+            ('NORMAL', "Normal", "Le niveau de détail standard"),
+            ('PHOTO', "Photo", "Tout le réel: appuis débordants, doublis "
+                               "d'égout, arêtes adoucies, volets "
+                               "entrouverts variés"),
+        ],
+        default='NORMAL',
+        update=regenerate_house
+    )
+
     architectural_style: EnumProperty(
         name="Style",
         description="Style architectural de la maison",

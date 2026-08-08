@@ -1,5 +1,37 @@
 # Changelog — House Generator
 
+## v1.12.0 — Niveau de détail Brouillon / Normal / Photo (chantier n°4)
+
+Nouvelle propriété `detail_level` (panneau principal, "Détail") — trois
+contrats explicites au lieu d'un unique niveau implicite. NORMAL reste
+**au pixel près** le comportement historique (26 configs du banc dont
+24 anciennes à MAE=0.00, 17/17 invariants).
+
+- **BROUILLON** (itérer sur les volumes, régénération rapide): sans
+  charpente, sans voilages, volets en plaque simple (1 planche au lieu
+  de 4 lames + barres), sans végétation d'environnement (ni arbres ni
+  herbe GN — sol/allées/ciel conservés)
+- **PHOTO** (le rendu final): tous les "tells" photo identifiés sur la
+  longère de référence, productisés:
+  - **appuis de fenêtre BÉTON débordants** (`Window_Sill_Photo`): nez à
+    5cm du nu du mur, pente de rejet d'eau — l'ombre horizontale sous
+    chaque fenêtre qui manquait (l'appui du dormant restait noyé dans
+    l'épaisseur du mur)
+  - **doublis d'égout**: rang de tuiles supplémentaire en pied de
+    versant (pose réelle) avec micro-jitter déterministe
+  - **volets ENTROUVERTS** à angles variés (hash déterministe par
+    battant, `fermeture` 0.015–0.065) — plus de façade aux volets
+    parfaitement plaqués
+  - **chanfreins d'arêtes** (modificateur Bevel 7mm/2 segments, limite
+    d'angle 50°) sur fascias, rives, souche, couronnement, fondations,
+    gouttières, lucarnes, balcon — les arêtes parfaitement vives sont
+    le tell CG n°1
+- **Pipeline**: nouvelle étape `photo_finish` (cond PHOTO, tag
+  materials) validée statiquement; fenêtres: portes de détail lues
+  depuis la scène (`_detail_level`)
+- **Banc visuel**: +2 configs `detail_draft` / `detail_photo` (26 au
+  total), références générées
+
 ## v1.11.0 — Pipeline de construction déclaratif (chantier qualité n°3)
 
 La chirurgie structurelle, opérée SOUS les deux filets (banc visuel +
