@@ -1494,13 +1494,35 @@ def build_shutters(props, collection, window_specs):
              ('left', -1): -1, ('left', 1): 1,
              ('right', -1): 1, ('right', 1): -1}
 
+    # ✅ v1.10.1: clamp de chaque battant à la MOITIÉ de l'espace libre
+    # vers la fenêtre voisine du même mur (les battants ouverts de deux
+    # fenêtres proches se chevauchaient — attrapé par les invariants)
+    def _along(s):
+        return s['x'] if s['wall'] in ('front', 'back') else s['y']
+
+    def _leaf_room(spec, side):
+        edge = _along(spec) + side * spec['width'] / 2
+        best = None
+        for o in window_specs:
+            if o is spec or o['wall'] != spec['wall']:
+                continue
+            if abs(o['z_center'] - spec['z_center']) > 0.3:
+                continue
+            o_edge = _along(o) - side * o['width'] / 2
+            gap = side * (o_edge - edge)
+            if gap > 0 and (best is None or gap < best):
+                best = gap
+        if best is None:
+            return spec['width'] / 2 - 0.02
+        return min(spec['width'] / 2 - 0.02, max(0.10, best / 2 - 0.015))
+
     for idx, spec in enumerate(window_specs):
-        w_leaf = spec['width'] / 2 - 0.02
         hgt = spec['height']
         z0 = spec['z_center'] - hgt / 2
         wall = spec['wall']
 
         for side in (-1, 1):
+            w_leaf = _leaf_room(spec, side)
             bm = bmesh.new()
             # Battant construit OUVERT, à plat contre le mur, charnière à
             # l'origine (bord côté fenêtre)

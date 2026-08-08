@@ -1,5 +1,20 @@
 # Changelog — House Generator
 
+## v1.10.1 — Invariants géométriques pytest (chantier qualité n°2)
+
+- **`tests/invariants/test_geometry.py`** (17 tests, ~4s): façades
+  SOLIDES hors ouvertures par raycasts (maison + garage — le bug du
+  Boolean serait attrapé), TOIT ÉTANCHE vu du ciel (grille de rayons
+  zénithaux: seul du "toit" peut être touché), fenêtres ANCRÉES à un
+  plan de mur, tuiles posées SUR leur dalle (< 2% hors plan), escalier
+  qui ATTEINT l'étage (±8cm), TRÉMIE réellement percée (rayon
+  traversant), volets sans CHEVAUCHEMENT, rien sous les fondations —
+  chaque invariant vient d'un bug réel de l'historique
+- **Première prise dès le premier run**: les battants ouverts de deux
+  fenêtres proches se chevauchaient sur les murs latéraux → chaque
+  battant est désormais clampé à la moitié de l'espace libre vers sa
+  voisine (`_leaf_room`), références du banc visuel rebasées
+
 ## v1.10.0 — BANC DE NON-RÉGRESSION VISUEL (chantier qualité n°1)
 
 Le filet de sécurité qui manquait: les pires bugs de l'historique

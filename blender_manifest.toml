@@ -4,7 +4,7 @@
 schema_version = "1.3.0"
 
 id = "house_generator"
-version = "1.10.0"
+version = "1.10.1"
 name = "House"
 tagline = "Automatic and manual house generation with floor plans support"
 maintainer = "mvaertan"
