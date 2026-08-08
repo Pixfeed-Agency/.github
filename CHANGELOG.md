@@ -1,5 +1,26 @@
 # Changelog — House Generator
 
+## v1.4.1 — Peinture/PBR validés, cheminée V2, Asset Browser
+
+### 🎨 Finitions de façade au choix (validé au rendu)
+- Mode **COLOR** (brique peinte de la couleur choisie) et mode **PBR**
+  (déposez un dossier de textures dans `materials/textures/<nom>/` —
+  basecolor/normal/roughness détectés automatiquement, le preset
+  apparaît dans la liste) vérifiés par rendus Cycles
+- Set d'exemple `brique_peinte` fourni (brique peinte blanche)
+
+### 🏭 Cheminée V2 (elle n'était pas au niveau)
+- Fût en VRAIES briques (Brick Texture procédural à l'échelle réelle
+  22×6.5cm, joints creusés), **solin zinc** incliné au passage du toit,
+  **couronnement béton** débordant avec goutte d'eau, **2 boisseaux**
+  terre cuite — toujours activable/désactivable (option Cheminée)
+
+### 📚 Asset Browser
+- Nouveau bouton **« Menuiseries → Asset Browser »**: marque portes,
+  fenêtres, volets, porte de garage et tuile maître comme assets
+  Blender (tags, auteur, aperçus) — réutilisables par glisser-déposer
+  après enregistrement du .blend dans une bibliothèque d'assets
+
 ## v1.4.0 — Multi-volumes (plans en L), intérieurs, conformité
 
 **Validé au rendu Cycles headless.**

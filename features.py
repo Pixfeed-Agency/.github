@@ -119,7 +119,9 @@ def add_scene_lighting(props, collection):
 # ============================================================
 
 def build_chimney(props, collection, wall_height, roof_peak_z):
-    """Cheminée en brique traversant le toit près du faîtage.
+    """✅ V2: Cheminée maçonnée complète — fût en briques (Brick Texture
+    à l'échelle réelle), SOLIN zinc au passage du toit, couronnement
+    béton débordant avec goutte d'eau, deux boisseaux terre cuite.
 
     Args:
         wall_height: sommet des murs (hauteur réelle)
@@ -128,33 +130,85 @@ def build_chimney(props, collection, wall_height, roof_peak_z):
     width = props.house_width
     length = props.house_length
 
-    cw = 0.65   # section de la cheminée
-    top = roof_peak_z + 0.7          # dépasse le faîtage
+    cw, cd = 0.92, 0.60              # fût rectangulaire (double conduit)
+    top = roof_peak_z + 0.55         # dépasse le faîtage (règle: +40cm min)
     base = wall_height - 1.2         # ancrée sous le toit
 
-    # Position: proche du faîtage, au tiers de la maison
     ridge_along_y = length >= width
+    half = (width / 2) if ridge_along_y else (length / 2)
+    slope = max(0.0, (roof_peak_z - wall_height) / max(half, 0.01))
+    pitch = math.atan(slope)
+
+    # Position: sur un versant, proche du faîtage
     if ridge_along_y:
-        cx = width / 2 + 0.9         # léger décalage du faîtage
+        cx = width / 2 + 0.9
         cy = length * 0.3
+        z_roof = wall_height + slope * (width - cx)
     else:
         cx = width * 0.3
         cy = length / 2 + 0.9
+        z_roof = wall_height + slope * (length - cy)
 
+    objs = []
+
+    # --- FÛT en briques ---
     bm = bmesh.new()
-    # Fût
-    _add_box(bm, cx - cw/2, cy - cw/2, base, cx + cw/2, cy + cw/2, top)
-    # Couronnement (chapeau débordant)
-    cap = 0.09
-    _add_box(bm, cx - cw/2 - cap, cy - cw/2 - cap, top,
-             cx + cw/2 + cap, cy + cw/2 + cap, top + 0.12)
-    # Conduit (petit carré sombre au sommet)
-    _add_box(bm, cx - 0.14, cy - 0.14, top + 0.12, cx + 0.14, cy + 0.14, top + 0.3)
+    _add_box(bm, cx - cw / 2, cy - cd / 2, base, cx + cw / 2, cy + cd / 2, top)
+    try:
+        from . import look
+        brick_mat = look.chimney_brick_material(
+            tuple(getattr(props, 'mortar_color', (0.72, 0.69, 0.64)))[:3])
+    except Exception:
+        brick_mat = _simple_material("House_Chimney_Brick", (0.30, 0.085, 0.05),
+                                     roughness=0.9)
+    objs.append(_new_mesh_obj("Chimney", bm, collection, "chimney", brick_mat))
 
-    mat = _simple_material("House_Chimney_Brick", (0.30, 0.085, 0.05), roughness=0.9)
-    obj = _new_mesh_obj("Chimney", bm, collection, "chimney", mat)
-    print(f"[House] ✓ Cheminée à ({cx:.1f}, {cy:.1f}), sommet {top + 0.3:.2f}m")
-    return [obj]
+    # --- SOLIN zinc (collerette inclinée épousant le versant) ---
+    bm = bmesh.new()
+    sk = 0.20                        # débord du solin autour du fût
+    plate = bmesh.ops.create_cube(bm, size=1.0)
+    bmesh.ops.transform(bm, verts=plate['verts'],
+                        matrix=Matrix.Diagonal((cw + 2 * sk, cd + 2 * sk, 0.012, 1.0)))
+    rot = Matrix.Rotation(pitch, 4, 'Y') if ridge_along_y \
+        else Matrix.Rotation(-pitch, 4, 'X')
+    bmesh.ops.transform(bm, verts=bm.verts,
+                        matrix=Matrix.Translation(Vector((cx, cy, z_roof + 0.03))) @ rot)
+    zinc = _simple_material("House_Zinc", (0.62, 0.65, 0.67), roughness=0.35,
+                            metallic=0.9)
+    objs.append(_new_mesh_obj("Chimney_Flashing", bm, collection, "chimney", zinc))
+
+    # --- COURONNEMENT béton (dalle débordante + goutte d'eau) ---
+    bm = bmesh.new()
+    cap = 0.07
+    _add_box(bm, cx - cw / 2 - cap, cy - cd / 2 - cap, top,
+             cx + cw / 2 + cap, cy + cd / 2 + cap, top + 0.10)
+    _add_box(bm, cx - cw / 2 - cap + 0.02, cy - cd / 2 - cap + 0.02, top + 0.10,
+             cx + cw / 2 + cap - 0.02, cy + cd / 2 + cap - 0.02, top + 0.14)
+    concrete = _simple_material("House_Concrete_Cap", (0.58, 0.57, 0.54),
+                                roughness=0.85)
+    objs.append(_new_mesh_obj("Chimney_Cap", bm, collection, "chimney", concrete))
+
+    # --- BOISSEAUX terre cuite (2 conduits) ---
+    bm = bmesh.new()
+    pot_mat = _simple_material("House_Chimney_Pot", (0.36, 0.14, 0.08),
+                               roughness=0.7)
+    for dx in (-cw / 4, cw / 4):
+        pot = bmesh.ops.create_cone(bm, cap_ends=False, segments=14,
+                                    radius1=0.105, radius2=0.09, depth=0.34)
+        bmesh.ops.transform(bm, verts=pot['verts'],
+                            matrix=Matrix.Translation(Vector((cx + dx, cy,
+                                                              top + 0.14 + 0.17))))
+        # assombrir l'intérieur: petit cylindre noir
+        hole = bmesh.ops.create_cone(bm, cap_ends=True, segments=10,
+                                     radius1=0.075, radius2=0.075, depth=0.02)
+        bmesh.ops.transform(bm, verts=hole['verts'],
+                            matrix=Matrix.Translation(Vector((cx + dx, cy,
+                                                              top + 0.14 + 0.30))))
+    objs.append(_new_mesh_obj("Chimney_Pots", bm, collection, "chimney", pot_mat))
+
+    print(f"[House] ✓ Cheminée V2 à ({cx:.1f}, {cy:.1f}) — fût briques + "
+          f"solin + couronnement + boisseaux")
+    return objs
 
 
 # ============================================================

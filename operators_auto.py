@@ -2026,8 +2026,60 @@ class HOUSE_OT_generate_auto(Operator):
         return mat
 
 
+class HOUSE_OT_mark_assets(bpy.types.Operator):
+    """✅ ASSETS: marque les menuiseries générées comme ASSETS Blender
+    (Asset Browser) — portes, fenêtres, volets, porte de garage et tuile
+    maître deviennent réutilisables par glisser-déposer dans toute scène.
+    """
+    bl_idname = "house.mark_assets"
+    bl_label = "Menuiseries → Asset Browser"
+    bl_description = ("Marque portes, fenêtres, volets et tuile maître "
+                      "comme assets réutilisables (Asset Browser). "
+                      "Enregistrez ensuite le .blend dans une bibliothèque "
+                      "d'assets (Préférences > Chemins de fichiers)")
+    bl_options = {'REGISTER', 'UNDO'}
+
+    ASSET_PARTS = {"door", "window", "shutter"}
+    ASSET_PREFIXES = ("Garage_Door", "Tile_Master", "Brick_Master")
+
+    def execute(self, context):
+        tagged = 0
+        for obj in bpy.data.objects:
+            part = obj.get("house_part")
+            eligible = part in self.ASSET_PARTS or \
+                obj.name.startswith(self.ASSET_PREFIXES)
+            if not eligible or obj.type != 'MESH':
+                continue
+            try:
+                obj.asset_mark()
+                if obj.asset_data:
+                    obj.asset_data.author = "House Generator"
+                    obj.asset_data.description = \
+                        f"Menuiserie générée par House ({part or 'master'})"
+                    existing = {t.name for t in obj.asset_data.tags}
+                    for tag in (part or "master", "house"):
+                        if tag not in existing:
+                            obj.asset_data.tags.new(tag)
+                # ✅ Les aperçus nécessitent l'interface (crash en headless)
+                if not bpy.app.background:
+                    obj.asset_generate_preview()
+                tagged += 1
+            except Exception as e:
+                print(f"[House] Asset '{obj.name}' ignoré: {e}")
+
+        if tagged:
+            self.report({'INFO'},
+                        f"{tagged} objet(s) marqués comme assets — "
+                        f"enregistrez le .blend dans votre bibliothèque")
+        else:
+            self.report({'WARNING'}, "Aucune menuiserie à marquer "
+                                     "(générez d'abord une maison)")
+        return {'FINISHED'}
+
+
 classes = (
     HOUSE_OT_generate_auto,
+    HOUSE_OT_mark_assets,
 )
 
 

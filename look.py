@@ -52,6 +52,55 @@ def _instance_random(nodes, links, x, y):
 # TUILES TERRE CUITE
 # ============================================================
 
+def chimney_brick_material(mortar_color=(0.72, 0.69, 0.64)):
+    """Brique de cheminée: Brick Texture procédural à l'échelle réelle
+    (22×6.5cm, joints 12mm), teinte terracotta profonde + bump des joints.
+    Le vecteur (x+y, z) projette le motif sur les 4 faces verticales."""
+    mat = _new_mat("House_Chimney_V2")
+    nodes, links, bsdf = _basic(mat)
+
+    geo = nodes.new('ShaderNodeNewGeometry')
+    geo.location = (-1150, 200)
+    sep = nodes.new('ShaderNodeSeparateXYZ')
+    sep.location = (-980, 200)
+    links.new(geo.outputs['Position'], sep.inputs['Vector'])
+    add = nodes.new('ShaderNodeMath')
+    add.operation = 'ADD'
+    add.location = (-810, 260)
+    links.new(sep.outputs['X'], add.inputs[0])
+    links.new(sep.outputs['Y'], add.inputs[1])
+    comb = nodes.new('ShaderNodeCombineXYZ')
+    comb.location = (-650, 200)
+    links.new(add.outputs['Value'], comb.inputs['X'])
+    links.new(sep.outputs['Z'], comb.inputs['Y'])
+
+    brick = nodes.new('ShaderNodeTexBrick')
+    brick.location = (-450, 200)
+    brick.inputs['Color1'].default_value = (0.30, 0.075, 0.042, 1)
+    brick.inputs['Color2'].default_value = (0.42, 0.115, 0.058, 1)
+    brick.inputs['Mortar'].default_value = (*mortar_color[:3], 1)
+    brick.inputs['Scale'].default_value = 1.0
+    brick.inputs['Mortar Size'].default_value = 0.012
+    brick.inputs['Mortar Smooth'].default_value = 0.4
+    brick.inputs['Bias'].default_value = 0.0
+    brick.inputs['Brick Width'].default_value = 0.232
+    brick.inputs['Row Height'].default_value = 0.077
+    links.new(comb.outputs['Vector'], brick.inputs['Vector'])
+    links.new(brick.outputs['Color'], bsdf.inputs['Base Color'])
+
+    bsdf.inputs['Roughness'].default_value = 0.85
+
+    # Joints en creux (le Fac du BrickTex = 1 sur le mortier)
+    bump = nodes.new('ShaderNodeBump')
+    bump.location = (-220, -140)
+    bump.inputs['Strength'].default_value = 0.5
+    bump.inputs['Distance'].default_value = 0.004
+    bump.invert = True
+    links.new(brick.outputs['Fac'], bump.inputs['Height'])
+    links.new(bump.outputs['Normal'], bsdf.inputs['Normal'])
+    return mat
+
+
 def tile_material(base_color=(0.34, 0.115, 0.062)):
     """Terre cuite: variation de cuisson PAR TUILE + moucheté + bump grain"""
     mat = _new_mat("House_Tile")
