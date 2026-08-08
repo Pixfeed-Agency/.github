@@ -631,6 +631,9 @@ ROOF_WIN_L = 1.18   # longueur le long de la pente
 
 
 def roof_window_layout(props, wall_height, effective_pitch, o_eave, o_rake):
+    """NOTE v1.8: retourne (pan, centres, u_axis, v_axis, origin, exc)
+    où exc = (half_u, v_lo_rel, v_hi_rel) est le rectangle d'exclusion
+    des tuiles AUTOUR de chaque centre (relatif à v_center)."""
     """Calepinage PARTAGÉ des fenêtres de toit (tuiles + objets).
 
     GABLE uniquement. Elles sont posées sur le pan "visible":
@@ -680,7 +683,8 @@ def roof_window_layout(props, wall_height, effective_pitch, o_eave, o_rake):
         n_fit = min(n, max(1, int((u1 - u0) / (ROOF_WIN_W + 0.6))))
         centers = [(u0 + (i + 1) * (u1 - u0) / (n_fit + 1), v_center)
                    for i in range(n_fit)]
-        return pan, centers, u_axis, v_axis, origin
+        exc = (ROOF_WIN_W / 2 + 0.16, -ROOF_WIN_L / 2 - 0.16, ROOF_WIN_L / 2 + 0.16)
+        return pan, centers, u_axis, v_axis, origin, exc
 
     if props.roof_type == 'GAMBREL':
         # ✅ v1.7: velux sur le TERRASSON gauche (pente douce)
@@ -699,7 +703,8 @@ def roof_window_layout(props, wall_height, effective_pitch, o_eave, o_rake):
         v_center = max(ROOF_WIN_L / 2 + 0.25,
                        min(terr_len - ROOF_WIN_L / 2 - 0.25, terr_len * 0.45))
         centers = [((i + 1) * u_len / (n + 1), v_center) for i in range(n)]
-        return pan, centers, u_axis, v_axis, origin
+        exc = (ROOF_WIN_W / 2 + 0.16, -ROOF_WIN_L / 2 - 0.16, ROOF_WIN_L / 2 + 0.16)
+        return pan, centers, u_axis, v_axis, origin, exc
 
     if props.roof_type == 'SHED':
         pan = 'shed'
@@ -725,10 +730,34 @@ def roof_window_layout(props, wall_height, effective_pitch, o_eave, o_rake):
     if slope_len < ROOF_WIN_L + 0.8:
         print("[House] Fenêtres de toit: pan trop court — ignorées")
         return None
+    # ✅ v1.8: LUCARNES jacobines sur GABLE (style au choix)
+    style = getattr(props, 'roof_window_style', 'VELUX')
+    if style == 'LUCARNE' and props.roof_type == 'GABLE':
+        cosp_l = math.cos(pitch_rad)
+        lw, dd = 1.5, 1.6
+        v_center = max((dd / 2 + 0.5) / cosp_l,
+                       min(slope_len - 1.2, slope_len * 0.42))
+        y_c = v_center * cosp_l
+        y_f = y_c - dd / 2
+        z_b = math.tan(pitch_rad) * y_f
+        z_w = z_b + 1.45
+        dp = math.radians(max(effective_pitch, 35.0))
+        z_r = z_w + (lw / 2) * math.tan(dp)
+        y_back = z_r / max(math.tan(pitch_rad), 0.05)
+        centers = [((i + 1) * u_len / (n + 1), v_center) for i in range(n)]
+        # exclusion resserrée: derrière la lucarne, le toiton recouvre
+        # lui-même le pan jusqu'à sa ligne de pénétration
+        y_cover = z_w / max(math.tan(pitch_rad), 0.05) + 0.30
+        exc = (lw / 2 + 0.14,
+               (y_f - 0.2) / cosp_l - v_center,
+               min(y_cover / cosp_l, slope_len) - v_center)
+        return pan, centers, u_axis, v_axis, origin, exc
+
     v_center = max(ROOF_WIN_L / 2 + 0.35,
                    min(slope_len - ROOF_WIN_L / 2 - 0.35, slope_len * 0.45))
     centers = [((i + 1) * u_len / (n + 1), v_center) for i in range(n)]
-    return pan, centers, u_axis, v_axis, origin
+    exc = (ROOF_WIN_W / 2 + 0.16, -ROOF_WIN_L / 2 - 0.16, ROOF_WIN_L / 2 + 0.16)
+    return pan, centers, u_axis, v_axis, origin, exc
 
 
 def build_roof_windows(props, collection, wall_height, effective_pitch,
@@ -743,7 +772,11 @@ def build_roof_windows(props, collection, wall_height, effective_pitch,
                                 o_eave, o_rake)
     if layout is None:
         return []
-    pan, centers, u_axis, v_axis, origin = layout
+    if getattr(props, 'roof_window_style', 'VELUX') == 'LUCARNE' and \
+            props.roof_type == 'GABLE':
+        return build_roof_dormers(props, collection, wall_height,
+                                  effective_pitch, o_eave, o_rake, layout)
+    pan, centers, u_axis, v_axis, origin = layout[:5]
     normal = u_axis.cross(v_axis).normalized()
     if normal.z < 0:
         normal = -normal
@@ -795,6 +828,254 @@ def build_roof_windows(props, collection, wall_height, effective_pitch,
     g = _new_mesh_obj("Roof_Windows_Glass", bm_g, collection, "roof_window", glass)
     objs.append(g)
     print(f"[House] ✓ {len(centers)} fenêtre(s) de toit posée(s) (pan {pan})")
+    return objs
+
+
+def build_roof_dormers(props, collection, wall_height, effective_pitch,
+                       o_eave, o_rake, layout):
+    """✅ v1.8: LUCARNES JACOBINES — vraie lucarne à 2 pans: façade
+    verticale avec fenêtre, jouées triangulaires, toiton à 2 pans coupé
+    EXACTEMENT au plan du toit principal (bisect), tuiles du toiton
+    ajustées, faîtière arrêtée au point de pénétration analytique.
+    """
+    pan, centers, u_axis, v_axis, origin, _exc = layout
+    pitch_rad = math.radians(effective_pitch)
+    cosp, sinp = math.cos(pitch_rad), math.sin(pitch_rad)
+    tanp = math.tan(pitch_rad)
+
+    # Repère F du pan: X = u (horizontal le long de l'égout),
+    # Y = horizontal vers l'intérieur du toit, Z = vertical
+    dir_h = Vector((v_axis.x, v_axis.y, 0)).normalized()
+    up = Vector((0, 0, 1))
+    M3 = Matrix((u_axis, dir_h, up)).transposed()
+    MF = Matrix.Translation(origin) @ M3.to_4x4()
+    normal_main = u_axis.cross(v_axis).normalized()
+    if normal_main.z < 0:
+        normal_main = -normal_main
+
+    lw, dd = 1.5, 1.6
+    dp = math.radians(max(effective_pitch, 35.0))
+    tan_dp = math.tan(dp)
+
+    wall_mat = _simple_material("House_Dormer_Wall", (0.88, 0.85, 0.78),
+                                roughness=0.85)
+    tile_color = tuple(getattr(props, 'tile_color', (0.34, 0.115, 0.062)))[:3]
+    tile_mat = _simple_material("House_Tile", tile_color, roughness=0.75)
+    fascia_mat = _simple_material("House_Fascia", (0.92, 0.92, 0.90),
+                                  roughness=0.5)
+    objs = []
+    positions = []
+    random.seed(777)
+    step_v = TILE_L - TILE_OVERLAP
+    delta = math.atan2(0.014, step_v)
+
+    try:
+        from .windows import WindowGenerator
+        wgen = WindowGenerator(quality=getattr(props, 'window_quality', 'MEDIUM'))
+    except Exception:
+        wgen = None
+
+    orientation = {'front': 'front', 'left': 'left'}.get(pan, 'front')
+
+    for (uc, vc) in centers:
+        y_c = vc * cosp
+        y_f = y_c - dd / 2
+        z_b = tanp * y_f
+        z_w = z_b + 1.45
+        z_r = z_w + (lw / 2) * tan_dp
+        y_back = z_r / max(tanp, 0.05)
+
+        bm = bmesh.new()
+        # --- FAÇADE de lucarne (trumeaux + allège + linteau autour de la fenêtre)
+        wx0, wx1 = uc - lw / 2, uc + lw / 2
+        ww, wh = 0.78, 0.95
+        ox0, ox1 = uc - ww / 2, uc + ww / 2
+        sill = z_b + 0.32
+        _add_box(bm, wx0, y_f, z_b - 0.35, ox0, y_f + 0.10, z_w)
+        _add_box(bm, ox1, y_f, z_b - 0.35, wx1, y_f + 0.10, z_w)
+        _add_box(bm, ox0, y_f, z_b - 0.35, ox1, y_f + 0.10, sill)
+        _add_box(bm, ox0, y_f, sill + wh, ox1, y_f + 0.10, z_w)
+        # pignon triangulaire de la façade (sous le toiton)
+        v = [bm.verts.new(pt) for pt in
+             ((wx0, y_f, z_w), (wx1, y_f, z_w), (uc, y_f, z_r),
+              (wx0, y_f + 0.10, z_w), (wx1, y_f + 0.10, z_w),
+              (uc, y_f + 0.10, z_r))]
+        bm.faces.new([v[0], v[1], v[2]])
+        bm.faces.new([v[5], v[4], v[3]])
+        bm.faces.new([v[0], v[3], v[4], v[1]])
+        bm.faces.new([v[1], v[4], v[5], v[2]])
+        bm.faces.new([v[2], v[5], v[3], v[0]])
+
+        # --- JOUÉES (murs latéraux triangulaires): dalles verticales
+        # coupées par le plan du toit principal ET les plans du toiton
+        for sgn in (-1, 1):
+            xs = uc + sgn * (lw / 2 - 0.06)
+            js = bmesh.ops.create_cube(bm, size=1.0)
+            bmesh.ops.transform(bm, verts=js['verts'],
+                                matrix=Matrix.Diagonal((0.06, (y_back - y_f) + 0.6,
+                                                        z_r + 0.8, 1.0)))
+            bmesh.ops.transform(bm, verts=js['verts'],
+                                matrix=Matrix.Translation(Vector((
+                                    xs + sgn * 0.03, (y_f + y_back) / 2,
+                                    z_r / 2))))
+        # coupe au plan principal (z = tanp·y): garder AU-DESSUS
+        bmesh.ops.bisect_plane(
+            bm, geom=bm.verts[:] + bm.edges[:] + bm.faces[:],
+            plane_co=(0.0, 0.0, -0.001), plane_no=(0.0, -sinp, cosp),
+            clear_outer=False, clear_inner=True)
+        # coupes aux plans du toiton: z = z_r ± x'·tan_dp (garder DESSOUS)
+        for sgn in (-1, 1):
+            no = Vector((sgn * tan_dp, 0.0, 1.0)).normalized()
+            bmesh.ops.bisect_plane(
+                bm, geom=bm.verts[:] + bm.edges[:] + bm.faces[:],
+                plane_co=(uc, 0.0, z_r + 0.001), plane_no=tuple(no),
+                clear_outer=True, clear_inner=False)
+        bmesh.ops.transform(bm, verts=bm.verts, matrix=MF)
+        objs.append(_new_mesh_obj("Dormer_Walls", bm, collection, "roof_window",
+                                  wall_mat))
+
+        # --- TOITON (2 dallettes) coupé au plan principal ---
+        bm = bmesh.new()
+        ov = 0.14
+        for sgn in (-1, 1):
+            x_e = uc + sgn * (lw / 2 + ov)
+            z_e = z_r - (lw / 2 + ov) * tan_dp
+            xs = sorted([x_e, uc])
+            tf = [bm.verts.new((x, y_f - 0.15, z_r - abs(x - uc) * tan_dp))
+                  for x in xs]
+            tb = [bm.verts.new((x, y_back + 0.5, z_r - abs(x - uc) * tan_dp))
+                  for x in xs]
+            bf = [bm.verts.new((x, y_f - 0.15, z_r - abs(x - uc) * tan_dp - 0.09))
+                  for x in xs]
+            bb = [bm.verts.new((x, y_back + 0.5, z_r - abs(x - uc) * tan_dp - 0.09))
+                  for x in xs]
+            bm.faces.new([tf[0], tf[1], tb[1], tb[0]])
+            bm.faces.new([bb[0], bb[1], bf[1], bf[0]])
+            bm.faces.new([tf[0], tb[0], bb[0], bf[0]])
+            bm.faces.new([tb[1], tf[1], bf[1], bb[1]])
+            bm.faces.new([tf[1], tf[0], bf[0], bf[1]])
+            bm.faces.new([tb[0], tb[1], bb[1], bb[0]])
+        bmesh.ops.bisect_plane(
+            bm, geom=bm.verts[:] + bm.edges[:] + bm.faces[:],
+            plane_co=(0.0, 0.0, -0.02), plane_no=(0.0, -sinp, cosp),
+            clear_outer=False, clear_inner=True)
+        bmesh.ops.transform(bm, verts=bm.verts, matrix=MF)
+        objs.append(_new_mesh_obj("Dormer_Roof", bm, collection, "roof_window",
+                                  fascia_mat))
+
+        # --- TUILES du toiton (petits pans, coupées au plan principal) ---
+        for sgn in (-1, 1):
+            eave_x = uc + sgn * (lw / 2 + ov)
+            up_dir_F = Vector((-sgn * math.cos(dp), 0, math.sin(dp)))
+            u_dir_F = Vector((0, 1, 0))
+            origin_F = Vector((eave_x, y_f - 0.12,
+                               z_r - (lw / 2 + ov) * tan_dp + 0.02))
+            dir_u_w = M3 @ u_dir_F
+            dir_v_w = M3 @ up_dir_F
+            origin_w = MF @ origin_F
+            nrm = dir_u_w.cross(dir_v_w).normalized()
+            if nrm.z < 0:
+                nrm = -nrm
+            rot_m = Matrix(((-dir_u_w if sgn > 0 else dir_u_w),
+                            dir_v_w, nrm)).transposed()
+            tilt = Matrix.Rotation(-delta, 3, dir_u_w)
+            base_rot = (tilt @ rot_m).to_euler()
+            slope_len_d = (lw / 2 + ov) / math.cos(dp)
+            n_u = max(1, int(((y_back + 0.4) - (y_f - 0.12)) / TILE_W))
+            iv = 0
+            while iv * step_v + TILE_L <= slope_len_d + 0.05:
+                for iu in range(n_u):
+                    pF = origin_F + Vector((0, iu * TILE_W, 0)) + \
+                        up_dir_F * (iv * step_v)
+                    pw = MF @ pF
+                    # garder si au-dessus du plan principal
+                    if (pw - origin).dot(normal_main) < 0.005:
+                        continue
+                    j = math.radians(0.8)
+                    r = Euler((base_rot.x + random.uniform(-j, j),
+                               base_rot.y + random.uniform(-j, j),
+                               base_rot.z + random.uniform(-j, j)), 'XYZ')
+                    positions.append((pw + nrm * 0.008, r))
+                iv += 1
+
+        # --- FAÎTIÈRE du toiton (arrêtée au point de pénétration) ---
+        bm = bmesh.new()
+        p0 = MF @ Vector((uc, y_f - 0.15, z_r + 0.03))
+        p1 = MF @ Vector((uc, y_back - 0.02, z_r + 0.03))
+        axis = p1 - p0
+        if axis.length > 0.05:
+            seg = bmesh.ops.create_cone(bm, cap_ends=True, segments=10,
+                                        radius1=0.09, radius2=0.09,
+                                        depth=axis.length)
+            quat = axis.normalized().to_track_quat('Z', 'Y')
+            bmesh.ops.transform(bm, verts=seg['verts'],
+                                matrix=Matrix.Translation((p0 + p1) / 2) @
+                                quat.to_matrix().to_4x4())
+            objs.append(_new_mesh_obj("Dormer_Ridge", bm, collection,
+                                      "roof_window", tile_mat))
+        else:
+            bm.free()
+
+        # --- FENÊTRE de la lucarne ---
+        if wgen is not None:
+            wc = MF @ Vector((uc, y_f + 0.05, sill + wh / 2))
+            try:
+                wgen.generate_window(window_type='CASEMENT', width=ww,
+                                     height=wh, location=wc,
+                                     orientation=orientation,
+                                     collection=collection)
+            except Exception as e:
+                print(f"[House] Fenêtre de lucarne échouée: {e}")
+
+    # nuage GN des tuiles de toiton (master partagé si présent)
+    if positions:
+        master = None
+        for o in collection.objects:
+            if o.name.startswith("Tile_Master"):
+                master = o
+                break
+        if master is None:
+            master = _create_tile_master(collection, tile_color)
+        mesh = bpy.data.meshes.new("Dormer_Tiles_Points")
+        mesh.from_pydata([tuple(p) for p, _r in positions], [], [])
+        mesh.update()
+        attr = mesh.attributes.new("tile_rot", 'FLOAT_VECTOR', 'POINT')
+        flat = []
+        for _p, r in positions:
+            flat.extend((r.x, r.y, r.z))
+        attr.data.foreach_set('vector', flat)
+        obj = bpy.data.objects.new("Dormer_Tiles", mesh)
+        obj["house_part"] = "roof_window"
+        collection.objects.link(obj)
+        ng = bpy.data.node_groups.new("House_DormerTile_Instancer",
+                                      'GeometryNodeTree')
+        ng.interface.new_socket("Geometry", in_out='INPUT',
+                                socket_type='NodeSocketGeometry')
+        ng.interface.new_socket("Geometry", in_out='OUTPUT',
+                                socket_type='NodeSocketGeometry')
+        n_in = ng.nodes.new('NodeGroupInput')
+        n_pts = ng.nodes.new('GeometryNodeMeshToPoints')
+        n_pts.mode = 'VERTICES'
+        n_obj = ng.nodes.new('GeometryNodeObjectInfo')
+        n_obj.transform_space = 'ORIGINAL'
+        n_obj.inputs['Object'].default_value = master
+        if 'As Instance' in n_obj.inputs:
+            n_obj.inputs['As Instance'].default_value = True
+        n_attr = ng.nodes.new('GeometryNodeInputNamedAttribute')
+        n_attr.data_type = 'FLOAT_VECTOR'
+        n_attr.inputs['Name'].default_value = "tile_rot"
+        n_inst = ng.nodes.new('GeometryNodeInstanceOnPoints')
+        n_out = ng.nodes.new('NodeGroupOutput')
+        ng.links.new(n_in.outputs['Geometry'], n_pts.inputs['Mesh'])
+        ng.links.new(n_pts.outputs['Points'], n_inst.inputs['Points'])
+        ng.links.new(n_obj.outputs['Geometry'], n_inst.inputs['Instance'])
+        ng.links.new(n_attr.outputs['Attribute'], n_inst.inputs['Rotation'])
+        ng.links.new(n_inst.outputs['Instances'], n_out.inputs['Geometry'])
+        mod = obj.modifiers.new("TileInstancer", 'NODES')
+        mod.node_group = ng
+        objs.append(obj)
+
+    print(f"[House] ✓ {len(centers)} lucarne(s) jacobine(s) posée(s) (pan {pan})")
     return objs
 
 
@@ -875,14 +1156,15 @@ def build_roof_tiles(props, collection, wall_height, effective_pitch, o_eave, o_
     rw_pan = None
     rw = roof_window_layout(props, h, effective_pitch, o_eave, o_rake)
     if rw is not None:
-        rw_pan, rw_centers, rw_u, rw_v, rw_origin = rw
+        rw_pan, rw_centers, rw_u, rw_v, rw_origin, rw_exc = rw
+        exc_hu, exc_vlo, exc_vhi = rw_exc
 
         def rw_keep(p, pf):
             rel = p - rw_origin
             u, v = rel.dot(rw_u), rel.dot(rw_v)
             for (uc, vc) in rw_centers:
-                if abs(u + TILE_W / 2 - uc) < ROOF_WIN_W / 2 + 0.16 + TILE_W / 2 and \
-                        abs(v + TILE_L / 2 - vc) < ROOF_WIN_L / 2 + 0.16 + TILE_L / 2:
+                if abs(u + TILE_W / 2 - uc) < exc_hu + TILE_W / 2 and \
+                        (vc + exc_vlo - TILE_L) < v < (vc + exc_vhi + 0.02):
                     return False
             return True
 

@@ -2351,6 +2351,75 @@ class HOUSE_OT_export_assets(bpy.types.Operator):
         return {'FINISHED'}
 
 
+HOUSE_PRESETS = {
+    # ✅ v1.8: silhouettes régionales — jeux de réglages COMPLETS
+    'LONGERE': dict(
+        house_width=16.0, house_length=6.5, num_floors=1, floor_height=2.6,
+        architectural_style='TRADITIONAL', roof_type='GABLE', roof_pitch=45.0,
+        roof_overhang=0.35, roof_covering='TILES',
+        wall_construction_type='BRICK_3D', brick_preset_type='BRICK_BROWN',
+        include_roof_windows=True, roof_window_style='LUCARNE',
+        num_roof_windows=3, include_gutters=True, include_chimney=True,
+        include_shutters=True, window_type='CASEMENT', num_windows_front=4,
+        num_windows_side=1, include_wing=False, include_garage=False,
+    ),
+    'CHALET': dict(
+        house_width=9.0, house_length=11.0, num_floors=2, floor_height=2.5,
+        architectural_style='TRADITIONAL', roof_type='GABLE', roof_pitch=28.0,
+        roof_overhang=1.0, roof_covering='TILES',
+        wall_construction_type='BRICK_3D', brick_preset_type='BRICK_BROWN',
+        include_balcony=True, balcony_width=3.2, balcony_depth=1.4,
+        include_gutters=True, include_chimney=True, include_shutters=True,
+        window_type='CASEMENT', num_windows_front=2, num_windows_side=2,
+        include_roof_windows=False, include_wing=False, include_garage=False,
+    ),
+    'BASTIDE': dict(
+        house_width=14.0, house_length=10.0, num_floors=1, floor_height=3.0,
+        architectural_style='MEDITERRANEAN', roof_type='HIP', roof_pitch=22.0,
+        roof_overhang=0.5, roof_covering='TILES',
+        wall_construction_type='SIMPLE',
+        include_gutters=True, include_chimney=True, include_shutters=True,
+        window_type='CASEMENT', num_windows_front=3, num_windows_side=2,
+        include_terrace=True, include_roof_windows=False,
+        include_wing=False, include_garage=False,
+    ),
+    'MEULIERE': dict(
+        house_width=9.5, house_length=8.5, num_floors=2, floor_height=2.8,
+        architectural_style='TRADITIONAL', roof_type='GAMBREL',
+        roof_pitch=25.0, roof_overhang=0.4, roof_covering='TILES',
+        wall_construction_type='BRICK_3D', brick_preset_type='BRICK_RED',
+        include_gutters=True, include_chimney=True, include_shutters=True,
+        include_balcony=False, window_type='CASEMENT', num_windows_front=2,
+        num_windows_side=2, include_roof_windows=False,
+        include_wing=False, include_garage=False,
+    ),
+}
+
+
+class HOUSE_OT_apply_preset(bpy.types.Operator):
+    """✅ v1.8: applique un PRESET RÉGIONAL (longère, chalet, bastide,
+    meulière) puis regénère la maison."""
+    bl_idname = "house.apply_preset"
+    bl_label = "Appliquer le preset régional"
+    bl_description = ("Applique la silhouette régionale choisie "
+                      "(dimensions, toit, matériaux, options) et regénère")
+
+    def execute(self, context):
+        props = context.scene.house_generator
+        preset = HOUSE_PRESETS.get(props.house_preset)
+        if not preset:
+            self.report({'WARNING'}, "Choisissez un preset dans la liste")
+            return {'CANCELLED'}
+        for k, v in preset.items():
+            try:
+                setattr(props, k, v)
+            except Exception as e:
+                print(f"[House] Preset: réglage '{k}' ignoré ({e})")
+        bpy.ops.house.generate_auto()
+        self.report({'INFO'}, f"Preset {props.house_preset} appliqué")
+        return {'FINISHED'}
+
+
 class HOUSE_OT_export_gltf(bpy.types.Operator):
     """✅ v1.7: exporte la maison en glTF (.glb) — format d'échange
     web/moteurs temps réel, hiérarchie et noms sémantiques conservés."""
@@ -2386,6 +2455,7 @@ classes = (
     HOUSE_OT_mark_assets,
     HOUSE_OT_export_assets,
     HOUSE_OT_export_gltf,
+    HOUSE_OT_apply_preset,
 )
 
 

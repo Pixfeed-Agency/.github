@@ -1,5 +1,27 @@
 # Changelog — House Generator
 
+## v1.8.0 — Lucarnes jacobines, presets régionaux, export glTF
+
+### 🏠 LUCARNES JACOBINES (style de fenêtre de toit au choix)
+- Nouveau style `Lucarne jacobine` (toits GABLE): façade verticale
+  maçonnée avec FENÊTRE battante, jouées triangulaires, toiton à
+  2 pans **coupé exactement au plan du toit principal** (bisect),
+  tuiles du toiton ajustées et faîtière arrêtée au point de
+  pénétration analytique; tuiles principales exclues au calepinage
+  (zone resserrée: le toiton recouvre sa propre pénétration)
+
+### 🗺️ PRESETS RÉGIONAUX (silhouettes complètes en un clic)
+- **Longère** (volume long et bas, GABLE 45°, 3 lucarnes, briques brunes)
+- **Chalet** (2 niveaux, débords 1m, balcon + porte-fenêtre)
+- **Bastide** (croupe provençale 22°, enduit clair, terrasse, volets)
+- **Meulière** (étage + mansarde, briques rouges)
+- Sélecteur + bouton dans le panneau principal; chaque preset règle
+  dimensions, toit, matériaux et options puis regénère
+
+### Divers
+- Portes intérieures déjà posées à CHAQUE étage (portes palières via
+  les refends) — complété par le garde-corps de trémie v1.7
+
 ## v1.7.0 — Les 8 problèmes connus réglés + ② Environnement de rendu
 
 **Le grand nettoyage du ROADMAP, un par un, validé au rendu.**

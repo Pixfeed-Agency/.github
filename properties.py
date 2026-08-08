@@ -101,6 +101,24 @@ class HouseGeneratorProperties(PropertyGroup):
         default='AUTO'
     )
     
+    house_preset: EnumProperty(
+        name="Preset régional",
+        description="Applique une silhouette régionale complète "
+                    "(dimensions, toit, matériaux, options)",
+        items=[
+            ('NONE', "— Aucun —", "Réglages manuels"),
+            ('LONGERE', "Longère", "Volume long et bas, toit GABLE 45°, "
+                                   "lucarnes, briques brunes"),
+            ('CHALET', "Chalet", "Pignon en façade, débords profonds, "
+                                 "balcon bois, 2 niveaux"),
+            ('BASTIDE', "Bastide", "Croupe provençale douce, enduit clair, "
+                                   "volets, plain-pied généreux"),
+            ('MEULIERE', "Meulière", "Étage + mansarde, lucarnes, "
+                                     "briques rouges, grille de meulière"),
+        ],
+        default='NONE',
+    )
+
     # ============================================================
     # DIMENSIONS GÉNÉRALES
     # ============================================================
@@ -253,6 +271,17 @@ class HouseGeneratorProperties(PropertyGroup):
         description="Fenêtres de toit (type velux) sur le pan visible "
                     "(toit GABLE)",
         default=False,
+        update=regenerate_house
+    )
+
+    roof_window_style: EnumProperty(
+        name="Style de fenêtre de toit",
+        items=[
+            ('VELUX', "Fenêtre de toit (velux)", "Châssis vitré dans le pan"),
+            ('LUCARNE', "Lucarne jacobine", "Lucarne à 2 pans avec fenêtre "
+                                            "verticale (toit GABLE)"),
+        ],
+        default='VELUX',
         update=regenerate_house
     )
 

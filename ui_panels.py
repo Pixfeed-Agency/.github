@@ -61,6 +61,13 @@ class HOUSE_PT_main_panel(Panel):
         box = layout.box()
         box.label(text="Style architectural", icon='HOME')
         box.prop(props, "architectural_style", text="")
+
+        # ✅ v1.8: presets régionaux (silhouettes complètes)
+        box = layout.box()
+        box.label(text="Preset régional", icon='WORLD')
+        row = box.row(align=True)
+        row.prop(props, "house_preset", text="")
+        row.operator("house.apply_preset", text="", icon='PLAY')
         
         layout.separator()
         row = layout.row()
@@ -141,6 +148,7 @@ class HOUSE_PT_roof_panel(Panel):
         col.prop(props, "include_chimney", text="Cheminée")
         col.prop(props, "include_roof_windows", text="Fenêtres de toit")
         if props.include_roof_windows:
+            col.prop(props, "roof_window_style", text="Style")
             col.prop(props, "num_roof_windows", text="Nombre")
             if props.roof_type == 'FLAT':
                 col.label(text="Pas de velux sur toit plat", icon='ERROR')

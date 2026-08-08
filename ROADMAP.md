@@ -68,19 +68,21 @@ CHANGELOG). Restent les limites listées après la liste historique.*
 ### Court terme (mécanique existante à étendre)
 - ✅ v1.7: velux HIP/mansarde, ailes sur HIP, garage-aile, plafonds
   cathédrale, garde-corps de trémie, split des gouttières — FAITS
-- Lucarnes (jacobine/capucine) — la mécanique noues/bisect s'y prête
-- Portes palières à l'étage
+- ✅ v1.8: lucarnes JACOBINES (2 pans, coupe exacte au plan du toit)
+- Lucarne capucine (3 pans) — à venir
+- ✅ v1.8: portes à chaque étage sur les refends (palières)
 
 ### Moyen terme (nouveaux systèmes)
-- **② Environnement de rendu** (accepté, en attente): terrain, HDRI,
-  caméra cadrée automatiquement, herbe/allée — le vrai photoréalisme
+- ✅ v1.7: ② environnement (terrain, allées, arbres, ciel Nishita,
+  exposition photo, caméra auto) — reste: HDRI importables, herbe
+  en particules, clôtures/haies
 - Articulation des autres menuiseries + quincaillerie (gonds, crémones)
 - Escalier quart-tournant / limon central; rampe normée
 - Distribution intérieure paramétrable (nombre de chambres, cuisine,
   SdB avec équipements simples)
 - Textures PBR: UV continues par mur (aujourd'hui box par brique),
   displacement optionnel
-- Presets de maisons régionales (longère, chalet, bastide, meulière)
+- ✅ v1.8: presets régionaux (longère, chalet, bastide, meulière)
 
 ### Long terme (structurel)
 - **Import du plan 2D → maison complète** (le mode MANUAL pose des
@@ -89,6 +91,6 @@ CHANGELOG). Restent les limites listées après la liste historique.*
 - Toiture sur EMPRISE QUELCONQUE (L/T/U natifs par squelette droit au
   lieu de volumes accolés)
 - Étages en retrait, combles aménagés avec plancher sous rampants
-- Export IFC/glTF avec hiérarchie sémantique
+- ✅ v1.7: export glTF (.glb); reste IFC (nécessite ifcopenshell)
 - LOD: masters de briques/tuiles multi-résolution pilotés par la
   distance caméra
