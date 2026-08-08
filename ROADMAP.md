@@ -110,5 +110,7 @@ CHANGELOG). Restent les limites listées après la liste historique.*
 5. ✅ v1.13.0 — Proxy viewport + régénération incrémentale (diff de
    props → tags → étapes rejouées; preuve d'équivalence par tests;
    complet 0.31s → volets 0.05s / toit 0.03s / intérieurs 0.02s)
-6. Mode PROGRAMME ("3 chambres, SdB, garage" → House résout le plan)
+6. ✅ v1.14.0 — Mode PROGRAMME plain-pied (solveur pur + cellules de
+   distribution réelles + rapport m²; reste: étage, couloir, pièces
+   d'eau équipées)
 7. Slots d'assets (menuiseries haute qualité importables)

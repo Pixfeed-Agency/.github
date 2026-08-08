@@ -69,6 +69,23 @@ class HOUSE_PT_main_panel(Panel):
         row = box.row(align=True)
         row.prop(props, "house_preset", text="")
         row.operator("house.apply_preset", text="", icon='PLAY')
+
+        # ✅ v1.14: MODE PROGRAMME — décrire le besoin, House résout
+        box = layout.box()
+        box.label(text="Programme (plain-pied)", icon='OUTLINER')
+        row = box.row(align=True)
+        row.prop(props, "prog_bedrooms", text="Chambres")
+        row.prop(props, "prog_bathrooms", text="SdB")
+        row = box.row(align=True)
+        row.prop(props, "prog_wc_separate", text="WC séparé")
+        row.prop(props, "prog_garage", text="")
+        box.prop(props, "prog_surface", text="Surface cible (0 = auto)")
+        box.operator("house.solve_programme", icon='CHECKMARK')
+        if props.programme_active:
+            box.label(text="Distribution pilotée par le programme",
+                      icon='CHECKMARK')
+            box.prop(props, "programme_active", text="Désactiver",
+                     toggle=True, invert_checkbox=True)
         
         layout.separator()
         row = layout.row()

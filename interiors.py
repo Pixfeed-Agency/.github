@@ -106,14 +106,38 @@ def interior_layout(props, wall_depth, floor_height_actual, door_center_x,
     t = wall_depth
     y_refend = _avoid(L * 0.55, window_ys_side, 0.75, L * 0.35, L * 0.7)
     door_pass = _avoid(door_center_x, [], 0, t + 0.7, W - t - 0.7)
-    # ✅ v1.9: N chambres derrière le refend → N-1 cloisons longitudinales
-    # (chambre mini 2.6m — le nombre est réduit si la façade est courte)
-    n_rooms = max(1, min(int(getattr(props, 'num_bedrooms', 2)),
-                         int((W - 2 * t) / 2.6)))
-    x_splits = [_avoid(t + (W - 2 * t) * (i + 1) / n_rooms,
-                       list(window_xs_back), 0.70,
-                       t + 1.2, W - t - 1.2)
-                for i in range(n_rooms - 1)]
+    # ✅ v1.14: MODE PROGRAMME — le solveur (programme.py) a résolu les
+    # largeurs des cellules de la bande arrière (chambres, SdB, WC):
+    # elles priment sur le découpage uniforme.
+    prog_cells = None
+    if getattr(props, 'programme_active', False):
+        try:
+            prog_cells = [float(v) for v in
+                          getattr(props, 'programme_cells', '').split(',')
+                          if v.strip()]
+        except ValueError:
+            prog_cells = None
+        if prog_cells and len(prog_cells) < 2:
+            prog_cells = None
+
+    if prog_cells:
+        inner = W - 2 * t
+        scale = inner / sum(prog_cells)   # absorbe les arrondis d'emprise
+        n_rooms = len(prog_cells)
+        x_splits, acc = [], t
+        for cw in prog_cells[:-1]:
+            acc += cw * scale
+            x_splits.append(_avoid(acc, list(window_xs_back), 0.70,
+                                   t + 0.9, W - t - 0.9))
+    else:
+        # ✅ v1.9: N chambres derrière le refend → N-1 cloisons
+        # longitudinales (chambre mini 2.6m — réduit si façade courte)
+        n_rooms = max(1, min(int(getattr(props, 'num_bedrooms', 2)),
+                             int((W - 2 * t) / 2.6)))
+        x_splits = [_avoid(t + (W - 2 * t) * (i + 1) / n_rooms,
+                           list(window_xs_back), 0.70,
+                           t + 1.2, W - t - 1.2)
+                    for i in range(n_rooms - 1)]
     x_split = x_splits[0] if x_splits else W * 0.5  # compat historique
 
     stair = tremie = None

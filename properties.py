@@ -53,6 +53,15 @@ PROP_TAGS = {
     # Intérieurs (structure aussi: la trémie est percée dans les dalles)
     'interior_wall_color': ('interior',),
     'num_bedrooms': ('interior', 'structure'),
+    'programme_active': ('interior', 'structure'),
+    'programme_cells': ('interior', 'structure'),
+    # Les entrées du programme n'agissent que via le bouton Résoudre:
+    # aucune étape ne dépend d'elles ('none' ne matche aucun tag)
+    'prog_bedrooms': ('none',),
+    'prog_bathrooms': ('none',),
+    'prog_wc_separate': ('none',),
+    'prog_garage': ('none',),
+    'prog_surface': ('none',),
 }
 
 # Photographie des valeurs de props au dernier build — le callback
@@ -619,6 +628,56 @@ class HouseGeneratorProperties(PropertyGroup):
         default=2,
         min=1,
         max=4,
+        update=regenerate_house
+    )
+
+    # ============================================================
+    # ✅ v1.14 — MODE PROGRAMME (chantier n°6): l'utilisateur décrit
+    # le BESOIN, le solveur (programme.py) résout l'emprise et la
+    # distribution. Les prog_* n'agissent que via le bouton Résoudre.
+    # ============================================================
+    prog_bedrooms: IntProperty(
+        name="Chambres (programme)",
+        description="Nombre de chambres du programme fonctionnel",
+        default=3, min=1, max=4
+    )
+    prog_bathrooms: IntProperty(
+        name="Salles de bain (programme)",
+        description="Nombre de salles de bain du programme",
+        default=1, min=1, max=2
+    )
+    prog_wc_separate: BoolProperty(
+        name="WC séparé",
+        description="WC indépendant de la salle de bain",
+        default=True
+    )
+    prog_garage: EnumProperty(
+        name="Garage (programme)",
+        description="Garage accolé (aile droite)",
+        items=[
+            ('NONE', "Sans garage", "Pas de garage"),
+            ('SINGLE', "Garage simple", "Une voiture (3.6m)"),
+            ('DOUBLE', "Garage double", "Deux voitures (6.0m)"),
+        ],
+        default='SINGLE'
+    )
+    prog_surface: FloatProperty(
+        name="Surface cible",
+        description="Surface au sol visée en m² (0 = automatique)",
+        default=0.0, min=0.0, max=250.0
+    )
+    programme_active: BoolProperty(
+        name="Programme actif",
+        description="La distribution intérieure suit les cellules "
+                    "résolues par le programme",
+        default=False,
+        update=regenerate_house
+    )
+    programme_cells: StringProperty(
+        name="Cellules du programme",
+        description="Largeurs des cellules de la bande arrière "
+                    "(m, séparées par des virgules) — posé par le solveur",
+        default="",
         update=regenerate_house
     )
 

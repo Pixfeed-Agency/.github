@@ -1,5 +1,35 @@
 # Changelog — House Generator
 
+## v1.14.0 — Mode PROGRAMME (chantier n°6)
+
+"3 chambres, salle de bain, WC, garage" → House résout. L'utilisateur
+décrit le BESOIN, le solveur calcule l'emprise, la distribution et les
+options, puis génère.
+
+- **`programme.py`** — solveur en Python PUR (testable sans Blender):
+  surfaces normatives françaises (chambre ~11 m², séjour+cuisine
+  30 + 4×chambres m², SdB 5 m², WC 1.4 m²), scan de la profondeur
+  (6.8-8.4 m, portée de toit saine) → façade et cellules de la bande
+  arrière; petits programmes élargis jusqu'à la façade minimale
+- **Distribution RÉELLE**: les largeurs résolues (chambres, SdB, WC)
+  sont transmises à `interior_layout` via `programme_cells` — les
+  cloisons et les portes suivent le programme, plus le découpage
+  uniforme; désactivable (`programme_active`)
+- **Panneau "Programme (plain-pied)"**: chambres (1-4), SdB (1-2),
+  WC séparé, garage simple/double, surface cible optionnelle, bouton
+  "Résoudre le programme"; rapport m² par pièce en console + résumé
+- Le programme pose aussi les options d'un pavillon cohérent:
+  GABLE 40° TUILES, volets, gouttières, cheminée, fenêtres par pièce
+  (1 par cellule arrière, séjour en façade) — fini le piège de la
+  couverture 'Lisse' par défaut dans ce mode
+- **Preuves** (`test_programme.py`, 21 tests): bornes constructives et
+  minima légaux pour tout programme (paramétré ×16), déterminisme,
+  surface cible, et raycast transversal dans la maison GÉNÉRÉE — les
+  cloisons existent au droit des cellules résolues
+- Banc visuel: +1 config `programme_3ch` (27 au total)
+- Périmètre v1: plain-pied (la typologie pavillon/longère); étage,
+  couloir et pièces d'eau équipées = chantiers suivants
+
 ## v1.13.0 — Proxy viewport + régénération incrémentale (chantier n°5)
 
 Les tags posés par le pipeline (v1.11) portent leurs fruits: la "Mise à

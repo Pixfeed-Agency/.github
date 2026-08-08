@@ -2379,6 +2379,44 @@ class HOUSE_OT_apply_preset(bpy.types.Operator):
         return {'FINISHED'}
 
 
+class HOUSE_OT_solve_programme(bpy.types.Operator):
+    """✅ v1.14: MODE PROGRAMME — "3 chambres, SdB, garage" → House
+    résout l'emprise, la distribution et les options, puis génère."""
+    bl_idname = "house.solve_programme"
+    bl_label = "Résoudre le programme"
+    bl_description = ("Traduit le programme fonctionnel (chambres, salles "
+                      "de bain, WC, garage) en maison complète: emprise, "
+                      "distribution, fenêtres, options")
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        from . import programme
+        props = context.scene.house_generator
+        try:
+            sol = programme.solve(
+                bedrooms=props.prog_bedrooms,
+                bathrooms=props.prog_bathrooms,
+                wc_separate=props.prog_wc_separate,
+                garage=props.prog_garage,
+                surface=props.prog_surface)
+        except ValueError as e:
+            self.report({'ERROR'}, str(e))
+            return {'CANCELLED'}
+        for k, v in sol['props'].items():
+            try:
+                setattr(props, k, v)
+            except Exception as e:
+                print(f"[House][Programme] réglage '{k}' ignoré ({e})")
+        props.programme_cells = ",".join(f"{c:.3f}" for c in sol['cells'])
+        props.programme_active = True
+        for line in sol['report']:
+            print(f"[House][Programme] {line}")
+        res = bpy.ops.house.generate_auto()
+        if 'FINISHED' in res:
+            self.report({'INFO'}, sol['summary'])
+        return res
+
+
 class HOUSE_OT_export_gltf(bpy.types.Operator):
     """✅ v1.7: exporte la maison en glTF (.glb) — format d'échange
     web/moteurs temps réel, hiérarchie et noms sémantiques conservés."""
@@ -2415,6 +2453,7 @@ classes = (
     HOUSE_OT_export_assets,
     HOUSE_OT_export_gltf,
     HOUSE_OT_apply_preset,
+    HOUSE_OT_solve_programme,
 )
 
 

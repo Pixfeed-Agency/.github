@@ -226,6 +226,16 @@ def configs():
                                        detail_level='PHOTO'),
                   ((13, -10.5, 6.5), (4, 2.5, 2.0), 32),
                   expect=("Window_Sill_Photo",)))
+    # --- Mode programme (chemin solve_programme complet) ---
+    C.append(_cfg("programme_3ch", dict(wall_construction_type='SIMPLE',
+                                        wall_material_color=(0.55, 0.455, 0.325),
+                                        random_seed=42,
+                                        prog_bedrooms=3, prog_bathrooms=1,
+                                        prog_wc_separate=True,
+                                        prog_garage='SINGLE'),
+                  ((19.5, -12.5, 7.0), (7.5, 3.0, 1.8), 30),
+                  expect=("Interior_Partitions", "Wing_Roof",
+                          "Garage_Door")))
     # --- Preset régional (chemin apply_preset complet) ---
     C.append(_cfg("preset_bastide", dict(house_preset='BASTIDE',
                                          random_seed=42),
@@ -266,6 +276,8 @@ def render_all(selected, out_dir):
         try:
             if cfg["props"].get("house_preset"):
                 res = bpy.ops.house.apply_preset()
+            elif cfg["props"].get("prog_bedrooms"):
+                res = bpy.ops.house.solve_programme()
             else:
                 res = bpy.ops.house.generate_auto()
             ok = 'FINISHED' in res
