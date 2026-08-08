@@ -132,7 +132,29 @@ def tile_material(base_color=(0.34, 0.115, 0.062)):
     mix.inputs['Factor'].default_value = 0.22
     links.new(ramp.outputs['Color'], mix.inputs[6])
     links.new(noise.outputs['Color'], mix.inputs[7])
-    links.new(mix.outputs[2], bsdf.inputs['Base Color'])
+
+    # ✅ v1.9.1: patine du versant (position monde, plaques 4-10m —
+    # lichens/salissures qui cassent l'orange uniforme)
+    geo_w = nodes.new('ShaderNodeNewGeometry')
+    geo_w.location = (-650, 480)
+    wnoise = nodes.new('ShaderNodeTexNoise')
+    wnoise.location = (-460, 480)
+    wnoise.inputs['Scale'].default_value = 0.13
+    wnoise.inputs['Detail'].default_value = 6.0
+    links.new(geo_w.outputs['Position'], wnoise.inputs['Vector'])
+    w_map = nodes.new('ShaderNodeMapRange')
+    w_map.location = (-280, 480)
+    w_map.inputs['To Min'].default_value = 0.72
+    w_map.inputs['To Max'].default_value = 1.0
+    links.new(wnoise.outputs['Fac'], w_map.inputs['Value'])
+    mix_w = nodes.new('ShaderNodeMix')
+    mix_w.data_type = 'RGBA'
+    mix_w.blend_type = 'MULTIPLY'
+    mix_w.location = (-230, 300)
+    mix_w.inputs['Factor'].default_value = 1.0
+    links.new(mix.outputs[2], mix_w.inputs[6])
+    links.new(w_map.outputs['Result'], mix_w.inputs[7])
+    links.new(mix_w.outputs[2], bsdf.inputs['Base Color'])
 
     # Rugosité vivante (mate mais irrégulière)
     r_ramp = nodes.new('ShaderNodeMapRange')
@@ -211,9 +233,33 @@ def brick_material(base_colors=None):
     mix1.data_type = 'RGBA'
     mix1.blend_type = 'MULTIPLY'
     mix1.location = (-440, 220)
-    mix1.inputs['Factor'].default_value = 0.55
+    # ✅ v1.9.1: marbrures atténuées (le contraste par brique faisait
+    # "damier de pixels" à l'échelle du bâtiment)
+    mix1.inputs['Factor'].default_value = 0.30
     links.new(ramp.outputs['Color'], mix1.inputs[6])
     links.new(m_ramp.outputs['Color'], mix1.inputs[7])
+
+    # ✅ v1.9.1: PATINE à l'échelle du MUR (position monde) — zones
+    # d'humidité/salissure de 3-8m, ce que l'œil lit sur un vrai pignon
+    geo_w = nodes.new('ShaderNodeNewGeometry')
+    geo_w.location = (-900, 480)
+    wnoise = nodes.new('ShaderNodeTexNoise')
+    wnoise.location = (-680, 480)
+    wnoise.inputs['Scale'].default_value = 0.16
+    wnoise.inputs['Detail'].default_value = 5.0
+    links.new(geo_w.outputs['Position'], wnoise.inputs['Vector'])
+    w_ramp = nodes.new('ShaderNodeMapRange')
+    w_ramp.location = (-460, 480)
+    w_ramp.inputs['To Min'].default_value = 0.80
+    w_ramp.inputs['To Max'].default_value = 1.0
+    links.new(wnoise.outputs['Fac'], w_ramp.inputs['Value'])
+    mix_w = nodes.new('ShaderNodeMix')
+    mix_w.data_type = 'RGBA'
+    mix_w.blend_type = 'MULTIPLY'
+    mix_w.location = (-330, 320)
+    mix_w.inputs['Factor'].default_value = 1.0
+    links.new(mix1.outputs[2], mix_w.inputs[6])
+    links.new(w_ramp.outputs['Result'], mix_w.inputs[7])
 
     # 3. Sable/grain clair en surface
     grain = nodes.new('ShaderNodeTexNoise')
@@ -225,8 +271,8 @@ def brick_material(base_colors=None):
     mix2.data_type = 'RGBA'
     mix2.blend_type = 'OVERLAY'
     mix2.location = (-220, 180)
-    mix2.inputs['Factor'].default_value = 0.18
-    links.new(mix1.outputs[2], mix2.inputs[6])
+    mix2.inputs['Factor'].default_value = 0.10
+    links.new(mix_w.outputs[2], mix2.inputs[6])
     links.new(grain.outputs['Color'], mix2.inputs[7])
     links.new(mix2.outputs[2], bsdf.inputs['Base Color'])
 
@@ -353,6 +399,66 @@ def zinc_material():
     return mat
 
 
+def stucco_material(name="House_Stucco", base=(0.475, 0.40, 0.30)):
+    """✅ v1.9.1: ENDUIT TALOCHÉ (crépi) — le matériau des pavillons
+    français. Grain fin serré + nuages de teinte à l'échelle du mur +
+    micro-salissure au pied. L'aplat lisse faisait maquette."""
+    mat = _new_mat(name)
+    nodes, links, bsdf = _basic(mat)
+    r, g, b = base[:3]
+
+    # nuages de teinte (2-6m, position monde)
+    geo = nodes.new('ShaderNodeNewGeometry')
+    geo.location = (-1100, 260)
+    cloud = nodes.new('ShaderNodeTexNoise')
+    cloud.location = (-880, 260)
+    cloud.inputs['Scale'].default_value = 0.22
+    cloud.inputs['Detail'].default_value = 6.0
+    links.new(geo.outputs['Position'], cloud.inputs['Vector'])
+    ramp = nodes.new('ShaderNodeValToRGB')
+    ramp.location = (-660, 260)
+    ramp.color_ramp.elements[0].color = (r * 0.86, g * 0.86, b * 0.84, 1)
+    ramp.color_ramp.elements[1].color = (min(1, r * 1.08), min(1, g * 1.08),
+                                         min(1, b * 1.06), 1)
+    links.new(cloud.outputs['Fac'], ramp.inputs['Fac'])
+
+    # pied de mur légèrement sali (dégradé sur 60cm)
+    sep = nodes.new('ShaderNodeSeparateXYZ')
+    sep.location = (-880, 60)
+    links.new(geo.outputs['Position'], sep.inputs['Vector'])
+    zmap = nodes.new('ShaderNodeMapRange')
+    zmap.location = (-660, 60)
+    zmap.inputs['From Min'].default_value = 0.0
+    zmap.inputs['From Max'].default_value = 0.6
+    zmap.inputs['To Min'].default_value = 0.86
+    zmap.inputs['To Max'].default_value = 1.0
+    zmap.clamp = True
+    links.new(sep.outputs['Z'], zmap.inputs['Value'])
+    mixd = nodes.new('ShaderNodeMix')
+    mixd.data_type = 'RGBA'
+    mixd.blend_type = 'MULTIPLY'
+    mixd.location = (-440, 200)
+    mixd.inputs['Factor'].default_value = 1.0
+    links.new(ramp.outputs['Color'], mixd.inputs[6])
+    links.new(zmap.outputs['Result'], mixd.inputs[7])
+    links.new(mixd.outputs[2], bsdf.inputs['Base Color'])
+
+    bsdf.inputs['Roughness'].default_value = 0.93
+
+    # grain taloché fin (bump serré)
+    grain = nodes.new('ShaderNodeTexNoise')
+    grain.location = (-660, -180)
+    grain.inputs['Scale'].default_value = 320.0
+    grain.inputs['Detail'].default_value = 3.0
+    bump = nodes.new('ShaderNodeBump')
+    bump.location = (-440, -180)
+    bump.inputs['Strength'].default_value = 0.35
+    bump.inputs['Distance'].default_value = 0.0016
+    links.new(grain.outputs['Fac'], bump.inputs['Height'])
+    links.new(bump.outputs['Normal'], bsdf.inputs['Normal'])
+    return mat
+
+
 def plaster_material(name="House_Garage_Wall", base=(0.86, 0.84, 0.78)):
     """Crépi/enduit: gros grain mat, salissures légères en bas"""
     mat = _new_mat(name)
@@ -458,15 +564,18 @@ def ground_material():
 
     patches = nodes.new('ShaderNodeTexNoise')
     patches.location = (-650, 150)
-    patches.inputs['Scale'].default_value = 0.35
-    patches.inputs['Detail'].default_value = 6.0
+    # ✅ v1.9.1: 2 échelles réelles — plaques d'herbe sèche (3-6m) +
+    # micro-variation; verts moins saturés (pelouse réelle)
+    patches.inputs['Scale'].default_value = 0.18
+    patches.inputs['Detail'].default_value = 10.0
+    patches.inputs['Roughness'].default_value = 0.65
 
     ramp = nodes.new('ShaderNodeValToRGB')
     ramp.location = (-420, 150)
-    ramp.color_ramp.elements[0].color = (0.10, 0.16, 0.05, 1)
-    ramp.color_ramp.elements[1].color = (0.22, 0.30, 0.10, 1)
+    ramp.color_ramp.elements[0].color = (0.075, 0.115, 0.035, 1)
+    ramp.color_ramp.elements[1].color = (0.155, 0.185, 0.06, 1)
     e = ramp.color_ramp.elements.new(0.55)
-    e.color = (0.16, 0.24, 0.08, 1)
+    e.color = (0.105, 0.15, 0.048, 1)
     links.new(patches.outputs['Fac'], ramp.inputs['Fac'])
     links.new(ramp.outputs['Color'], bsdf.inputs['Base Color'])
 
@@ -525,6 +634,8 @@ def setup_sky_and_view(sun_elevation_deg=38.0, sun_rotation_deg=145.0,
     sky.sun_elevation = math.radians(sun_elevation_deg)
     sky.sun_rotation = math.radians(sun_rotation_deg)
     sky.sun_intensity = 0.85
+    # ✅ disque solaire élargi → ombres DOUCES (fini le rasoir CG)
+    sky.sun_size = math.radians(1.6)
     sky.altitude = 60
     sky.air_density = 1.0
     sky.dust_density = 0.45   # ciel bleu net

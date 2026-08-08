@@ -26,11 +26,11 @@ from . import brick_red_ultimate
 PRESET_PALETTES = {
     'BRICK_RED': [  # Rouge traditionnel — valeurs linéaires basses et
         # saturées (les hautes valeurs rendaient rose pastel sous AgX)
-        (0.235, 0.048, 0.028, 1.0),
-        (0.30, 0.068, 0.038, 1.0),
-        (0.38, 0.095, 0.050, 1.0),
-        (0.46, 0.130, 0.068, 1.0),
-        (0.54, 0.175, 0.090, 1.0),
+        (0.285, 0.068, 0.038, 1.0),
+        (0.325, 0.082, 0.045, 1.0),
+        (0.365, 0.096, 0.052, 1.0),
+        (0.405, 0.115, 0.062, 1.0),
+        (0.455, 0.140, 0.075, 1.0),
     ],
     'BRICK_RED_DARK': [  # Rouge foncé
         (0.18, 0.05, 0.04, 1.0),

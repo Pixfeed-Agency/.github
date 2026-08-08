@@ -506,7 +506,18 @@ class DoorGenerator:
             frame_obj.data.materials.append(mat)
 
         if panel_obj:
-            # Matériau panneau (bois)
+            # ✅ v1.9.1: panneau en BOIS VEINÉ (chêne foncé) — l'aplat
+            # beige faisait porte de maquette
+            try:
+                from . import look
+                mat = look.wood_material("Door_Panel_Material",
+                                         base=(0.185, 0.105, 0.055),
+                                         rough=0.42, along='Z')
+                panel_obj.data.materials.clear()
+                panel_obj.data.materials.append(mat)
+                return
+            except Exception:
+                pass
             mat_name = "Door_Panel_Material"
             if mat_name not in bpy.data.materials:
                 mat = bpy.data.materials.new(name=mat_name)

@@ -494,8 +494,14 @@ def build_wing_simple_walls(frame, props, collection, openings_local):
                        top=hc)
 
     bmesh.ops.transform(bm, verts=bm.verts, matrix=frame['M'])
-    mat = _simple_material("House_Wall", tuple(props.wall_material_color)[:3],
-                           roughness=0.8)
+    try:
+        from . import look
+        mat = look.stucco_material("House_Stucco",
+                                   tuple(props.wall_material_color)[:3])
+    except Exception:
+        mat = _simple_material("House_Wall",
+                               tuple(props.wall_material_color)[:3],
+                               roughness=0.8)
     obj = _new_mesh_obj("Wing_Walls", bm, collection, "wall", mat)
     return [obj]
 

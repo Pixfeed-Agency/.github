@@ -111,6 +111,11 @@ class WindowGenerator:
 
                 collection.objects.link(frame_obj)
                 collection.objects.link(sash_obj)
+                try:
+                    self._add_sheer_curtain(width, height, location,
+                                            orientation, collection)
+                except Exception as e:
+                    print(f"[Windows] Voilage échoué: {e}")
                 return [frame_obj, sash_obj]
             elif window_type == 'SLIDING':
                 window_obj = self._create_sliding_window(width, height, location, orientation)
@@ -159,6 +164,13 @@ class WindowGenerator:
                         print(f"[Windows] Vantail mobile échoué: {e}")
                         sash_obj = None
 
+                # ✅ v1.9.1: voilage intérieur
+                try:
+                    self._add_sheer_curtain(width, height, location,
+                                            orientation, collection)
+                except Exception as e:
+                    print(f"[Windows] Voilage échoué: {e}")
+
                 out = [window_obj]
                 if glass_obj:
                     collection.objects.link(glass_obj)
@@ -187,6 +199,56 @@ class WindowGenerator:
     # CASEMENT WINDOW (Fenêtre à battant) - Standard européen
     # ============================================================
     
+    def _add_sheer_curtain(self, width, height, location, orientation, collection):
+        """✅ v1.9.1: VOILAGE blanc ondulé derrière la vitre — c'est lui
+        qui transforme un rectangle noir en fenêtre HABITÉE (cf. photos
+        réelles: on ne voit presque jamais l'intérieur, on voit le voile)."""
+        import bmesh as _bm
+        import math as _m
+        bm = _bm.new()
+        gw = max(0.2, width - self.frame_width * 2 - 0.02)
+        gh = max(0.2, height - self.frame_width * 2 - 0.02)
+        n = max(8, int(gw / 0.05))
+        depth_in = 0.16   # 16cm derrière le plan du mur
+        amp = 0.02
+        rows = []
+        for k in range(2):
+            zz = -gh / 2 if k == 0 else gh / 2
+            row = []
+            for i in range(n + 1):
+                x = -gw / 2 + gw * i / n
+                y = depth_in + amp * _m.sin(i * 2.3) * (1.0 if k == 0 else 0.85)
+                row.append(bm.verts.new((x, y, zz)))
+            rows.append(row)
+        for i in range(n):
+            bm.faces.new([rows[0][i], rows[0][i + 1], rows[1][i + 1], rows[1][i]])
+        rotation_matrix = self._get_orientation_matrix(orientation)
+        _bm.ops.transform(bm, matrix=rotation_matrix, verts=bm.verts)
+        _bm.ops.translate(bm, verts=bm.verts, vec=location)
+        obj = self._bmesh_to_object(bm, "Window_Sheer")
+        bm.free()
+        obj["house_part"] = "window"
+        mat = bpy.data.materials.get("House_Sheer")
+        if mat is None:
+            mat = bpy.data.materials.new("House_Sheer")
+            mat.use_nodes = True
+            nt = mat.node_tree
+            nt.nodes.clear()
+            outp = nt.nodes.new('ShaderNodeOutputMaterial')
+            mixn = nt.nodes.new('ShaderNodeMixShader')
+            mixn.inputs['Fac'].default_value = 0.35
+            dif = nt.nodes.new('ShaderNodeBsdfDiffuse')
+            dif.inputs['Color'].default_value = (0.92, 0.91, 0.88, 1)
+            tra = nt.nodes.new('ShaderNodeBsdfTranslucent')
+            tra.inputs['Color'].default_value = (0.95, 0.94, 0.91, 1)
+            nt.links.new(dif.outputs['BSDF'], mixn.inputs[1])
+            nt.links.new(tra.outputs['BSDF'], mixn.inputs[2])
+            nt.links.new(mixn.outputs['Shader'], outp.inputs['Surface'])
+        obj.data.materials.clear()
+        obj.data.materials.append(mat)
+        collection.objects.link(obj)
+        return obj
+
     def _get_or_make_glass_material(self):
         """Matériau verre du battant (réutilise le cache du module look)"""
         try:

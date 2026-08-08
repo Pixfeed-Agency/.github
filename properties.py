@@ -294,6 +294,16 @@ class HouseGeneratorProperties(PropertyGroup):
         update=regenerate_house
     )
 
+    shutter_color: FloatVectorProperty(
+        name="Couleur volets",
+        description="Couleur des volets battants",
+        subtype='COLOR',
+        size=3,
+        default=(0.30, 0.32, 0.34),
+        min=0.0, max=1.0,
+        update=regenerate_house
+    )
+
     include_shutters: BoolProperty(
         name="Volets",
         description="Ajouter des volets battants de part et d'autre des fenêtres",

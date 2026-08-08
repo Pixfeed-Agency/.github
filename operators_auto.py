@@ -2183,7 +2183,14 @@ class HOUSE_OT_generate_auto(Operator):
             if part_type == "wall":
                 # Murs simples uniquement (pas les briques qui ont déjà leur matériau)
                 if props.wall_construction_type == 'SIMPLE' and len(obj.data.materials) == 0:
-                    obj.data.materials.append(wall_mat)
+                    # ✅ v1.9.1: ENDUIT TALOCHÉ réel au lieu de l'aplat lisse
+                    try:
+                        from . import look
+                        obj.data.materials.append(
+                            look.stucco_material("House_Stucco",
+                                                 tuple(wall_color)[:3]))
+                    except Exception:
+                        obj.data.materials.append(wall_mat)
             elif part_type == "roof":
                 # ✅ FIX MAJEUR: ne PAS écraser les matériaux déjà posés —
                 # ce clear() repeignait chevrons (bois), planches de rive

@@ -295,9 +295,10 @@ def build_gutters(props, collection, eave_z_left, eave_z_right, o_eave, o_rake,
     if roof_type == 'FLAT':
         return []  # L'acrotère draine vers l'intérieur
 
-    r = 0.075          # rayon gouttière
+    r = 0.062          # rayon gouttière (25/33 réel)
     down_r = 0.045     # rayon descente
-    mat = _simple_material("House_Gutter", (0.55, 0.55, 0.58), roughness=0.35, metallic=0.8)
+    mat = _simple_material("House_Gutter", (0.62, 0.58, 0.50), roughness=0.4,
+                           metallic=0.35)  # alu laqué sable (courant en France)
 
     objs = []
     bm = bmesh.new()
@@ -611,7 +612,13 @@ def _create_tile_master(collection, color):
         skirt(top[0][ix + 1], top[0][ix])
         skirt(top[ny][ix], top[ny][ix + 1])
 
-    mat = _simple_material("House_Tile", color, roughness=0.65)
+    # ✅ v1.9.1: le matériau V2 par tuile (look.tile_material) n'était
+    # PAS branché — le master utilisait un aplat orange uniforme!
+    try:
+        from . import look
+        mat = look.tile_material(color)
+    except Exception:
+        mat = _simple_material("House_Tile", color, roughness=0.65)
     obj = _new_mesh_obj("Tile_Master", bm, collection, "roof", mat)
 
     # ✅ Shading LISSE (l'aspect facetté criait "low-poly")
@@ -1467,7 +1474,9 @@ def build_shutters(props, collection, window_specs):
     if not window_specs:
         return []
 
-    mat = _simple_material("House_Shutter", (0.25, 0.35, 0.42), roughness=0.6)
+    # ✅ v1.9.1: couleur volets au CHOIX (blanc cassé, bois, couleur)
+    s_col = tuple(getattr(props, 'shutter_color', (0.30, 0.32, 0.34)))[:3]
+    mat = _simple_material("House_Shutter", s_col, roughness=0.55)
     t = 0.035  # épaisseur du volet
     created = []
 
@@ -1487,17 +1496,35 @@ def build_shutters(props, collection, window_specs):
             bm = bmesh.new()
             # Battant construit OUVERT, à plat contre le mur, charnière à
             # l'origine (bord côté fenêtre)
+            # ✅ v1.9.1: volet à LAMES (4 planches + 2 barres) au lieu
+            # d'une plaque pleine
+            n_pl = 4
             if wall in ('front', 'back'):
-                ex = 1 if wall == 'front' else -1  # extérieur en -y / +y
                 y0 = -t if wall == 'front' else 0.0
                 x_out = side * w_leaf
-                _add_box(bm, min(0, x_out), y0, 0, max(0, x_out), y0 + t, hgt)
+                a0, a1 = min(0, x_out), max(0, x_out)
+                pw = (a1 - a0) / n_pl
+                for k in range(n_pl):
+                    _add_box(bm, a0 + k * pw + 0.003, y0, 0,
+                             a0 + (k + 1) * pw - 0.003, y0 + t, hgt)
+                yb = y0 - 0.014 if wall == 'front' else y0 + t
+                for zb in (hgt * 0.18, hgt * 0.74):
+                    _add_box(bm, a0 + 0.015, min(yb, yb + 0.014), zb,
+                             a1 - 0.015, max(yb, yb + 0.014), zb + hgt * 0.09)
                 hinge = Vector((spec['x'] + side * (spec['width'] / 2 + 0.02),
                                 spec['y'], z0))
             else:
                 x0 = -t if wall == 'left' else 0.0
                 y_out = side * w_leaf
-                _add_box(bm, x0, min(0, y_out), 0, x0 + t, max(0, y_out), hgt)
+                a0, a1 = min(0, y_out), max(0, y_out)
+                pw = (a1 - a0) / n_pl
+                for k in range(n_pl):
+                    _add_box(bm, x0, a0 + k * pw + 0.003, 0,
+                             x0 + t, a0 + (k + 1) * pw - 0.003, hgt)
+                xb = x0 - 0.014 if wall == 'left' else x0 + t
+                for zb in (hgt * 0.18, hgt * 0.74):
+                    _add_box(bm, min(xb, xb + 0.014), a0 + 0.015, zb,
+                             max(xb, xb + 0.014), a1 - 0.015, zb + hgt * 0.09)
                 hinge = Vector((spec['x'],
                                 spec['y'] + side * (spec['width'] / 2 + 0.02), z0))
 
@@ -1929,6 +1956,103 @@ def build_roof_carpentry(props, collection, wall_height, effective_pitch,
 # ✅ v1.7 — ② ENVIRONNEMENT DE RENDU
 # ============================================================
 
+def _create_grass_clump(collection):
+    """Touffe d'herbe maître (~9 brins croisés, 2 verts) — instanciée
+    par GN sur la pelouse. Origine au sol."""
+    import random as _rnd
+    _rnd.seed(51)
+    bm = bmesh.new()
+    for i in range(9):
+        ang = _rnd.uniform(0, math.pi)
+        lean = _rnd.uniform(-0.35, 0.35)
+        h = _rnd.uniform(0.06, 0.14)
+        w = _rnd.uniform(0.006, 0.012)
+        ca, sa = math.cos(ang), math.sin(ang)
+        base = Vector((_rnd.uniform(-0.03, 0.03), _rnd.uniform(-0.03, 0.03), 0))
+        tip = base + Vector((lean * ca, lean * sa, h))
+        mid = (base + tip) / 2 + Vector((0, 0, h * 0.12))
+        v0 = bm.verts.new(base + Vector((-w * sa, w * ca, 0)))
+        v1 = bm.verts.new(base + Vector((w * sa, -w * ca, 0)))
+        v2 = bm.verts.new(mid + Vector((w * 0.6 * sa, -w * 0.6 * ca, 0)))
+        v3 = bm.verts.new(mid + Vector((-w * 0.6 * sa, w * 0.6 * ca, 0)))
+        v4 = bm.verts.new(tip)
+        bm.faces.new([v0, v1, v2, v3])
+        bm.faces.new([v3, v2, v4])
+    mat = _simple_material("Env_GrassBlade", (0.11, 0.20, 0.055), roughness=0.85)
+    obj = _new_mesh_obj("Grass_Clump", bm, collection, "environment", mat)
+    for poly in obj.data.polygons:
+        poly.use_smooth = True
+    obj.hide_render = True
+    try:
+        obj.hide_set(True)
+    except RuntimeError:
+        pass
+    return obj
+
+
+def _scatter_grass(collection, cx, cy, radius, exclude_rects, seed=7):
+    """Pelouse VIVANTE: points aléatoires (hors allées/emprise bâtie)
+    instanciant la touffe maître — même mécanique GN que les briques."""
+    import random as _rnd
+    _rnd.seed(seed)
+    pts, rots, scales = [], [], []
+    n_target = 52000
+    for _ in range(n_target):
+        a = _rnd.uniform(0, 2 * math.pi)
+        r = radius * math.sqrt(_rnd.random())
+        x, y = cx + r * math.cos(a), cy + r * math.sin(a)
+        if any(rx0 - 0.1 < x < rx1 + 0.1 and ry0 - 0.1 < y < ry1 + 0.1
+               for (rx0, ry0, rx1, ry1) in exclude_rects):
+            continue
+        pts.append((x, y, 0.0))
+        rots.append(_rnd.uniform(0, 2 * math.pi))
+        scales.append(_rnd.uniform(0.6, 1.35))
+    if not pts:
+        return []
+    master = _create_grass_clump(collection)
+    mesh = bpy.data.meshes.new("Grass_Points")
+    mesh.from_pydata(pts, [], [])
+    mesh.update()
+    a_rot = mesh.attributes.new("g_rot", 'FLOAT_VECTOR', 'POINT')
+    flat = []
+    for rz in rots:
+        flat.extend((0.0, 0.0, rz))
+    a_rot.data.foreach_set('vector', flat)
+    a_scl = mesh.attributes.new("g_scale", 'FLOAT', 'POINT')
+    a_scl.data.foreach_set('value', scales)
+    obj = bpy.data.objects.new("Env_Grass", mesh)
+    obj["house_part"] = "environment"
+    collection.objects.link(obj)
+    ng = bpy.data.node_groups.new("House_Grass_Instancer", 'GeometryNodeTree')
+    ng.interface.new_socket("Geometry", in_out='INPUT', socket_type='NodeSocketGeometry')
+    ng.interface.new_socket("Geometry", in_out='OUTPUT', socket_type='NodeSocketGeometry')
+    n_in = ng.nodes.new('NodeGroupInput')
+    n_pts = ng.nodes.new('GeometryNodeMeshToPoints'); n_pts.mode = 'VERTICES'
+    n_obj = ng.nodes.new('GeometryNodeObjectInfo')
+    n_obj.transform_space = 'ORIGINAL'
+    n_obj.inputs['Object'].default_value = master
+    if 'As Instance' in n_obj.inputs:
+        n_obj.inputs['As Instance'].default_value = True
+    n_rot = ng.nodes.new('GeometryNodeInputNamedAttribute')
+    n_rot.data_type = 'FLOAT_VECTOR'
+    n_rot.inputs['Name'].default_value = "g_rot"
+    n_scl = ng.nodes.new('GeometryNodeInputNamedAttribute')
+    n_scl.data_type = 'FLOAT'
+    n_scl.inputs['Name'].default_value = "g_scale"
+    n_inst = ng.nodes.new('GeometryNodeInstanceOnPoints')
+    n_out = ng.nodes.new('NodeGroupOutput')
+    ng.links.new(n_in.outputs['Geometry'], n_pts.inputs['Mesh'])
+    ng.links.new(n_pts.outputs['Points'], n_inst.inputs['Points'])
+    ng.links.new(n_obj.outputs['Geometry'], n_inst.inputs['Instance'])
+    ng.links.new(n_rot.outputs['Attribute'], n_inst.inputs['Rotation'])
+    ng.links.new(n_scl.outputs['Attribute'], n_inst.inputs['Scale'])
+    ng.links.new(n_inst.outputs['Instances'], n_out.inputs['Geometry'])
+    mod = obj.modifiers.new("GrassInstancer", 'NODES')
+    mod.node_group = ng
+    print(f"[House] ✓ Pelouse: {len(pts):,} touffes d'herbe instanciées (GN)")
+    return [obj, master]
+
+
 def build_environment(props, collection, garage_front=None, door_x=None):
     """Terrain gazonné, allée d'entrée, arbres simples, ciel physique
     Nishita + AgX, et caméra cadrée automatiquement.
@@ -1961,32 +2085,72 @@ def build_environment(props, collection, garage_front=None, door_x=None):
     conc = _simple_material("Env_Driveway", (0.52, 0.51, 0.49), roughness=0.9)
     objs.append(_new_mesh_obj("Env_Driveway", bm, collection, "environment", conc))
 
-    # --- ARBRES simples (tronc + 2 boules de feuillage) ---
-    bark = _simple_material("Env_Bark", (0.21, 0.14, 0.09), roughness=0.9)
-    leaf = _simple_material("Env_Leaves", (0.08, 0.16, 0.05), roughness=0.85)
+    # --- ARBRES en ARRIÈRE-PLAN (déplacés hors du premier plan photo,
+    # couronnes irrégulières multi-lobes + bump feuillage) ---
+    import random as _rnd
+    _rnd.seed(23)
+    bark = _simple_material("Env_Bark", (0.16, 0.11, 0.07), roughness=0.95)
+    leaf = _simple_material("Env_Leaves", (0.055, 0.115, 0.035), roughness=0.9)
+    if "Leaf_Bump" not in [n.name for n in leaf.node_tree.nodes]:
+        nt = leaf.node_tree
+        bsdf = next(n for n in nt.nodes if n.type == 'BSDF_PRINCIPLED')
+        nz = nt.nodes.new('ShaderNodeTexNoise'); nz.name = "Leaf_Noise"
+        nz.inputs['Scale'].default_value = 22.0
+        nz.inputs['Detail'].default_value = 8.0
+        bp = nt.nodes.new('ShaderNodeBump'); bp.name = "Leaf_Bump"
+        bp.inputs['Strength'].default_value = 0.9
+        bp.inputs['Distance'].default_value = 0.25
+        nt.links.new(nz.outputs['Fac'], bp.inputs['Height'])
+        nt.links.new(bp.outputs['Normal'], bsdf.inputs['Normal'])
     bm_t = bmesh.new()
     bm_l = bmesh.new()
-    spots = [(-6.0, L + 5.0, 1.00), (W + 7.0, L + 3.0, 1.25),
-             (W + 6.5, -5.5, 0.85), (-7.5, -3.0, 1.1)]
+    spots = [(cx - 12.0, L + 9.0, 1.25), (cx + 3.0, L + 12.0, 1.5),
+             (cx + 13.0, L + 8.0, 1.1), (cx + 20.0, L + 2.0, 1.3),
+             (cx - 18.0, L + 3.0, 1.15)]
     for (tx, ty, s) in spots:
         trunk = bmesh.ops.create_cone(bm_t, cap_ends=True, segments=8,
-                                      radius1=0.16 * s, radius2=0.11 * s,
-                                      depth=2.2 * s)
+                                      radius1=0.18 * s, radius2=0.10 * s,
+                                      depth=2.6 * s)
         bmesh.ops.transform(bm_t, verts=trunk['verts'],
-                            matrix=Matrix.Translation(Vector((tx, ty, 1.1 * s))))
-        for (dz, r) in ((2.6 * s, 1.35 * s), (3.5 * s, 0.95 * s)):
-            ball = bmesh.ops.create_icosphere(bm_l, subdivisions=2,
-                                              radius=r)
+                            matrix=Matrix.Translation(Vector((tx, ty, 1.3 * s))))
+        for _ in range(6):
+            dx = _rnd.uniform(-0.9, 0.9) * s
+            dy = _rnd.uniform(-0.9, 0.9) * s
+            dz = 2.8 * s + _rnd.uniform(-0.3, 1.2) * s
+            r = _rnd.uniform(0.8, 1.5) * s
+            ball = bmesh.ops.create_icosphere(bm_l, subdivisions=2, radius=r)
             bmesh.ops.transform(bm_l, verts=ball['verts'],
-                                matrix=Matrix.Translation(Vector((tx, ty, dz))))
+                                matrix=Matrix.Translation(Vector((tx + dx,
+                                                                  ty + dy, dz))))
     objs.append(_new_mesh_obj("Env_Trunks", bm_t, collection, "environment", bark))
     leaves = _new_mesh_obj("Env_Leaves", bm_l, collection, "environment", leaf)
     for poly in leaves.data.polygons:
         poly.use_smooth = True
     objs.append(leaves)
 
+    # --- HERBE instanciée près de la maison (hors allées) ---
+    exclude = [(-0.5, -0.5, W + 0.5, L + 0.5),
+               (door_x - 1.2 if door_x else cx - 1.2, -9.2,
+                (door_x + 1.2) if door_x else cx + 1.2, 0.0)]
+    if garage_front is not None:
+        exclude.append((garage_front[0] - 0.1, -9.2, garage_front[1] + 0.1, 0.0))
+    for wgf in ((),):
+        pass
+    objs += _scatter_grass(collection, cx, cy - 2.0, 20.0, exclude)
+
     # --- HAIE périphérique (parcelle) ---
-    hedge = _simple_material("Env_Hedge", (0.06, 0.13, 0.04), roughness=0.9)
+    hedge = _simple_material("Env_Hedge", (0.05, 0.11, 0.035), roughness=0.95)
+    if not any(n.name == "Hedge_Bump" for n in hedge.node_tree.nodes):
+        nt = hedge.node_tree
+        bsdf = next(n for n in nt.nodes if n.type == 'BSDF_PRINCIPLED')
+        nz = nt.nodes.new('ShaderNodeTexNoise')
+        nz.inputs['Scale'].default_value = 14.0
+        nz.inputs['Detail'].default_value = 9.0
+        bp = nt.nodes.new('ShaderNodeBump'); bp.name = "Hedge_Bump"
+        bp.inputs['Strength'].default_value = 0.85
+        bp.inputs['Distance'].default_value = 0.12
+        nt.links.new(nz.outputs['Fac'], bp.inputs['Height'])
+        nt.links.new(bp.outputs['Normal'], bsdf.inputs['Normal'])
     bm = bmesh.new()
     px0, py0 = cx - 16.0, -10.5
     px1, py1 = cx + 16.0, cy + 14.0
@@ -2000,8 +2164,8 @@ def build_environment(props, collection, garage_front=None, door_x=None):
     objs.append(_new_mesh_obj("Env_Hedge", bm, collection, "environment", hedge))
 
     # --- CIEL physique + color management (exposition photo) ---
-    look.setup_sky_and_view(sun_elevation_deg=35.0, sun_rotation_deg=150.0,
-                            exposure=-4.6)
+    look.setup_sky_and_view(sun_elevation_deg=24.0, sun_rotation_deg=205.0,
+                            exposure=-4.4)
 
     # --- CAMÉRA cadrée automatiquement sur l'EMPRISE RÉELLE bâtie ---
     import bpy as _bpy
@@ -2025,13 +2189,17 @@ def build_environment(props, collection, garage_front=None, door_x=None):
     if cam is None:
         cam = _bpy.data.objects.new("House_Camera", cam_data)
         collection.objects.link(cam)
-    dist = extent * 1.25 + 6.0
-    cam.location = Vector((cx_b + dist * 0.62, cy_b - dist * 0.72,
-                           1.6 + dist * 0.16))
-    target = Vector((cx_b, cy_b, 1.9))
+    # ✅ v1.9.1: CADRAGE PHOTO — hauteur d'œil, focale 40mm, DOF léger
+    # (la vue drone donnait un effet maquette)
+    dist = extent * 1.35 + 7.0
+    cam.location = Vector((cx_b + dist * 0.55, cy_b - dist * 0.83, 1.65))
+    target = Vector((cx_b, cy_b, 2.6))
     d = target - cam.location
     cam.rotation_euler = d.to_track_quat('-Z', 'Y').to_euler()
-    cam_data.lens = 35
+    cam_data.lens = 40
+    cam_data.dof.use_dof = True
+    cam_data.dof.focus_distance = d.length
+    cam_data.dof.aperture_fstop = 7.0
     scene.camera = cam
 
     print("[House] ✓ Environnement: terrain + allée + arbres + ciel Nishita + caméra")

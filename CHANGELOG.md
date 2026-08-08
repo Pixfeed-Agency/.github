@@ -1,5 +1,33 @@
 # Changelog — House Generator
 
+## v1.9.1 — La MAISON photoréaliste (réponse au comparatif photo réelle)
+
+**Diagnostiqué sur photo de pavillon réel fournie par l'utilisateur.**
+
+### Les tells "fake" corrigés sur la maison elle-même
+- **ENDUIT TALOCHÉ réel** (`look.stucco_material`) pour les murs
+  simples: grain fin serré, nuages de teinte à l'échelle du mur,
+  pied de mur sali — l'aplat lisse faisait maquette. Appliqué maison
+  + ailes + garage
+- **Le matériau PAR TUILE était débranché** depuis la v1.3 (le master
+  utilisait un aplat orange!) → rebranché + PATINE de versant grande
+  échelle (position monde) — fini le toit orange uniforme
+- **Briques**: contraste par-brique divisé par 2 + patine murale
+  grande échelle (zones d'humidité 3-8m) — fini le damier de pixels
+- **VOILAGES blancs ondulés** derrière chaque vitre (voile diffus/
+  translucide) — le verre-miroir-noir devient une fenêtre habitée
+- **Volets à LAMES** (4 planches + 2 barres) avec COULEUR AU CHOIX
+  (`shutter_color`) — la plaque pastel faisait jouet
+- **Porte d'entrée en bois veiné** (chêne) au lieu de l'aplat beige
+- **Gouttières fines** (Ø 25/33 réel) en alu laqué sable
+- **Ombres douces** (disque solaire Nishita 1.6°) + palette briques
+  resserrée
+
+### Environnement (secondaire, mais rendu propre)
+- Caméra à HAUTEUR D'ŒIL (1.65m) + 40mm + profondeur de champ
+- Pelouse en VRAIES touffes d'herbe instanciées (52k, GN, hors allées)
+- Arbres multi-lobes en arrière-plan, haie bosselée avec portail
+
 ## v1.9.0 — Distribution paramétrable, quincaillerie, parcelle
 
 ### 🛏️ DISTRIBUTION INTÉRIEURE PARAMÉTRABLE
