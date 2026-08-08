@@ -70,11 +70,13 @@ class HOUSE_PT_main_panel(Panel):
         layout.separator()
         row = layout.row()
         row.prop(context.scene, "house_auto_update", text="Mise à jour auto")
+        layout.prop(props, "include_environment", text="Environnement (terrain, ciel, caméra)", toggle=True)
 
         # ✅ ASSETS: menuiseries réutilisables via l'Asset Browser
         layout.separator()
         layout.operator("house.mark_assets", icon='ASSET_MANAGER')
         layout.operator("house.export_asset_library", icon='EXPORT')
+        layout.operator("house.export_gltf", icon='EXPORT')
     
     def draw_manual_mode(self, context, layout, props):
         """Interface pour le mode manuel"""

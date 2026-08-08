@@ -845,6 +845,14 @@ class HouseGeneratorProperties(PropertyGroup):
     # OPTIONS AVANCÉES
     # ============================================================
     
+    include_environment: BoolProperty(
+        name="Environnement de rendu",
+        description="Terrain gazonné, allée, arbres, ciel physique Nishita "
+                    "et caméra cadrée automatiquement",
+        default=False,
+        update=regenerate_house
+    )
+
     auto_lighting: BoolProperty(
         name="Éclairage automatique",
         description="Ajouter des lumières à la scène",

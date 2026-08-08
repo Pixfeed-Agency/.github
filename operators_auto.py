@@ -208,6 +208,19 @@ class HOUSE_OT_generate_auto(Operator):
                 print("[House] Éclairage automatique...")
                 self._add_scene_lighting(context, props)
 
+            # ✅ v1.7 — ② ENVIRONNEMENT: terrain, ciel Nishita, caméra
+            if getattr(props, 'include_environment', False):
+                print("[House] Environnement de rendu...")
+                from . import features as _feat
+                garage_front = None
+                for wg in getattr(self, '_wings', []):
+                    if wg.get('garage') and wg.get('garage_opening') is not None:
+                        fp = wg['footprint']
+                        garage_front = (fp[0] + 0.4, fp[2] - 0.4)
+                _feat.build_environment(props, house_collection,
+                                        garage_front=garage_front,
+                                        door_x=self._door_center_x(props))
+
             print(f"[House] Terminé! Style: {props.architectural_style}, Fenêtres: {props.window_type}")
             self.report({'INFO'}, f"Maison générée! Style: {props.architectural_style}, Fenêtres: {props.window_type}")
 
@@ -2338,10 +2351,41 @@ class HOUSE_OT_export_assets(bpy.types.Operator):
         return {'FINISHED'}
 
 
+class HOUSE_OT_export_gltf(bpy.types.Operator):
+    """✅ v1.7: exporte la maison en glTF (.glb) — format d'échange
+    web/moteurs temps réel, hiérarchie et noms sémantiques conservés."""
+    bl_idname = "house.export_gltf"
+    bl_label = "Exporter la maison (.glb)"
+    bl_description = "Exporte la scène générée en glTF binaire (.glb)"
+
+    filepath: bpy.props.StringProperty(subtype='FILE_PATH', default="house.glb")
+    filter_glob: bpy.props.StringProperty(default="*.glb", options={'HIDDEN'})
+
+    def invoke(self, context, event):
+        if not self.filepath:
+            self.filepath = "house.glb"
+        context.window_manager.fileselect_add(self)
+        return {'RUNNING_MODAL'}
+
+    def execute(self, context):
+        fp = self.filepath
+        if not fp.lower().endswith('.glb'):
+            fp += '.glb'
+        try:
+            bpy.ops.export_scene.gltf(filepath=fp, export_format='GLB',
+                                      export_apply=True)
+        except Exception as e:
+            self.report({'ERROR'}, f"Export glTF échoué: {e}")
+            return {'CANCELLED'}
+        self.report({'INFO'}, f"Maison exportée → {fp}")
+        return {'FINISHED'}
+
+
 classes = (
     HOUSE_OT_generate_auto,
     HOUSE_OT_mark_assets,
     HOUSE_OT_export_assets,
+    HOUSE_OT_export_gltf,
 )
 
 

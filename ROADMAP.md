@@ -33,6 +33,9 @@ ce qu'on peut améliorer. Rien n'est caché.*
 
 ## ⚠️ Problèmes connus (assumés, par gravité)
 
+*Mise à jour v1.7: les points 1-8 ci-dessous sont RÉGLÉS (voir
+CHANGELOG). Restent les limites listées après la liste historique.*
+
 1. **Ailes seulement sur toit principal GABLE.** Le raccord noue sur
    HIP demande l'intersection avec des plans de croupe (3 plans par
    angle) — faisable avec la même méthode bisect, non écrit. Sur
@@ -63,13 +66,10 @@ ce qu'on peut améliorer. Rien n'est caché.*
 ## 🔭 Améliorations possibles (par chantier)
 
 ### Court terme (mécanique existante à étendre)
-- Velux HIP/mansarde (prédicats de calepinage par pan déjà en place)
-- Ailes sur HIP (bisect contre les plans de croupe)
-- Garage = aile spécialisée (réutiliser volumes.py + porte sectionnelle)
-- Plafonds rampants (cathédrale) monopente/mansarde/GABLE dernier étage
-- Portes palières + garde-corps de trémie à l'étage
-- Split de la gouttière principale autour des ailes
+- ✅ v1.7: velux HIP/mansarde, ailes sur HIP, garage-aile, plafonds
+  cathédrale, garde-corps de trémie, split des gouttières — FAITS
 - Lucarnes (jacobine/capucine) — la mécanique noues/bisect s'y prête
+- Portes palières à l'étage
 
 ### Moyen terme (nouveaux systèmes)
 - **② Environnement de rendu** (accepté, en attente): terrain, HDRI,

@@ -1642,3 +1642,101 @@ def build_roof_carpentry(props, collection, wall_height, effective_pitch,
 
     print("[House] ✓ Charpente: chevrons + planches de rive + tuiles de rive")
     return objs
+
+# ============================================================
+# ✅ v1.7 — ② ENVIRONNEMENT DE RENDU
+# ============================================================
+
+def build_environment(props, collection, garage_front=None, door_x=None):
+    """Terrain gazonné, allée d'entrée, arbres simples, ciel physique
+    Nishita + AgX, et caméra cadrée automatiquement.
+
+    C'est le chantier "photo": la maison était finie, le plateau ne
+    l'était pas. Aucun fichier externe (ciel procédural Nishita).
+    """
+    from . import look
+    W, L = props.house_width, props.house_length
+    cx, cy = W / 2, L / 2
+    objs = []
+
+    # --- TERRAIN: grand disque de pelouse ---
+    bm = bmesh.new()
+    disc = bmesh.ops.create_cone(bm, cap_ends=True, segments=48,
+                                 radius1=160.0, radius2=160.0, depth=0.05)
+    bmesh.ops.transform(bm, verts=disc['verts'],
+                        matrix=Matrix.Translation(Vector((cx, cy, -0.028))))
+    objs.append(_new_mesh_obj("Env_Ground", bm, collection, "environment",
+                              look.ground_material()))
+
+    # --- ALLÉE d'entrée (béton balayé) ---
+    if door_x is None:
+        door_x = W / 2
+    bm = bmesh.new()
+    _add_box(bm, door_x - 1.1, -9.0, -0.005, door_x + 1.1, -0.2, 0.015)
+    if garage_front is not None:
+        gx0, gx1 = garage_front
+        _add_box(bm, gx0, -9.0, -0.005, gx1, -0.2, 0.015)
+    conc = _simple_material("Env_Driveway", (0.52, 0.51, 0.49), roughness=0.9)
+    objs.append(_new_mesh_obj("Env_Driveway", bm, collection, "environment", conc))
+
+    # --- ARBRES simples (tronc + 2 boules de feuillage) ---
+    bark = _simple_material("Env_Bark", (0.21, 0.14, 0.09), roughness=0.9)
+    leaf = _simple_material("Env_Leaves", (0.08, 0.16, 0.05), roughness=0.85)
+    bm_t = bmesh.new()
+    bm_l = bmesh.new()
+    spots = [(-6.0, L + 5.0, 1.00), (W + 7.0, L + 3.0, 1.25),
+             (W + 6.5, -5.5, 0.85), (-7.5, -3.0, 1.1)]
+    for (tx, ty, s) in spots:
+        trunk = bmesh.ops.create_cone(bm_t, cap_ends=True, segments=8,
+                                      radius1=0.16 * s, radius2=0.11 * s,
+                                      depth=2.2 * s)
+        bmesh.ops.transform(bm_t, verts=trunk['verts'],
+                            matrix=Matrix.Translation(Vector((tx, ty, 1.1 * s))))
+        for (dz, r) in ((2.6 * s, 1.35 * s), (3.5 * s, 0.95 * s)):
+            ball = bmesh.ops.create_icosphere(bm_l, subdivisions=2,
+                                              radius=r)
+            bmesh.ops.transform(bm_l, verts=ball['verts'],
+                                matrix=Matrix.Translation(Vector((tx, ty, dz))))
+    objs.append(_new_mesh_obj("Env_Trunks", bm_t, collection, "environment", bark))
+    leaves = _new_mesh_obj("Env_Leaves", bm_l, collection, "environment", leaf)
+    for poly in leaves.data.polygons:
+        poly.use_smooth = True
+    objs.append(leaves)
+
+    # --- CIEL physique + color management (exposition photo) ---
+    look.setup_sky_and_view(sun_elevation_deg=35.0, sun_rotation_deg=150.0,
+                            exposure=-4.6)
+
+    # --- CAMÉRA cadrée automatiquement sur l'EMPRISE RÉELLE bâtie ---
+    import bpy as _bpy
+    scene = _bpy.context.scene
+    xs, ys, zs = [], [], []
+    for ob in collection.objects:
+        if ob.type != 'MESH' or ob.get("house_part") == "environment":
+            continue
+        for c in ob.bound_box:
+            wc = ob.matrix_world @ Vector(c)
+            xs.append(wc.x); ys.append(wc.y); zs.append(wc.z)
+    if xs:
+        cx_b = (min(xs) + max(xs)) / 2
+        cy_b = (min(ys) + max(ys)) / 2
+        extent = max(max(xs) - min(xs), max(ys) - min(ys), 6.0)
+    else:
+        cx_b, cy_b, extent = W / 2, L / 2, max(W, L)
+    cam_data = _bpy.data.cameras.get("House_Camera") or \
+        _bpy.data.cameras.new("House_Camera")
+    cam = _bpy.data.objects.get("House_Camera")
+    if cam is None:
+        cam = _bpy.data.objects.new("House_Camera", cam_data)
+        collection.objects.link(cam)
+    dist = extent * 1.25 + 6.0
+    cam.location = Vector((cx_b + dist * 0.62, cy_b - dist * 0.72,
+                           1.6 + dist * 0.16))
+    target = Vector((cx_b, cy_b, 1.9))
+    d = target - cam.location
+    cam.rotation_euler = d.to_track_quat('-Z', 'Y').to_euler()
+    cam_data.lens = 35
+    scene.camera = cam
+
+    print("[House] ✓ Environnement: terrain + allée + arbres + ciel Nishita + caméra")
+    return objs

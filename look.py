@@ -489,7 +489,7 @@ def ground_material():
 # ============================================================
 
 def setup_sky_and_view(sun_elevation_deg=38.0, sun_rotation_deg=145.0,
-                       exposure=-0.3):
+                       exposure=-4.6):
     """✅ LE grand saut lumière: ciel physique Nishita (soleil + atmosphère
     réels, sans fichier HDRI) + color management AgX.
 
@@ -504,6 +504,8 @@ def setup_sky_and_view(sun_elevation_deg=38.0, sun_rotation_deg=145.0,
         scene.view_settings.look = 'AgX - Base Contrast'
     except TypeError:
         pass  # Fallback: transform par défaut
+    # ✅ Le soleil Nishita est PHYSIQUE (~100k lux): il faut exposer
+    # comme un appareil photo (≈ -5 stops en plein soleil avec AgX)
     scene.view_settings.exposure = exposure
 
     # Monde: Sky Texture Nishita
@@ -522,11 +524,13 @@ def setup_sky_and_view(sun_elevation_deg=38.0, sun_rotation_deg=145.0,
     sky.sky_type = 'NISHITA'
     sky.sun_elevation = math.radians(sun_elevation_deg)
     sky.sun_rotation = math.radians(sun_rotation_deg)
-    sky.sun_intensity = 1.0
-    sky.altitude = 120
+    sky.sun_intensity = 0.85
+    sky.altitude = 60
     sky.air_density = 1.0
-    sky.dust_density = 1.6   # léger voile d'été
+    sky.dust_density = 0.45   # ciel bleu net
     nt.links.new(sky.outputs['Color'], bg.inputs['Color'])
+    # ✅ FIX: le lien Background → Output manquait (monde noir!)
+    nt.links.new(bg.outputs['Background'], out.inputs['Surface'])
 
     # Supprimer les anciens soleils lampes (Nishita inclut le soleil)
     for obj in list(bpy.data.objects):

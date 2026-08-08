@@ -1,5 +1,39 @@
 # Changelog — House Generator
 
+## v1.7.0 — Les 8 problèmes connus réglés + ② Environnement de rendu
+
+**Le grand nettoyage du ROADMAP, un par un, validé au rendu.**
+
+### Problèmes réglés (les 8 de l'état des lieux)
+- **P1 — Ailes sur croupe et mansarde**: noues exactes sur le pan
+  trapézoïdal d'une croupe (emprise contrôlée entre les arêtiers),
+  appentis sous les pignons d'une mansarde (profil W respecté, pente
+  auto-réduite)
+- **P2 — Velux sur croupe et mansarde**: calepinage clampé entre les
+  arêtiers (trapèze) / posé sur le terrasson, tuiles exclues
+- **P3 — Garage-aile**: le garage est désormais un VRAI volume maçonné
+  (briques coupées, linteau, toiture raccordée, gouttières) avec sa
+  porte sectionnelle articulée — fini le cube enduit
+- **P4 — Gouttières/chevrons/fascias DÉCOUPÉS autour des ailes**
+  (plus de tronçons cachés dans les combles)
+- **P5 — Plafonds CATHÉDRALE**: le dernier étage suit la sous-face du
+  toit en monopente et en mansarde (profil piecewise)
+- **P6 — Escalier**: GARDE-CORPS DE TRÉMIE à l'arrivée; VOLÉE EN L
+  (quart tournant à palier) quand la volée droite ne rentre pas
+- **P7 — Coulissante et guillotine ARTICULÉES**: vantail mobile séparé
+  avec vitre intégrée, driver 'ouverture' (translation)
+- **P8 — PORTE-FENÊTRE française** posée automatiquement derrière le
+  balcon (ouverture maçonnée + battants articulés)
+
+### ② ENVIRONNEMENT DE RENDU (nouvelle option)
+- Terrain gazonné, allées béton vers l'entrée ET le garage, arbres,
+  **ciel physique Nishita** + AgX avec **exposition photo** (-4.6 stops
+  — le bug historique du monde noir venait d'un lien Background→Output
+  manquant), **caméra cadrée automatiquement** sur l'emprise bâtie
+
+### Divers
+- Export **glTF (.glb)** de la maison (bouton dédié)
+
 ## v1.6.0 — Les 5 toits finis SÉRIEUSEMENT + état des lieux (ROADMAP.md)
 
 **Matrice des 5 types rendue et vérifiée.**
