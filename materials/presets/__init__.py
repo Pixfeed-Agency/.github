@@ -24,12 +24,13 @@ from . import brick_red_ultimate
 # (avant: tous les presets produisaient des briques rouges!)
 # Palette = 5 nuances RGBA du plus foncé au plus clair
 PRESET_PALETTES = {
-    'BRICK_RED': [  # Rouge traditionnel
-        (0.38, 0.10, 0.07, 1.0),
-        (0.52, 0.15, 0.10, 1.0),
-        (0.61, 0.19, 0.13, 1.0),
-        (0.68, 0.24, 0.17, 1.0),
-        (0.74, 0.30, 0.21, 1.0),
+    'BRICK_RED': [  # Rouge traditionnel — valeurs linéaires basses et
+        # saturées (les hautes valeurs rendaient rose pastel sous AgX)
+        (0.235, 0.048, 0.028, 1.0),
+        (0.30, 0.068, 0.038, 1.0),
+        (0.38, 0.095, 0.050, 1.0),
+        (0.46, 0.130, 0.068, 1.0),
+        (0.54, 0.175, 0.090, 1.0),
     ],
     'BRICK_RED_DARK': [  # Rouge foncé
         (0.18, 0.05, 0.04, 1.0),
@@ -39,11 +40,11 @@ PRESET_PALETTES = {
         (0.47, 0.15, 0.11, 1.0),
     ],
     'BRICK_ORANGE': [  # Orangé / terre cuite
-        (0.50, 0.20, 0.07, 1.0),
-        (0.62, 0.27, 0.09, 1.0),
-        (0.70, 0.32, 0.11, 1.0),
-        (0.78, 0.38, 0.14, 1.0),
-        (0.85, 0.45, 0.18, 1.0),
+        (0.34, 0.115, 0.035, 1.0),
+        (0.42, 0.155, 0.045, 1.0),
+        (0.50, 0.20, 0.058, 1.0),
+        (0.58, 0.25, 0.075, 1.0),
+        (0.66, 0.31, 0.095, 1.0),
     ],
     'BRICK_BROWN': [  # Brun / chocolat
         (0.16, 0.10, 0.06, 1.0),

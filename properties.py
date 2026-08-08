@@ -228,7 +228,7 @@ class HouseGeneratorProperties(PropertyGroup):
         description="Couleur des tuiles de couverture",
         subtype='COLOR',
         size=3,
-        default=(0.45, 0.2, 0.14),  # Terre cuite
+        default=(0.34, 0.115, 0.062),  # Terre cuite profonde (AgX)
         min=0.0,
         max=1.0,
         update=regenerate_house
@@ -453,6 +453,70 @@ class HouseGeneratorProperties(PropertyGroup):
         update=regenerate_house
     )
     
+    include_interiors: BoolProperty(
+        name="Intérieurs",
+        description="Plafonds en plâtre, cloisons de distribution avec "
+                    "passages de porte, sols parquet",
+        default=True,
+        update=regenerate_house
+    )
+
+    # ============================================================
+    # ✅ MULTI-VOLUMES: AILE (plans en L)
+    # ============================================================
+
+    include_wing: BoolProperty(
+        name="Inclure une aile (plan en L)",
+        description="Second volume habitable accolé à une façade "
+                    "(plain-pied, toit à noues raccordé au toit principal)",
+        default=False,
+        update=regenerate_house
+    )
+
+    wing_side: EnumProperty(
+        name="Côté de l'aile",
+        description="Façade sur laquelle l'aile est accolée",
+        items=[
+            ('FRONT', "Avant", "Aile en avancée sur la façade avant"),
+            ('BACK', "Arrière", "Aile sur la façade arrière"),
+            ('LEFT', "Gauche", "Aile sur le pignon gauche"),
+            ('RIGHT', "Droite", "Aile sur le pignon droit"),
+        ],
+        default='FRONT',
+        update=regenerate_house
+    )
+
+    wing_width: FloatProperty(
+        name="Largeur aile",
+        description="Largeur de l'aile le long de la façade",
+        default=4.5,
+        min=2.0,
+        max=12.0,
+        unit='LENGTH',
+        update=regenerate_house
+    )
+
+    wing_depth: FloatProperty(
+        name="Profondeur aile",
+        description="Avancée de l'aile devant la façade",
+        default=4.0,
+        min=1.5,
+        max=10.0,
+        unit='LENGTH',
+        update=regenerate_house
+    )
+
+    wing_offset: FloatProperty(
+        name="Position aile",
+        description="Décalage de l'aile le long de la façade "
+                    "(0 = collée au coin gauche)",
+        default=0.0,
+        min=0.0,
+        max=20.0,
+        unit='LENGTH',
+        update=regenerate_house
+    )
+
     # ============================================================
     # BALCONS / TERRASSES
     # ============================================================

@@ -151,7 +151,7 @@ def build_chimney(props, collection, wall_height, roof_peak_z):
     # Conduit (petit carré sombre au sommet)
     _add_box(bm, cx - 0.14, cy - 0.14, top + 0.12, cx + 0.14, cy + 0.14, top + 0.3)
 
-    mat = _simple_material("House_Chimney_Brick", (0.45, 0.18, 0.12), roughness=0.9)
+    mat = _simple_material("House_Chimney_Brick", (0.30, 0.085, 0.05), roughness=0.9)
     obj = _new_mesh_obj("Chimney", bm, collection, "chimney", mat)
     print(f"[House] ✓ Cheminée à ({cx:.1f}, {cy:.1f}), sommet {top + 0.3:.2f}m")
     return [obj]
@@ -315,8 +315,10 @@ def build_garage(props, collection, plinth_visible):
     dx1 = dx0 + door_w
 
     # Mur extérieur (côté opposé à la maison)
+    # ✅ FIX Z-FIGHTING: le mur s'arrête ENTRE la façade et le mur arrière
+    # (avant: recouvrement aux angles → faces coplanaires → bandes noires)
     ox = x1 - wall_t if on_right else x0
-    _add_box(bm, ox, 0, 0, ox + wall_t, g_d, top_z(ox + wall_t / 2))
+    _add_box(bm, ox, wall_t, 0, ox + wall_t, g_d - wall_t, top_z(ox + wall_t / 2))
     # Mur arrière
     _add_box(bm, x0, g_d - wall_t, 0, x1, g_d, g_h - roof_drop * 0.5)
     # Façade avant: 2 trumeaux + linteau au-dessus de la porte
@@ -522,28 +524,46 @@ def build_roof_tiles(props, collection, wall_height, effective_pitch, o_eave, o_
 
         ✅ FIX 1: Clamp au faîtage (la dernière rangée ne déborde plus sur
         l'autre versant).
-        ✅ FIX 2: Décalage NORMAL progressif par rangée — les rangées se
-        chevauchent dans le MÊME plan → faces coplanaires (bandes sombres
-        de z-fighting). Chaque rangée monte de 4mm: effet d'écailles réel.
+        ✅ FIX 2 (v1.4): INCLINAISON DE POSE physique — le nez de chaque
+        tuile repose sur la tête de la rangée du dessous, donc chaque
+        tuile est MOINS pentue que le toit de δ=atan(épaisseur/pas).
+        Les plans des rangées deviennent parallèles non coplanaires (fini
+        le z-fighting) SANS le décalage cumulatif qui faisait flotter les
+        tuiles jusqu'à 16cm en haut des longues pentes (monopente).
         """
         n_u = int(len_u / step_u)
         normal = dir_u.cross(dir_v).normalized()
         if normal.z < 0:
             normal = -normal
+        # Inclinaison de pose: tourne autour de l'axe TRANSVERSAL (dir_u),
+        # sens qui SOULÈVE le nez (extrémité -v) de ~1.4cm
+        delta = math.atan2(0.014, step_v)
+        tilt = Matrix.Rotation(-delta, 3, dir_u)
+        rot_m = tilt @ rot.to_matrix()
+        base_rot = rot_m.to_euler()
         iv = 0
         while iv * step_v + TILE_L <= len_v + 0.03 + 1e-6:
-            row_lift = normal * (iv * 0.004)
             for iu in range(n_u):
-                p = origin + dir_u * (iu * step_u) + dir_v * (iv * step_v) + row_lift
+                p = origin + dir_u * (iu * step_u) + dir_v * (iv * step_v) \
+                    + normal * 0.008
                 # ✅ V2: Micro-variation par tuile (pose imparfaite réelle)
                 # — l'alignement parfait criait "généré par ordinateur"
                 j = math.radians(0.8)
-                r = Euler((rot.x + random.uniform(-j, j),
-                           rot.y + random.uniform(-j, j),
-                           rot.z + random.uniform(-j, j)), 'XYZ')
+                r = Euler((base_rot.x + random.uniform(-j, j),
+                           base_rot.y + random.uniform(-j, j),
+                           base_rot.z + random.uniform(-j, j)), 'XYZ')
                 p = p + normal * random.uniform(0, 0.003)
                 positions.append((p, r))
             iv += 1
+
+    # ✅ FIX ORIENTATION: pans qui montent le long de ±X — la tuile doit
+    # avoir sa LONGUEUR vers le faîtage et son galbe EN TRAVERS. L'ancien
+    # Euler (0,±pitch,90°) la couchait en travers de la pente (tuiles
+    # noyées dans la dalle, il ne dépassait que les nez).
+    rot_up_x = (Matrix.Rotation(-pitch_rad, 3, 'Y') @
+                Matrix.Rotation(math.radians(-90), 3, 'Z')).to_euler()
+    rot_down_x = (Matrix.Rotation(pitch_rad, 3, 'Y') @
+                  Matrix.Rotation(math.radians(90), 3, 'Z')).to_euler()
 
     if roof_type == 'SHED':
         # Un seul pan: monte de x=0 vers x=width (plan par la façade à z=h)
@@ -553,8 +573,7 @@ def build_roof_tiles(props, collection, wall_height, effective_pitch, o_eave, o_
         dir_u = Vector((0, 1, 0))
         z_eave = h - o_eave * slope
         origin = Vector((-o_eave, -o_rake, z_eave + lift))
-        rot = Euler((0, -pitch_rad, math.radians(90)), 'XYZ')
-        cover_slope(origin, dir_u, dir_v, length + 2 * o_rake, slope_len, rot)
+        cover_slope(origin, dir_u, dir_v, length + 2 * o_rake, slope_len, rot_up_x)
     else:
         # GABLE: 2 pans, faîtage selon la grande dimension
         ridge_along_y = length >= width
@@ -566,14 +585,12 @@ def build_roof_tiles(props, collection, wall_height, effective_pitch, o_eave, o_
             cover_slope(Vector((-o_eave, -o_rake, z_eave + lift)),
                         Vector((0, 1, 0)),
                         Vector((math.cos(pitch_rad), 0, math.sin(pitch_rad))),
-                        length + 2 * o_rake, slope_len,
-                        Euler((0, -pitch_rad, math.radians(90)), 'XYZ'))
+                        length + 2 * o_rake, slope_len, rot_up_x)
             # Pan droit (monte vers -X)
             cover_slope(Vector((width + o_eave, -o_rake, z_eave + lift)),
                         Vector((0, 1, 0)),
                         Vector((-math.cos(pitch_rad), 0, math.sin(pitch_rad))),
-                        length + 2 * o_rake, slope_len,
-                        Euler((0, pitch_rad, math.radians(90)), 'XYZ'))
+                        length + 2 * o_rake, slope_len, rot_down_x)
         else:
             half = length / 2
             slope_len = (half + o_eave) / math.cos(pitch_rad)
@@ -594,7 +611,7 @@ def build_roof_tiles(props, collection, wall_height, effective_pitch, o_eave, o_
     if not positions:
         return []
 
-    tile_color = tuple(getattr(props, 'tile_color', (0.45, 0.2, 0.14)))[:3]
+    tile_color = tuple(getattr(props, 'tile_color', (0.34, 0.115, 0.062)))[:3]
     master = _create_tile_master(collection, tile_color)
 
     # ✅ NOUVEAU: FAÎTIÈRES — demi-rond couvrant la jonction des deux pans
@@ -738,297 +755,11 @@ def build_shutters(props, collection, window_specs):
 
 
 # ============================================================
-# TUILES (COUVERTURE) — via nuage de points + Geometry Nodes
-# ============================================================
-
-TILE_W = 0.30      # largeur d'une tuile (le long du faîtage)
-TILE_L = 0.36      # longueur (le long de la pente)
-TILE_T = 0.022     # épaisseur
-TILE_OVERLAP = 0.09
-
-
-def _create_tile_master(collection, color):
-    """✅ V2: Vraie tuile CANAL galbée (profil sinusoïdal, shading lisse)
-
-    Remplace les "2 boîtes" de la v1 (le look Super Nintendo). Grille
-    incurvée + jupe d'épaisseur + nez à l'égout, polygones lissés.
-    ~200 tris — négligeable puisque le mesh est PARTAGÉ par toutes les
-    instances GN.
-    """
-    w = TILE_W - 0.014       # largeur utile (léger jeu entre colonnes)
-    amp = 0.035              # hauteur du galbe
-    thick = 0.012            # épaisseur visible de la jupe
-    nx, ny = 12, 5           # résolution du profil / de la longueur
-
-    bm = bmesh.new()
-
-    def z_profile(u):
-        """Galbe en S doux: creux sur les bords, bombé au centre"""
-        return amp * (0.5 - 0.5 * math.cos(2 * math.pi * u)) + 0.35 * amp * math.sin(math.pi * u)
-
-    # Surface supérieure (grille galbée), avec léger relèvement du nez
-    top = []
-    for iy in range(ny + 1):
-        v = iy / ny
-        y = v * TILE_L
-        nose = 0.010 * (1.0 - v) ** 2  # nez relevé côté égout (y=0)
-        row = []
-        for ix in range(nx + 1):
-            u = ix / nx
-            row.append(bm.verts.new((u * w, y, z_profile(u) + nose)))
-        top.append(row)
-    for iy in range(ny):
-        for ix in range(nx):
-            bm.faces.new([top[iy][ix], top[iy][ix + 1],
-                          top[iy + 1][ix + 1], top[iy + 1][ix]])
-
-    # Jupe d'épaisseur sur le pourtour (bord tombant de `thick`)
-    def skirt(va, vb):
-        a2 = bm.verts.new((va.co.x, va.co.y, va.co.z - thick))
-        b2 = bm.verts.new((vb.co.x, vb.co.y, vb.co.z - thick))
-        bm.faces.new([va, vb, b2, a2])
-        return a2, b2
-
-    for iy in range(ny):   # côtés gauche/droit
-        skirt(top[iy][0], top[iy + 1][0])
-        skirt(top[iy + 1][nx], top[iy][nx])
-    for ix in range(nx):   # nez (égout) et queue (faîtage)
-        skirt(top[0][ix + 1], top[0][ix])
-        skirt(top[ny][ix], top[ny][ix + 1])
-
-    mat = _simple_material("House_Tile", color, roughness=0.65)
-    obj = _new_mesh_obj("Tile_Master", bm, collection, "roof", mat)
-
-    # ✅ Shading LISSE (l'aspect facetté criait "low-poly")
-    for poly in obj.data.polygons:
-        poly.use_smooth = True
-
-    obj.hide_render = True
-    try:
-        obj.hide_set(True)
-    except RuntimeError:
-        pass
-    return obj
-
-
-def build_roof_tiles(props, collection, wall_height, effective_pitch, o_eave, o_rake):
-    """Pose des tuiles instanciées (GN) sur les pans GABLE et SHED.
-
-    Même architecture que les briques: positions+rotations calculées en
-    Python, matérialisées par UN objet nuage de points + Instance on Points.
-    """
-    # Seed déterministe: mêmes micro-variations à chaque régénération
-    random.seed(42)
-
-    roof_type = props.roof_type
-    if roof_type not in ('GABLE', 'SHED'):
-        print(f"[House] Tuiles: non supporté pour {roof_type} (GABLE/SHED seulement pour l'instant)")
-        return []
-
-    width = props.house_width
-    length = props.house_length
-    pitch_rad = math.radians(effective_pitch)
-    h = wall_height
-
-    positions = []  # (Vector pos, Euler rot)
-    step_v = TILE_L - TILE_OVERLAP           # pas le long de la pente
-    step_u = TILE_W                          # pas le long du faîtage
-    lift = 0.02                              # au-dessus de la surface du toit
-
-    def cover_slope(origin, dir_u, dir_v, len_u, len_v, rot):
-        """Grille de tuiles sur un pan: origin à l'égout, v monte la pente
-
-        ✅ FIX 1: Clamp au faîtage (la dernière rangée ne déborde plus sur
-        l'autre versant).
-        ✅ FIX 2: Décalage NORMAL progressif par rangée — les rangées se
-        chevauchent dans le MÊME plan → faces coplanaires (bandes sombres
-        de z-fighting). Chaque rangée monte de 4mm: effet d'écailles réel.
-        """
-        n_u = int(len_u / step_u)
-        normal = dir_u.cross(dir_v).normalized()
-        if normal.z < 0:
-            normal = -normal
-        iv = 0
-        while iv * step_v + TILE_L <= len_v + 0.03 + 1e-6:
-            row_lift = normal * (iv * 0.004)
-            for iu in range(n_u):
-                p = origin + dir_u * (iu * step_u) + dir_v * (iv * step_v) + row_lift
-                # ✅ V2: Micro-variation par tuile (pose imparfaite réelle)
-                # — l'alignement parfait criait "généré par ordinateur"
-                j = math.radians(0.8)
-                r = Euler((rot.x + random.uniform(-j, j),
-                           rot.y + random.uniform(-j, j),
-                           rot.z + random.uniform(-j, j)), 'XYZ')
-                p = p + normal * random.uniform(0, 0.003)
-                positions.append((p, r))
-            iv += 1
-
-    if roof_type == 'SHED':
-        # Un seul pan: monte de x=0 vers x=width (plan par la façade à z=h)
-        slope = math.tan(pitch_rad)
-        slope_len = math.sqrt((width + 2 * o_eave) ** 2 + ((width + 2 * o_eave) * slope) ** 2)
-        dir_v = Vector((math.cos(pitch_rad), 0, math.sin(pitch_rad)))
-        dir_u = Vector((0, 1, 0))
-        z_eave = h - o_eave * slope
-        origin = Vector((-o_eave, -o_rake, z_eave + lift))
-        rot = Euler((0, -pitch_rad, math.radians(90)), 'XYZ')
-        cover_slope(origin, dir_u, dir_v, length + 2 * o_rake, slope_len, rot)
-    else:
-        # GABLE: 2 pans, faîtage selon la grande dimension
-        ridge_along_y = length >= width
-        if ridge_along_y:
-            half = width / 2
-            slope_len = (half + o_eave) / math.cos(pitch_rad)
-            z_eave = h - o_eave * math.tan(pitch_rad)
-            # Pan gauche (monte vers +X)
-            cover_slope(Vector((-o_eave, -o_rake, z_eave + lift)),
-                        Vector((0, 1, 0)),
-                        Vector((math.cos(pitch_rad), 0, math.sin(pitch_rad))),
-                        length + 2 * o_rake, slope_len,
-                        Euler((0, -pitch_rad, math.radians(90)), 'XYZ'))
-            # Pan droit (monte vers -X)
-            cover_slope(Vector((width + o_eave, -o_rake, z_eave + lift)),
-                        Vector((0, 1, 0)),
-                        Vector((-math.cos(pitch_rad), 0, math.sin(pitch_rad))),
-                        length + 2 * o_rake, slope_len,
-                        Euler((0, pitch_rad, math.radians(90)), 'XYZ'))
-        else:
-            half = length / 2
-            slope_len = (half + o_eave) / math.cos(pitch_rad)
-            z_eave = h - o_eave * math.tan(pitch_rad)
-            # Pan avant (monte vers +Y)
-            cover_slope(Vector((-o_rake, -o_eave, z_eave + lift)),
-                        Vector((1, 0, 0)),
-                        Vector((0, math.cos(pitch_rad), math.sin(pitch_rad))),
-                        width + 2 * o_rake, slope_len,
-                        Euler((pitch_rad, 0, 0), 'XYZ'))
-            # Pan arrière (monte vers -Y)
-            cover_slope(Vector((-o_rake, length + o_eave, z_eave + lift)),
-                        Vector((1, 0, 0)),
-                        Vector((0, -math.cos(pitch_rad), math.sin(pitch_rad))),
-                        width + 2 * o_rake, slope_len,
-                        Euler((-pitch_rad, 0, math.radians(0)), 'XYZ'))
-
-    if not positions:
-        return []
-
-    tile_color = tuple(getattr(props, 'tile_color', (0.45, 0.2, 0.14)))[:3]
-    master = _create_tile_master(collection, tile_color)
-
-    # ✅ NOUVEAU: FAÎTIÈRES — demi-rond couvrant la jonction des deux pans
-    ridge_objs = []
-    if roof_type == 'GABLE':
-        ridge_along_y = length >= width
-        peak_h = h + ((width / 2) if ridge_along_y else (length / 2)) * math.tan(pitch_rad)
-        bm = bmesh.new()
-        if ridge_along_y:
-            ridge_len = length + 2 * o_rake
-            seg = bmesh.ops.create_cone(bm, cap_ends=True, segments=10,
-                                        radius1=0.11, radius2=0.11, depth=ridge_len)
-            bmesh.ops.transform(bm, verts=seg['verts'],
-                                matrix=Matrix.Translation(Vector((width / 2, length / 2, peak_h + 0.03))) @
-                                Matrix.Rotation(math.radians(90), 4, 'X'))
-        else:
-            ridge_len = width + 2 * o_rake
-            seg = bmesh.ops.create_cone(bm, cap_ends=True, segments=10,
-                                        radius1=0.11, radius2=0.11, depth=ridge_len)
-            bmesh.ops.transform(bm, verts=seg['verts'],
-                                matrix=Matrix.Translation(Vector((width / 2, length / 2, peak_h + 0.03))) @
-                                Matrix.Rotation(math.radians(90), 4, 'Y'))
-        mat = _simple_material("House_Tile", tile_color, roughness=0.75)
-        ridge = _new_mesh_obj("Roof_Ridge", bm, collection, "roof", mat)
-        ridge_objs.append(ridge)
-
-    # Nuage de points + node group (même mécanique que les briques GN)
-    mesh = bpy.data.meshes.new("Roof_Tiles_Points")
-    mesh.from_pydata([tuple(p) for p, _r in positions], [], [])
-    mesh.update()
-    attr = mesh.attributes.new("tile_rot", 'FLOAT_VECTOR', 'POINT')
-    flat = []
-    for _p, r in positions:
-        flat.extend((r.x, r.y, r.z))
-    attr.data.foreach_set('vector', flat)
-
-    obj = bpy.data.objects.new("Roof_Tiles", mesh)
-    obj["house_part"] = "roof"
-    collection.objects.link(obj)
-
-    ng = bpy.data.node_groups.new("House_Tile_Instancer", 'GeometryNodeTree')
-    ng.interface.new_socket("Geometry", in_out='INPUT', socket_type='NodeSocketGeometry')
-    ng.interface.new_socket("Geometry", in_out='OUTPUT', socket_type='NodeSocketGeometry')
-    n_in = ng.nodes.new('NodeGroupInput')
-    n_pts = ng.nodes.new('GeometryNodeMeshToPoints'); n_pts.mode = 'VERTICES'
-    n_obj = ng.nodes.new('GeometryNodeObjectInfo')
-    n_obj.transform_space = 'ORIGINAL'
-    n_obj.inputs['Object'].default_value = master
-    if 'As Instance' in n_obj.inputs:
-        n_obj.inputs['As Instance'].default_value = True
-    n_attr = ng.nodes.new('GeometryNodeInputNamedAttribute')
-    n_attr.data_type = 'FLOAT_VECTOR'
-    n_attr.inputs['Name'].default_value = "tile_rot"
-    n_inst = ng.nodes.new('GeometryNodeInstanceOnPoints')
-    n_out = ng.nodes.new('NodeGroupOutput')
-    ng.links.new(n_in.outputs['Geometry'], n_pts.inputs['Mesh'])
-    ng.links.new(n_pts.outputs['Points'], n_inst.inputs['Points'])
-    ng.links.new(n_obj.outputs['Geometry'], n_inst.inputs['Instance'])
-    ng.links.new(n_attr.outputs['Attribute'], n_inst.inputs['Rotation'])
-    ng.links.new(n_inst.outputs['Instances'], n_out.inputs['Geometry'])
-
-    mod = obj.modifiers.new("TileInstancer", 'NODES')
-    mod.node_group = ng
-
-    print(f"[House] ✓ Couverture: {len(positions):,} tuiles instanciées (GN)")
-    return [obj, master] + ridge_objs
-
-
-# ============================================================
-# VOLETS
-# ============================================================
-
-def build_shutters(props, collection, window_specs):
-    """Volets battants ouverts de part et d'autre de chaque fenêtre.
-
-    window_specs: liste de dicts {x, y, z_center, width, height, wall}
-    (fournie par l'opérateur — mêmes valeurs que les fenêtres visuelles)
-    """
-    if not window_specs:
-        return []
-
-    mat = _simple_material("House_Shutter", (0.25, 0.35, 0.42), roughness=0.6)
-    bm = bmesh.new()
-    t = 0.035  # épaisseur du volet
-
-    for spec in window_specs:
-        w = spec['width'] / 2 - 0.02   # chaque volet = moitié de la fenêtre
-        hgt = spec['height']
-        z0 = spec['z_center'] - hgt / 2
-        z1 = spec['z_center'] + hgt / 2
-        wall = spec['wall']
-
-        if wall in ('front', 'back'):
-            y = spec['y'] + (-t if wall == 'front' else 0)
-            for side in (-1, 1):
-                x_in = spec['x'] + side * (spec['width'] / 2 + 0.03)
-                x_out = x_in + side * w
-                _add_box(bm, min(x_in, x_out), y, z0, max(x_in, x_out), y + t, z1)
-        else:
-            x = spec['x'] + (-t if wall == 'left' else 0)
-            for side in (-1, 1):
-                y_in = spec['y'] + side * (spec['width'] / 2 + 0.03)
-                y_out = y_in + side * w
-                _add_box(bm, x, min(y_in, y_out), z0, x + t, max(y_in, y_out), z1)
-
-    obj = _new_mesh_obj("Shutters", bm, collection, "shutter", mat)
-    print(f"[House] ✓ Volets: {len(window_specs)} paires")
-    return [obj]
-
-
-# ============================================================
 # ✅ CHARPENTE VISIBLE + TUILES DE RIVE (GABLE)
 # ============================================================
 
 def build_roof_carpentry(props, collection, wall_height, effective_pitch,
-                         o_eave, o_rake, tile_color=(0.45, 0.2, 0.14)):
+                         o_eave, o_rake, tile_color=(0.34, 0.115, 0.062)):
     """La 'façon de faire les toits' V2: chevrons apparents sous les
     débords, planche de rive (fascia), et tuiles de rive le long des
     pignons — ce qu'on voit d'une vraie toiture en levant les yeux.
@@ -1053,56 +784,57 @@ def build_roof_carpentry(props, collection, wall_height, effective_pitch,
     z_eave = h - o_eave * slope
     rt = 0.15  # épaisseur dalle (ROOF_THICKNESS_PITCHED)
 
-    # --- CHEVRONS sous les débords d'égout ---
+    # --- CHEVRONS sous les débords d'égout (maths exactes) ---
+    # Le dessous de la dalle au point x (pente gauche): z = h + slope*x - rt
+    # Chevron: parallèle à la pente, sa face SUPÉRIEURE collée au dessous
+    # de la dalle, courant de l'égout (x=-o_eave) jusque dans le mur (+0.3)
     bm = bmesh.new()
-    sec_w, sec_h = 0.06, 0.09          # section du chevron
-    tail_len = (o_eave + 0.25) / cosp   # queue: débord + entrée dans le mur
+    sec_w, sec_h = 0.06, 0.09
+    inner = 0.30                        # entrée du chevron dans le mur
+    tail_len = (o_eave + inner) / cosp  # longueur le long de la pente
 
-    def rafter(px, py, mirror_x=False, along='Y'):
-        """Un chevron incliné, sous la dalle, pointant vers l'égout"""
+    def gable_rafter(sign_axis, coord_along, axis='Y'):
+        """Un chevron sur l'égout. sign_axis: -1 = égout bas de pente
+        côté négatif, +1 = côté positif. axis: axe du faîtage."""
         ret = bmesh.ops.create_cube(bm, size=1.0)
+        if axis == 'Y':
+            # Faîtage Y → chevrons le long de X, inclinés autour de Y
+            bmesh.ops.transform(bm, verts=ret['verts'],
+                                matrix=Matrix.Diagonal((tail_len, sec_w, sec_h, 1.0)))
+            ang = -pitch_rad if sign_axis < 0 else pitch_rad
+            rot = Matrix.Rotation(ang, 4, 'Y')
+            # Centre horizontal du chevron
+            xc = (-o_eave + inner) / 2 if sign_axis < 0 else width - (-o_eave + inner) / 2
+            # Dessous de dalle au centre (plan passant par la façade à z=h)
+            x_from_wall = xc if sign_axis < 0 else width - xc
+            z_under = h + slope * x_from_wall - rt
+            center = Vector((xc, coord_along, z_under - (sec_h / 2) / cosp + 0.005))
+        else:
+            bmesh.ops.transform(bm, verts=ret['verts'],
+                                matrix=Matrix.Diagonal((sec_w, tail_len, sec_h, 1.0)))
+            ang = pitch_rad if sign_axis < 0 else -pitch_rad
+            rot = Matrix.Rotation(ang, 4, 'X')
+            yc = (-o_eave + inner) / 2 if sign_axis < 0 else length - (-o_eave + inner) / 2
+            y_from_wall = yc if sign_axis < 0 else length - yc
+            z_under = h + slope * y_from_wall - rt
+            center = Vector((coord_along, yc, z_under - (sec_h / 2) / cosp + 0.005))
         bmesh.ops.transform(bm, verts=ret['verts'],
-                            matrix=Matrix.Diagonal((tail_len, sec_w, sec_h, 1.0)))
-        ang = pitch_rad if not mirror_x else -pitch_rad
-        rot = Matrix.Rotation(ang, 4, 'Y')
-        if along == 'X':
-            rot = Matrix.Rotation(math.radians(90), 4, 'Z') @ Matrix.Rotation(-ang, 4, 'Y') if False else \
-                  Matrix.Rotation(-ang, 4, 'X')
-            rot = Matrix.Rotation(math.radians(90), 4, 'Z') @ Matrix.Rotation(ang, 4, 'Y')
-        bmesh.ops.transform(bm, verts=ret['verts'],
-                            matrix=Matrix.Translation(Vector((px, py, 0))) @ rot)
+                            matrix=Matrix.Translation(center) @ rot)
 
     spacing = 0.6
     if ridge_along_y:
         n = max(2, int((length + 2 * o_rake) / spacing))
         for i in range(n + 1):
-            y = -o_rake + 0.05 + i * (length + 2 * o_rake - 0.1) / n
-            # Égout gauche (pan descend vers -x) et droit
-            zc = z_eave + (o_eave / 2 + 0.1) * slope - rt - sec_h / 2 + 0.02
-            xc = -o_eave / 2 + 0.11
-            rafter(xc, y, mirror_x=False)
-            rafter(width - xc, y, mirror_x=True)
+            y = -o_rake + 0.06 + i * (length + 2 * o_rake - 0.12) / n
+            gable_rafter(-1, y, axis='Y')
+            gable_rafter(+1, y, axis='Y')
     else:
         n = max(2, int((width + 2 * o_rake) / spacing))
         for i in range(n + 1):
-            x = -o_rake + 0.05 + i * (width + 2 * o_rake - 0.1) / n
-            zc = z_eave + (o_eave / 2 + 0.1) * slope - rt - sec_h / 2 + 0.02
-            ret = bmesh.ops.create_cube(bm, size=1.0)
-            bmesh.ops.transform(bm, verts=ret['verts'],
-                                matrix=Matrix.Diagonal((sec_w, tail_len, sec_h, 1.0)))
-            rot = Matrix.Rotation(pitch_rad, 4, 'X')
-            bmesh.ops.transform(bm, verts=ret['verts'],
-                                matrix=Matrix.Translation(Vector((x, -o_eave / 2 + 0.11, 0))) @ rot)
-            ret = bmesh.ops.create_cube(bm, size=1.0)
-            bmesh.ops.transform(bm, verts=ret['verts'],
-                                matrix=Matrix.Diagonal((sec_w, tail_len, sec_h, 1.0)))
-            rot = Matrix.Rotation(-pitch_rad, 4, 'X')
-            bmesh.ops.transform(bm, verts=ret['verts'],
-                                matrix=Matrix.Translation(Vector((x, length + o_eave / 2 - 0.11, 0))) @ rot)
+            x = -o_rake + 0.06 + i * (width + 2 * o_rake - 0.12) / n
+            gable_rafter(-1, x, axis='X')
+            gable_rafter(+1, x, axis='X')
 
-    # Positionner les chevrons juste SOUS la dalle du toit
-    zoff = z_eave - rt + sec_h * 0.2
-    bmesh.ops.translate(bm, verts=bm.verts, vec=(0, 0, zoff))
     if len(bm.verts):
         objs.append(_new_mesh_obj("Roof_Rafters", bm, collection, "roof", wood))
     else:
@@ -1124,6 +856,56 @@ def build_roof_carpentry(props, collection, wall_height, effective_pitch,
         _add_box(bm, x0, length + o_eave, z_eave - rt - fh + 0.06,
                  x1, length + o_eave + ft, z_eave - rt + 0.06)
     objs.append(_new_mesh_obj("Roof_Fascia", bm, collection, "roof", fascia_mat))
+
+    # --- PLANCHES DE RIVE DE PIGNON (bargeboards) le long des rampants ---
+    # Elles ferment visuellement le jeu entre le rampant de la dalle et la
+    # diagonale des briques coupées du pignon (détail de construction réel).
+    bm = bmesh.new()
+    bb_h, bb_t = 0.28, 0.025
+
+    def rake_board(p0, p1, y_out, sign_y):
+        """Planche suivant le rampant de p0 (égout) à p1 (faîtage), plaquée
+        au nu du pignon (y_out), épaisseur vers l'extérieur."""
+        axis = (p1 - p0)
+        run = axis.length
+        quat = axis.normalized().to_track_quat('Z', 'Y')
+        box = bmesh.ops.create_cube(bm, size=1.0)
+        bmesh.ops.transform(bm, verts=box['verts'],
+                            matrix=Matrix.Diagonal((bb_h, bb_t, run, 1.0)))
+        center = (p0 + p1) / 2 + Vector((0, sign_y * bb_t / 2, -bb_h * 0.25))
+        center.y = y_out + sign_y * bb_t / 2
+        bmesh.ops.transform(bm, verts=box['verts'],
+                            matrix=Matrix.Translation(center) @ quat.to_matrix().to_4x4())
+
+    if ridge_along_y:
+        half = width / 2
+        peak = h + half * slope
+        for y_out, sgn in ((-o_rake, -1), (length + o_rake, 1)):
+            for x0, x1 in ((-o_eave, half), (width + o_eave, half)):
+                p0 = Vector((x0, y_out, z_eave))
+                p1 = Vector((x1, y_out, peak))
+                rake_board(p0, p1, y_out, sgn)
+    else:
+        half = length / 2
+        peak = h + half * slope
+        for x_out, sgn in ((-o_rake, -1), (width + o_rake, 1)):
+            for y0, y1 in ((-o_eave, half), (length + o_eave, half)):
+                p0 = Vector((x_out, y0, z_eave))
+                p1 = Vector((x_out, y1, peak))
+                axis = (p1 - p0)
+                run = axis.length
+                quat = axis.normalized().to_track_quat('Z', 'Y')
+                box = bmesh.ops.create_cube(bm, size=1.0)
+                bmesh.ops.transform(bm, verts=box['verts'],
+                                    matrix=Matrix.Diagonal((bb_t, bb_h, run, 1.0)))
+                center = (p0 + p1) / 2 + Vector((sgn * bb_t / 2, 0, -bb_h * 0.25))
+                center.x = x_out + sgn * bb_t / 2
+                bmesh.ops.transform(bm, verts=box['verts'],
+                                    matrix=Matrix.Translation(center) @ quat.to_matrix().to_4x4())
+    if len(bm.verts):
+        objs.append(_new_mesh_obj("Roof_Bargeboard", bm, collection, "roof", fascia_mat))
+    else:
+        bm.free()
 
     # --- TUILES DE RIVE le long des pignons (demi-ronds inclinés) ---
     bm = bmesh.new()

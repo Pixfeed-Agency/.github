@@ -107,7 +107,8 @@ def generate_walls_geonodes(
     roof_type='GABLE',
     roof_pitch=35.0,
     mortar_color=None,
-    bonding_pattern='RUNNING'
+    bonding_pattern='RUNNING',
+    extra_positions=None
 ):
     """Génère les murs de briques via Geometry Nodes (1 objet total)
 
@@ -124,7 +125,8 @@ def generate_walls_geonodes(
     brick_positions = brick_geometry.compute_all_brick_positions(
         house_width, house_length, total_height,
         openings=openings, roof_type=roof_type,
-        roof_pitch=roof_pitch, bonding_pattern=bonding_pattern)
+        roof_pitch=roof_pitch, bonding_pattern=bonding_pattern,
+        extra_positions=extra_positions)
 
     if not brick_positions:
         print("[BrickGN] ⚠️ Aucune position de brique calculée")

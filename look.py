@@ -52,7 +52,7 @@ def _instance_random(nodes, links, x, y):
 # TUILES TERRE CUITE
 # ============================================================
 
-def tile_material(base_color=(0.45, 0.20, 0.14)):
+def tile_material(base_color=(0.34, 0.115, 0.062)):
     """Terre cuite: variation de cuisson PAR TUILE + moucheté + bump grain"""
     mat = _new_mat("House_Tile")
     nodes, links, bsdf = _basic(mat)
@@ -120,9 +120,12 @@ def brick_material(base_colors=None):
     qui rendent MIEUX: la variation par brique est ce que l'œil attend.
     """
     if base_colors is None:
+        # ✅ Palette terracotta profonde — valeurs LINÉAIRES basses et très
+        # saturées pour compenser la désaturation AgX (retours de rendu:
+        # les valeurs hautes rendaient rose pastel)
         base_colors = [
-            (0.43, 0.16, 0.11), (0.52, 0.20, 0.13), (0.58, 0.24, 0.16),
-            (0.66, 0.30, 0.19), (0.72, 0.36, 0.24),
+            (0.235, 0.048, 0.028), (0.30, 0.068, 0.038), (0.38, 0.095, 0.050),
+            (0.46, 0.130, 0.068), (0.54, 0.175, 0.090),
         ]
     mat = _new_mat("House_Brick_V2")
     nodes, links, bsdf = _basic(mat)

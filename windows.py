@@ -479,16 +479,19 @@ class WindowGenerator:
         fw = frame_w
         d = depth
 
-        # Créer les 4 barres du cadre
+        # ✅ FIX Z-FIGHTING: assemblage à COUPE DROITE — les traverses
+        # haut/bas s'arrêtent ENTRE les jambages (avant: 4 boîtes se
+        # superposaient aux coins → faces coplanaires → carrés noirs/blancs
+        # scintillants à chaque coin de fenêtre dans les rendus)
         # HAUT
         self._add_box(bm,
             center=offset + Vector((0, offset_y, hh - fw/2)),
-            size=(width, d, fw))
+            size=(width - 2 * fw, d, fw))
 
         # BAS
         self._add_box(bm,
             center=offset + Vector((0, offset_y, -hh + fw/2)),
-            size=(width, d, fw))
+            size=(width - 2 * fw, d, fw))
 
         # GAUCHE
         self._add_box(bm,

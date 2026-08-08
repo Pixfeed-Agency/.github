@@ -1,5 +1,79 @@
 # Changelog — House Generator
 
+## v1.4.0 — Multi-volumes (plans en L), intérieurs, conformité
+
+**Validé au rendu Cycles headless.**
+
+### 🏘️ MULTI-VOLUMES: aile en L (nouveau module `volumes.py`)
+- Nouvelle option **Aile** (côté AVANT/ARRIÈRE/GAUCHE/DROITE, largeur,
+  profondeur, position le long de la façade)
+- Murs de l'aile calculés dans son repère local par le MÊME moteur que
+  la maison (pignon maçonné, briques coupées, linteaux soldats) puis
+  transformés et **fusionnés dans le même nuage Geometry Nodes** —
+  un seul objet murs pour tout le plan en L
+- Toit GABLE de l'aile raccordé au toit principal par des **NOUES
+  EXACTES**: pentes égales → plans de coupe verticaux à 45° passant par
+  les coins du mur mitoyen (`bisect_plane`), tuiles ajustées à la noue,
+  **bandes de noue en zinc** couvrant la coupe
+- Cas appentis-pignon: accroche sur un mur pignon ou maison à étages →
+  toit terminé au nu du mur, pente réduite automatiquement si nécessaire
+  (règle de construction affichée en console)
+- **Passage** percé dans le mur mitoyen (linteau + briques coupées)
+- Fenêtres de la façade masquées par l'aile SUPPRIMÉES, porte d'entrée
+  **déplacée automatiquement** dans le plus grand segment libre
+- Aile complète: fondations alignées, plancher, faîtière, planches de
+  rive, tuiles de rive, gouttières + descentes, volets, mode murs
+  simples également supporté
+- Contrainte assumée (affichée): aile de plain-pied, pente du toit
+  principal, toit principal GABLE
+
+### 🛋️ INTÉRIEURS (nouveau module `interiors.py`, option activée par défaut)
+- **Plafonds en plâtre** par étage et par volume (fini la vue directe
+  sur le dessous de la dalle en regardant par les fenêtres)
+- **Cloisons de distribution** avec passages de porte 0.93×2.04m:
+  refend transversal (pièce de vie / chambres) + refend longitudinal,
+  positions ajustées automatiquement HORS des fenêtres et alignées sur
+  la circulation de l'entrée
+- **Sols parquet** posés sur les dalles, matériaux plâtre/parquet V2
+
+### ⑤ Conformité des options (matrice de rendus Cycles, 15 configurations)
+- Chaque valeur d'option rendue et vérifiée: 5 types de toits, 6 types
+  de fenêtres, 4 types de portes, murs simples/briques, appareillages,
+  2 étages + balcon — toutes génèrent ce qu'elles promettent
+- **Bug majeur découvert**: `features.py` contenait des sections
+  DUPLIQUÉES (tuiles + volets) — la seconde copie (ancienne, volets
+  fixes V1, rotations de tuiles fausses) MASQUAIT silencieusement les
+  versions V2. Doublons supprimés: volets articulés et tuiles V2
+  réellement actifs
+- **Tuiles monopente/faîtage court**: inclinaison de pose PHYSIQUE
+  (le nez repose sur la rangée du dessous, δ=atan(épaisseur/pas)) au
+  lieu du décalage cumulatif qui faisait flotter les tuiles jusqu'à
+  16cm au sommet des longues pentes
+- **Rampants monopente**: briques coupées le long de la pente (même
+  principe que les pignons — fini l'escalier à trous sous la dalle)
+- Limites documentées (messages console): tuiles et gouttières sur
+  GABLE/monopente, charpente visible sur GABLE
+
+### 🧱 Défauts de rendu corrigés (les 3 signalés + trouvés en route)
+- **Mortier enfin lisible**: la brique déborde de 4mm du lit de mortier
+  (avant: affleurement → joints invisibles en façade)
+- **Palettes recalibrées pour AgX**: BRICK_RED/BRICK_ORANGE et tuiles
+  en valeurs linéaires basses et saturées (avant: rose pastel délavé)
+- **Chevrons recalculés** (maths exactes): face supérieure collée au
+  dessous de la dalle, rotation par pan, entrée dans le mur — finis les
+  chevrons flottants
+- **Briques de RIVE des pignons coupées en biais** le long du rampant
+  (fini l'escalier) + **planches de rive de pignon** (bargeboards) qui
+  ferment le jeu dalle/maçonnerie comme en vrai
+- **Tuiles des pans montant en ±X réorientées** (SHED, faîtage court,
+  pans de l'aile): la longueur de tuile monte la pente, le galbe en
+  travers — avant, les tuiles étaient couchées en travers et noyées
+  dans la dalle
+- **Z-fighting éliminé**: coins des cadres de fenêtres (traverses à
+  coupe droite entre jambages), angles du garage (murs sans
+  recouvrement), volets de fenêtres proches (espacement aux quarts sur
+  le pignon de l'aile)
+
 ## v1.3.0 — Refonte structurelle: menuiseries articulées, briques coupées, charpente
 
 **Validé au rendu Cycles headless à chaque bloc.**

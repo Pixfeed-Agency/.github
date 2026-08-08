@@ -58,7 +58,8 @@ def generate_house_walls_bricks(
     roof_type='GABLE',
     roof_pitch=35.0,
     mortar_color=None,  # ✅ NOUVEAU: Couleur personnalisable du mortier
-    bonding_pattern='RUNNING'  # ✅ NOUVEAU: Pattern d'appareillage des briques
+    bonding_pattern='RUNNING',  # ✅ NOUVEAU: Pattern d'appareillage des briques
+    extra_positions=None  # ✅ MULTI-VOLUMES: briques de l'aile (coords monde)
 ):
     """Génère les 4 murs extérieurs d'une maison en briques 3D avec instancing
 
@@ -98,7 +99,8 @@ def generate_house_walls_bricks(
     return generate_walls_with_instancing(
         house_width, house_length, total_height, collection, quality, openings,
         brick_material_mode, brick_color, brick_preset, custom_material,
-        roof_type, roof_pitch, mortar_color, bonding_pattern
+        roof_type, roof_pitch, mortar_color, bonding_pattern,
+        extra_positions=extra_positions
     )
 
 
@@ -180,7 +182,9 @@ def compute_real_wall_height(total_height):
 
 def compute_all_brick_positions(house_width, house_length, total_height,
                                 openings=None, roof_type='GABLE',
-                                roof_pitch=35.0, bonding_pattern='RUNNING'):
+                                roof_pitch=35.0, bonding_pattern='RUNNING',
+                                skip_walls=(), force_ridge_along_y=None,
+                                extra_positions=None):
     """✅ REFACTOR: Calcule TOUTES les positions de briques (4 murs adaptés
     au toit + linteaux) — logique PARTAGÉE entre le moteur instancing et
     le moteur Geometry Nodes.
@@ -206,7 +210,12 @@ def compute_all_brick_positions(house_width, house_length, total_height,
     # ✅ NOUVEAU: PIGNONS MAÇONNÉS sous toit GABLE — les murs pignons
     # suivent le triangle du toit (le faîtage court le long de la plus
     # grande dimension, même logique que _create_gable_roof)
-    gable_ridge_along_y = house_length >= house_width
+    # ✅ MULTI-VOLUMES: l'aile force son faîtage le long de sa profondeur
+    # (et saute son mur mitoyen via skip_walls)
+    if force_ridge_along_y is not None:
+        gable_ridge_along_y = bool(force_ridge_along_y)
+    else:
+        gable_ridge_along_y = house_length >= house_width
     if roof_type == 'GABLE':
         pitch_rad = math.radians(roof_pitch)
         if gable_ridge_along_y:
@@ -266,7 +275,8 @@ def compute_all_brick_positions(house_width, house_length, total_height,
             openings=front_openings,
             bonding_pattern=bonding_pattern
         )
-    brick_positions.extend(front_positions)
+    if 'front' not in skip_walls:
+        brick_positions.extend(front_positions)
     print(f"[BrickGeometry]   {len(front_positions)} briques")
 
     # MUR ARRIÈRE (Y=length)
@@ -300,7 +310,8 @@ def compute_all_brick_positions(house_width, house_length, total_height,
             openings=back_openings,
             bonding_pattern=bonding_pattern
         )
-    brick_positions.extend(back_positions)
+    if 'back' not in skip_walls:
+        brick_positions.extend(back_positions)
     print(f"[BrickGeometry]   {len(back_positions)} briques")
 
     # MUR GAUCHE (X=0)
@@ -328,7 +339,8 @@ def compute_all_brick_positions(house_width, house_length, total_height,
             openings=left_openings,
             bonding_pattern=bonding_pattern
         )
-    brick_positions.extend(left_positions)
+    if 'left' not in skip_walls:
+        brick_positions.extend(left_positions)
     print(f"[BrickGeometry]   {len(left_positions)} briques")
 
     # MUR DROIT (X=width)
@@ -362,7 +374,8 @@ def compute_all_brick_positions(house_width, house_length, total_height,
             openings=right_openings,
             bonding_pattern=bonding_pattern
         )
-    brick_positions.extend(right_positions)
+    if 'right' not in skip_walls:
+        brick_positions.extend(right_positions)
     print(f"[BrickGeometry]   {len(right_positions)} briques")
 
     # ✅ NOUVEAU: Calculer les lintaux au-dessus des ouvertures
@@ -381,20 +394,27 @@ def compute_all_brick_positions(house_width, house_length, total_height,
         wall_tops = {w: eave_capped_height for w in ('front', 'back', 'left', 'right')}
 
     # Lintaux pour chaque mur (avec vérification collision toit)
-    front_lintels = calculate_lintel_positions(openings, 'front', house_width, house_length, roof_type, roof_pitch, roof_base, wall_top=wall_tops['front'])
-    brick_positions.extend(front_lintels)
+    if 'front' not in skip_walls:
+        front_lintels = calculate_lintel_positions(openings, 'front', house_width, house_length, roof_type, roof_pitch, roof_base, wall_top=wall_tops['front'])
+        brick_positions.extend(front_lintels)
 
-    back_lintels = calculate_lintel_positions(openings, 'back', house_width, house_length, roof_type, roof_pitch, roof_base, wall_top=wall_tops['back'])
-    brick_positions.extend(back_lintels)
+    if 'back' not in skip_walls:
+        back_lintels = calculate_lintel_positions(openings, 'back', house_width, house_length, roof_type, roof_pitch, roof_base, wall_top=wall_tops['back'])
+        brick_positions.extend(back_lintels)
 
-    left_lintels = calculate_lintel_positions(openings, 'left', house_width, house_length, roof_type, roof_pitch, roof_base, wall_top=wall_tops['left'])
-    brick_positions.extend(left_lintels)
+    if 'left' not in skip_walls:
+        left_lintels = calculate_lintel_positions(openings, 'left', house_width, house_length, roof_type, roof_pitch, roof_base, wall_top=wall_tops['left'])
+        brick_positions.extend(left_lintels)
 
-    right_lintels = calculate_lintel_positions(openings, 'right', house_width, house_length, roof_type, roof_pitch, roof_base, wall_top=wall_tops['right'])
-    brick_positions.extend(right_lintels)
+    if 'right' not in skip_walls:
+        right_lintels = calculate_lintel_positions(openings, 'right', house_width, house_length, roof_type, roof_pitch, roof_base, wall_top=wall_tops['right'])
+        brick_positions.extend(right_lintels)
 
-    total_lintels = len(front_lintels) + len(back_lintels) + len(left_lintels) + len(right_lintels)
-    print(f"[BrickGeometry] ✓ {total_lintels} briques de linteau ajoutées")
+    # ✅ MULTI-VOLUMES: positions supplémentaires (briques de l'aile déjà
+    # transformées en coordonnées monde) fusionnées dans le même nuage
+    if extra_positions:
+        brick_positions.extend(extra_positions)
+        print(f"[BrickGeometry] ✓ {len(extra_positions)} briques d'aile fusionnées")
 
     print(f"\n[BrickGeometry] Total positions calculées: {len(brick_positions)}")
 
@@ -415,7 +435,8 @@ def generate_walls_with_instancing(
     roof_type='GABLE',
     roof_pitch=35.0,
     mortar_color=None,  # ✅ NOUVEAU: Couleur personnalisable du mortier
-    bonding_pattern='RUNNING'  # ✅ NOUVEAU: Pattern d'appareillage
+    bonding_pattern='RUNNING',  # ✅ NOUVEAU: Pattern d'appareillage
+    extra_positions=None  # ✅ MULTI-VOLUMES: briques de l'aile (coords monde)
 ):
     """Génère les murs avec instancing pour optimiser les performances
 
@@ -433,7 +454,8 @@ def generate_walls_with_instancing(
     brick_positions = compute_all_brick_positions(
         house_width, house_length, total_height,
         openings=openings, roof_type=roof_type,
-        roof_pitch=roof_pitch, bonding_pattern=bonding_pattern)
+        roof_pitch=roof_pitch, bonding_pattern=bonding_pattern,
+        extra_positions=extra_positions)
 
 
     # Créer toutes les instances
@@ -886,6 +908,14 @@ def create_single_brick_mesh(quality='MEDIUM'):
         # Mise à l'échelle aux dimensions de la brique (100%, pas de BRICK_SCALE)
         scale_matrix = Matrix.Diagonal((BRICK_LENGTH, BRICK_DEPTH, BRICK_HEIGHT, 1.0))
         bmesh.ops.transform(bm, matrix=scale_matrix, verts=bm.verts)
+
+        # ✅ DÉFAUT MORTIER RÉGLÉ: la brique SAILLIT de 4mm des deux côtés
+        # du mur — les joints de mortier deviennent des lignes en RETRAIT
+        # lisibles (avant: brique affleurante → joints invisibles)
+        proud = 0.004
+        bmesh.ops.transform(bm, verts=bm.verts,
+                            matrix=Matrix.Diagonal((1.0, (BRICK_DEPTH + 2 * proud) / BRICK_DEPTH, 1.0, 1.0)))
+        bmesh.ops.translate(bm, verts=bm.verts, vec=(0, -proud, 0))
 
         # ✅ FIX CRITIQUE: La brique doit être décalée de MORTAR_THICKNESS
         # pour s'insérer DANS son cadre de mortier. Sans ce décalage, la
@@ -1531,17 +1561,15 @@ def calculate_brick_positions_for_wall_gable(wall_length, base_height, peak_heig
         ratio = 1.0 - abs(x - half) / half  # 0 aux égouts, 1 au faîtage
         return base_height + peak_height * max(0.0, ratio) - roof_gap
 
+    # ✅ BRIQUES DE RIVE COUPÉES: fini l'escalier sous le rampant — chaque
+    # rangée est découpée sur l'intervalle admis sous la ligne de toit
+    # (les briques de rive d'un vrai pignon sont coupées en biais). La
+    # limite est monotone en `row` (le rampant se resserre en montant)
+    # → les segments émis sont toujours portés par la rangée du dessous.
+    apex_limit = base_height + peak_height - roof_gap
+
     for col in range(-1, num_bricks_width + 2):
         distance_base = col * cell
-
-        # ✅ FIX ANTI-BRIQUES-FLOTTANTES: La limite dépendait de l'offset du
-        # pattern → non monotone en `row` → une rangée refusée pouvait être
-        # suivie d'une rangée acceptée AU-DESSUS DU VIDE. On calcule une
-        # limite CONSERVATRICE sur toute l'emprise possible de la colonne
-        # (offsets 0..3/4 de cellule) → monotone → break sûr.
-        # (roof_bottom_at est en /\ : le min sur un intervalle est à ses bornes)
-        col_limit = min(roof_bottom_at(distance_base),
-                        roof_bottom_at(min(distance_base + cell + max_offset, wall_length)))
 
         for row in range(max_possible_rows + 1):
             # Offset selon le pattern d'appareillage (identique aux autres murs)
@@ -1559,11 +1587,23 @@ def calculate_brick_positions_for_wall_gable(wall_length, base_height, peak_heig
             z = row * (BRICK_HEIGHT + MORTAR_GAP)
             brick_top = z + BRICK_HEIGHT + MORTAR_GAP
 
-            if brick_top > col_limit:
-                break  # Limite monotone par colonne → arrêt sûr
+            if brick_top > apex_limit:
+                break
 
-            # ✅ BRIQUES COUPÉES (ouvertures + bords du pignon)
-            _emit_cell(positions, direction, start_pos, distance, cell, z, spans)
+            # Intervalle admis sous le rampant au SOMMET de la brique
+            # (roof_bottom_at(x) >= brick_top ⇔ |x-half| <= allowed_half)
+            if peak_height > 1e-6 and brick_top > base_height - roof_gap:
+                allowed_half = half * (apex_limit - brick_top) / peak_height
+                if allowed_half <= 0:
+                    break
+                row_spans = spans + [
+                    (-1e6, half - allowed_half, -1e6, 1e6),
+                    (half + allowed_half, 1e6, -1e6, 1e6)]
+            else:
+                row_spans = spans
+
+            # ✅ BRIQUES COUPÉES (ouvertures + rampant + bords du pignon)
+            _emit_cell(positions, direction, start_pos, distance, cell, z, row_spans)
 
     return positions
 
@@ -1608,8 +1648,10 @@ def calculate_brick_positions_for_wall_sloped(wall_length, base_height, roof_hei
         # la colonne (offset 0 = position la plus basse du toit qui monte) —
         # l'ancienne limite dépendait de l'offset du pattern → non monotone
         # en `row` → le break coupait des rangées décalées qui tenaient encore
-        ratio0 = distance_along_wall_base / wall_length if wall_length > 0 else 0
-        col_limit = base_height + (roof_height * ratio0) - ROOF_GAP
+        # ✅ v1.4: briques coupées AU RAMPANT (fini l'escalier à trous —
+        # même principe que les pignons GABLE): limite par RANGÉE, zone
+        # interdite côté bas de pente ajoutée aux spans de la rangée
+        apex_limit = base_height + roof_height - ROOF_GAP
 
         # Pour chaque rangée possible
         for row in range(max_possible_rows + 1):
@@ -1641,13 +1683,20 @@ def calculate_brick_positions_for_wall_sloped(wall_length, base_height, roof_hei
             brick_top = z + BRICK_HEIGHT + MORTAR_GAP
 
             # Le toit est une DALLE ÉPAISSE: rester sous sa face inférieure
-            # (limite monotone par colonne → break sûr)
-            if brick_top > col_limit:
+            if brick_top > apex_limit:
                 break
 
-            # ✅ BRIQUES COUPÉES (ouvertures + bords)
+            # Zone interdite sous le rampant: x < x_min(brick_top)
+            # (le rampant monte vers +x: z_toit(x) = base + rh·x/L)
+            if roof_height > 1e-6 and brick_top > base_height - ROOF_GAP:
+                x_min = wall_length * (brick_top + ROOF_GAP - base_height) / roof_height
+                row_spans = spans + [(-1e6, x_min, -1e6, 1e6)]
+            else:
+                row_spans = spans
+
+            # ✅ BRIQUES COUPÉES (ouvertures + rampant + bords)
             _emit_cell(positions, direction, start_pos,
-                       distance_along_wall, brick_spacing + MORTAR_GAP, z, spans)
+                       distance_along_wall, brick_spacing + MORTAR_GAP, z, row_spans)
 
     return positions
 

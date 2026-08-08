@@ -386,6 +386,22 @@ class HOUSE_PT_elements_panel(Panel):
         layout = self.layout
         props = context.scene.house_generator
         
+        # ✅ INTÉRIEURS
+        box = layout.box()
+        box.prop(props, "include_interiors", text="Intérieurs (plafonds, cloisons)", toggle=True)
+
+        # ✅ MULTI-VOLUMES: aile en L (module volumes.py)
+        box = layout.box()
+        box.prop(props, "include_wing", text="Aile (plan en L)", toggle=True)
+        if props.include_wing:
+            col = box.column(align=True)
+            col.prop(props, "wing_side", text="Côté")
+            col.prop(props, "wing_width", text="Largeur")
+            col.prop(props, "wing_depth", text="Profondeur")
+            col.prop(props, "wing_offset", text="Position")
+            if props.roof_type != 'GABLE':
+                box.label(text="Toit GABLE requis pour l'aile", icon='ERROR')
+
         # ✅ IMPLÉMENTÉ: garage, terrasse, balcon (module features.py)
         box = layout.box()
         box.prop(props, "include_garage", text="Garage", toggle=True)
