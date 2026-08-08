@@ -78,152 +78,26 @@ class HOUSE_OT_generate_auto(Operator):
     bl_options = {'REGISTER', 'UNDO'}
 
     def execute(self, context):
+        """✅ v1.11: la construction est un PIPELINE DÉCLARATIF
+        (voir pipeline.py) — ordre et dépendances explicites, validés
+        statiquement à l'import et contractuellement à l'exécution.
+        Ce corps n'est plus que le driver."""
+        from . import pipeline
         props = context.scene.house_generator
 
         print("[House] Début de la génération...")
-
         if props.random_seed > 0:
-            random.seed(props.random_seed)
             print(f"[House] Seed: {props.random_seed}")
 
+        house_collection = self._create_house_collection(context)
         try:
-            # Appliquer le style architectural
-            style_config = self._apply_architectural_style(props)
-            print(f"[House] Style architectural: {props.architectural_style}")
-
-            house_collection = self._create_house_collection(context)
-
-            # ✅ FIX: Réinitialiser real_wall_height (l'opérateur est réutilisé
-            # par le panneau Redo — une valeur périmée décalait toit/fenêtres
-            # après un changement de type de mur)
-            self.real_wall_height = None
-            self._interior_layout = None
-
-            # ✅ MULTI-VOLUMES: repère de l'aile calculé AVANT les murs
-            # (les briques de l'aile sont fusionnées dans le nuage principal
-            # et les ouvertures de la façade couverte sont filtrées)
-            # ✅ v1.5: LISTE d'ailes (plans en L, T, U) — chaque aile porte
-            # son repère, ses ouvertures locales et ses specs de fenêtres
-            self._wings = []
-            self._garage_as_wing = False
-            if getattr(props, 'include_wing', False) or \
-                    getattr(props, 'include_garage', False):
-                from . import volumes
-                layout = self._get_window_layout(props, style_config)
-                for frame in self._get_wing_frames(props):
-                    if frame.get('garage'):
-                        ops, fl, op = volumes.garage_openings_local(
-                            frame, props, self._get_wall_depth(props))
-                        frame['openings'], frame['specs'] = ops, []
-                        frame['garage_opening'] = op
-                        frame['garage_front_local'] = fl
-                    else:
-                        wvs = [self._window_vertical(i * frame['fh'], frame['fh'],
-                                                     layout['height_ratio'])
-                               for i in range(frame['floors'])]
-                        frame['openings'], frame['specs'] = \
-                            volumes.wing_openings_local(
-                                frame, props, layout, wvs,
-                                self._get_wall_depth(props))
-                    self._wings.append(frame)
-                    print(f"[House] Aile {frame['w']:.1f}×{frame['d']:.1f}m "
-                          f"×{frame['floors']} étage(s) côté {frame['side']} "
-                          f"({'noues 45°' if frame['valley'] else 'appentis-pignon'})")
-
-            # ✅ FIX: Fondations générées EN PREMIER (le commentaire le
-            # promettait mais l'appel était après le toit)
-            if props.foundation_height > 0:
-                print(f"[House] Fondations visuelles (hauteur: {props.foundation_height}m)...")
-                self._generate_foundation(context, props, house_collection)
-
-            print("[House] Murs...")
-            walls = self._generate_walls(context, props, house_collection)
-
-            print("[House] Planchers...")
-            self._generate_floors(context, props, house_collection)
-
-            # ✅ INTÉRIEURS: plafonds, cloisons, sols
-            if getattr(props, 'include_interiors', True):
-                print("[House] Intérieurs (plafonds, cloisons, sols)...")
-                self._generate_interiors(context, props, house_collection,
-                                         style_config)
-
-            print("[House] Toit...")
-            self._generate_roof(context, props, house_collection)
-
-            # Perçage des murs SEULEMENT si MUR SIMPLE
-            if props.wall_construction_type != 'BRICK_3D':
-                print("[House] Perçage des murs (portes et fenêtres)...")
-                self._generate_wall_openings(context, props, house_collection, walls, style_config)
-            else:
-                print("[House] Murs en briques 3D : ouvertures déjà intégrées")
-
-            print(f"[House] Fenêtres complètes 3D (type: {props.window_type}, qualité: {props.window_quality})...")
-            self._generate_windows_complete(context, props, house_collection, style_config)
-
-            # ✅ NOUVEAU: Générer la porte d'entrée visuelle
-            print(f"[House] Porte d'entrée visuelle (type: {props.door_type}, qualité: {props.door_quality})...")
-            self._generate_door_visual(context, props, house_collection)
-
-            # ✅ NOUVEAU: Couverture, gouttières, cheminée
-            if props.roof_covering == 'TILES':
-                print("[House] Couverture en tuiles...")
-                self._generate_roof_tiles(context, props, house_collection)
-
-            # ✅ NOUVEAU: Charpente visible (chevrons, rives, tuiles de rive)
-            print("[House] Charpente et finitions de toiture...")
-            self._generate_roof_details(context, props, house_collection)
-
-            # ✅ MULTI-VOLUMES: ailes (fondations, plancher, toit à noues)
-            for wing in getattr(self, '_wings', []):
-                print(f"[House] Aile côté {wing['side']}...")
-                self._generate_wing(context, props, house_collection, wing)
-
-            if props.include_gutters:
-                print("[House] Gouttières...")
-                self._generate_gutters(context, props, house_collection)
-
-            if props.include_chimney:
-                print("[House] Cheminée...")
-                self._generate_chimney(context, props, house_collection)
-
-            if props.include_garage and not getattr(self, '_garage_as_wing', False):
-                print("[House] Garage (volume simple hérité)...")
-                self._generate_garage(context, props, house_collection)
-
-            if props.include_terrace:
-                print("[House] Terrasse...")
-                self._generate_terrace(context, props, house_collection)
-
-            if props.include_balcony and props.num_floors > 1:
-                print("[House] Balcon...")
-                self._generate_balcony(context, props, house_collection)
-
-            if props.use_materials:
-                print("[House] Matériaux...")
-                self._apply_materials(context, props, house_collection, style_config)
-
-            # Éclairage automatique
-            if props.auto_lighting:
-                print("[House] Éclairage automatique...")
-                self._add_scene_lighting(context, props)
-
-            # ✅ v1.7 — ② ENVIRONNEMENT: terrain, ciel Nishita, caméra
-            if getattr(props, 'include_environment', False):
-                print("[House] Environnement de rendu...")
-                from . import features as _feat
-                garage_front = None
-                for wg in getattr(self, '_wings', []):
-                    if wg.get('garage') and wg.get('garage_opening') is not None:
-                        fp = wg['footprint']
-                        garage_front = (fp[0] + 0.4, fp[2] - 0.4)
-                _feat.build_environment(props, house_collection,
-                                        garage_front=garage_front,
-                                        door_x=self._door_center_x(props))
-
-            print(f"[House] Terminé! Style: {props.architectural_style}, Fenêtres: {props.window_type}")
-            self.report({'INFO'}, f"Maison générée! Style: {props.architectural_style}, Fenêtres: {props.window_type}")
-
+            pipeline.run_pipeline(pipeline.HOUSE_STEPS, self, context,
+                                  props, house_collection)
+            print(f"[House] Terminé! Style: {props.architectural_style}, "
+                  f"Fenêtres: {props.window_type}")
+            self.report({'INFO'},
+                        f"Maison générée! Style: {props.architectural_style}, "
+                        f"Fenêtres: {props.window_type}")
         except Exception as e:
             print(f"[House] ERREUR: {str(e)}")
             import traceback

@@ -1,5 +1,25 @@
 # Changelog — House Generator
 
+## v1.11.0 — Pipeline de construction déclaratif (chantier qualité n°3)
+
+La chirurgie structurelle, opérée SOUS les deux filets (banc visuel +
+invariants) et prouvée sans effet de bord: 24/24 configs au pixel près
+(MAE=0.00) et 17/17 invariants après refonte.
+
+- **`pipeline.py`**: la construction est une liste d'ÉTAPES déclaratives
+  (21) — chacune déclare ses dépendances (`requires`), ses garanties
+  (`provides`), sa condition et son domaine (`tags`)
+- **Validation STATIQUE à l'import**: un ordre d'étapes invalide casse
+  le chargement du module en nommant l'étape fautive — la famille de
+  bugs "ordre implicite" (matériaux écrasés, ailes initialisées trop
+  tard, real_wall_height périmé) devient impossible silencieusement
+- **Contrats vérifiés à l'exécution**: requires présents avant, provides
+  présents après, erreur nominative sinon; test négatif validé
+- **`execute()` réduit au driver** (30 lignes au lieu de ~150 de
+  séquence implicite); chrono par étape via HOUSE_PIPELINE_PROFILE=1
+- Les `tags` par étape posent la base de la RÉGÉNÉRATION INCRÉMENTALE
+  (chantier n°5): invalider un domaine → rejouer ses seules étapes
+
 ## v1.10.1 — Invariants géométriques pytest (chantier qualité n°2)
 
 - **`tests/invariants/test_geometry.py`** (17 tests, ~4s): façades
