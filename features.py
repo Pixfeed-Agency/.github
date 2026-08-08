@@ -967,11 +967,19 @@ def build_roof_dormers(props, collection, wall_height, effective_pitch,
             plane_co=(0.0, 0.0, -0.02), plane_no=(0.0, -sinp, cosp),
             clear_outer=False, clear_inner=True)
         bmesh.ops.transform(bm, verts=bm.verts, matrix=MF)
+        # ✅ v1.9.1: dallette au MATÉRIAU TUILE (le champ de tuiles
+        # instanciées du toiton générait des 'peignes' mal orientés)
+        try:
+            from . import look
+            dormer_roof_mat = look.tile_material(tile_color)
+        except Exception:
+            dormer_roof_mat = tile_mat
         objs.append(_new_mesh_obj("Dormer_Roof", bm, collection, "roof_window",
-                                  fascia_mat))
+                                  dormer_roof_mat))
 
-        # --- TUILES du toiton (petits pans, coupées au plan principal) ---
-        for sgn in (-1, 1):
+        # --- TUILES du toiton: DÉSACTIVÉES (peignes mal orientés) —
+        # la dallette porte le matériau tuile; à réactiver après refonte
+        for sgn in ():
             eave_x = uc + sgn * (lw / 2 + ov)
             up_dir_F = Vector((-sgn * math.cos(dp), 0, math.sin(dp)))
             u_dir_F = Vector((0, 1, 0))

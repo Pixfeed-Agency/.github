@@ -1630,6 +1630,8 @@ class HOUSE_OT_generate_auto(Operator):
             combined_cutter.hide_viewport = True
 
             for wall in walls:
+                if wall.get("no_boolean"):
+                    continue  # murs d'aile: ouvertures déjà maçonnées
                 mod = wall.modifiers.new(name="Boolean_Openings", type='BOOLEAN')
                 mod.operation = 'DIFFERENCE'
                 mod.object = combined_cutter

@@ -503,6 +503,11 @@ def build_wing_simple_walls(frame, props, collection, openings_local):
                                tuple(props.wall_material_color)[:3],
                                roughness=0.8)
     obj = _new_mesh_obj("Wing_Walls", bm, collection, "wall", mat)
+    # ✅ FIX MAJEUR: ne PAS appliquer le Boolean des ouvertures de la
+    # maison à ce mesh (boîtes en recouvrement → le solveur EXACT
+    # avalait les trumeaux de la façade du garage!). Les ouvertures de
+    # l'aile sont déjà maçonnées par segments.
+    obj["no_boolean"] = True
     return [obj]
 
 
