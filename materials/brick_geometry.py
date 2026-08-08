@@ -439,10 +439,12 @@ def generate_walls_with_instancing(
     # Créer toutes les instances
     print("\n[BrickGeometry] Création des instances de briques...")
 
-    for i, (pos, rot) in enumerate(brick_positions):
+    for i, (pos, rot, scale) in enumerate(brick_positions):
         instance = bpy.data.objects.new(f"Brick_Instance_{i}", brick_master.data)
         instance.location = pos
         instance.rotation_euler = rot
+        # ✅ BRIQUES COUPÉES: échelle locale X = fraction de brique
+        instance.scale = scale
         instance["house_part"] = "wall"
         collection.objects.link(instance)
         walls.append(instance)
@@ -1179,6 +1181,78 @@ def is_brick_in_opening(brick_x, brick_y, brick_z, brick_width, brick_height, op
     return False
 
 
+
+# ============================================================
+# ✅ BRIQUES COUPÉES: découpe des cellules sur les ouvertures
+# ============================================================
+
+MIN_CUT_BRICK = 0.05  # Longueur minimale d'une brique coupée (5cm)
+
+
+def _wall_spans_1d(openings, wall_type, wall_span):
+    """Projette les ouvertures d'un mur en intervalles 1D le long du mur
+    + la bande du linteau (élargie de LINTEL_OVERHANG) + les bords du mur.
+
+    Returns: liste de (a0, a1, z0, z1) — zones INTERDITES aux briques.
+    """
+    spans = []
+    row_h = BRICK_HEIGHT + MORTAR_GAP
+    soldier_h = BRICK_LENGTH + MORTAR_GAP
+    for o in (openings or []):
+        w = o.get('wall')
+        if wall_type is not None and w != wall_type:
+            continue
+        a0 = o.get('x', 0) if w in ('front', 'back') else o.get('y', 0)
+        a1 = a0 + o.get('width', 0)
+        z0 = o.get('z', 0)
+        z1 = z0 + o.get('height', 0)
+        # L'ouverture elle-même (largeur exacte)
+        spans.append((a0, a1, z0 - 0.01, z1 + 0.01))
+        # La bande du linteau au-dessus (élargie de l'appui des soldats)
+        band_top = (math.ceil(z1 / row_h) * row_h) + soldier_h
+        spans.append((a0 - LINTEL_OVERHANG, a1 + LINTEL_OVERHANG,
+                      z1 - 0.01, band_top + 0.01))
+    # Bords du mur: tout ce qui déborde de [0, wall_span] est interdit
+    spans.append((-1e6, 0.0, -1e6, 1e6))
+    spans.append((wall_span, 1e6, -1e6, 1e6))
+    return spans
+
+
+def _clip_cell(d0, cell, z, spans):
+    """Découpe la cellule [d0, d0+cell] à la rangée z sur les zones
+    interdites → liste de segments (start, longueur) à émettre.
+
+    C'est CE mécanisme qui produit les briques coupées: un segment
+    partiel devient une brique à l'échelle L/cell (fini les créneaux!).
+    """
+    zc = z + (BRICK_HEIGHT + MORTAR_GAP) / 2
+    segs = [(d0, cell)]
+    for (a0, a1, z0, z1) in spans:
+        if not (z0 < zc < z1):
+            continue
+        out = []
+        for (s, L) in segs:
+            e = s + L
+            if a1 <= s or a0 >= e:
+                out.append((s, L))
+                continue
+            if a0 > s + 1e-9:
+                out.append((s, a0 - s))
+            if a1 < e - 1e-9:
+                out.append((a1, e - a1))
+        segs = out
+        if not segs:
+            break
+    return [(s, L) for (s, L) in segs if L >= MIN_CUT_BRICK]
+
+
+def _emit_cell(positions, direction, start_pos, d0, cell, z, spans):
+    """Émet la cellule découpée: (position, rotation, échelle) par segment"""
+    for (s, L) in _clip_cell(d0, cell, z, spans):
+        pos, rot = _calculate_brick_transform(direction, s, z, start_pos)
+        positions.append((pos, rot, Vector((L / cell, 1.0, 1.0))))
+
+
 def calculate_lintel_positions(openings, wall_type, house_width, house_length, roof_type='GABLE', roof_pitch=35.0, base_height=3.0, wall_top=None):
     """✅ NORMES: Linteaux en COURS DE SOLDATS (briques verticales)
 
@@ -1322,7 +1396,7 @@ def calculate_lintel_positions(openings, wall_type, house_width, house_length, r
                 pos = Vector((house_width, coord + step_along, lintel_z))
                 rot = Euler((0, math.radians(-90), math.radians(90)), 'XYZ')
 
-            positions.append((pos, rot))
+            positions.append((pos, rot, Vector((1.0, 1.0, 1.0))))
 
     print(f"[BrickGeometry]   ✓ {len(positions)} briques de linteau pour {wall_type}")
     return positions
@@ -1375,6 +1449,9 @@ def calculate_brick_positions_for_wall(wall_length, wall_height, start_pos, dire
     num_bricks_width = int(wall_length / (brick_spacing + MORTAR_GAP))
     num_bricks_height = int(wall_height / (BRICK_HEIGHT + MORTAR_GAP))
 
+    # Zones interdites (ouvertures + bande linteau + bords du mur)
+    spans = _wall_spans_1d(openings, None, wall_length)
+
     for row in range(num_bricks_height):
         # ✅ NOUVEAU: Calculer l'offset selon le pattern d'appareillage
         if bonding_pattern == 'RUNNING':
@@ -1397,26 +1474,14 @@ def calculate_brick_positions_for_wall(wall_length, wall_height, start_pos, dire
             # Défaut: running bond
             offset = (brick_spacing + MORTAR_GAP) / 2 if row % 2 == 1 else 0
 
-        for col in range(num_bricks_width + 1):
-            # Position le long du mur
-            distance_along_wall = col * (brick_spacing + MORTAR_GAP) + offset
-
-            # ✅ FIX: Tolérance réduite (la brique pouvait déborder de 6cm
-            # au bout du mur avec l'ancienne marge de 5cm)
-            if distance_along_wall + brick_spacing + MORTAR_GAP > wall_length + 0.001:
-                continue
-
-            # Hauteur
-            z = row * (BRICK_HEIGHT + MORTAR_GAP)
-
-            # ✅ REFACTOR: Utiliser fonction helper pour calcul position/rotation
-            pos, rot = _calculate_brick_transform(direction, distance_along_wall, z, start_pos)
-
-            # Vérifier si dans une ouverture
-            if is_brick_in_opening(pos.x, pos.y, z, BRICK_LENGTH, BRICK_HEIGHT, openings):
-                continue
-
-            positions.append((pos, rot))
+        # ✅ BRIQUES COUPÉES: chaque cellule est DÉCOUPÉE sur les ouvertures
+        # et les bords du mur → segments partiels émis comme briques à
+        # l'échelle (fini les créneaux et les coins en escalier)
+        z = row * (BRICK_HEIGHT + MORTAR_GAP)
+        cell = brick_spacing + MORTAR_GAP
+        for col in range(-1, num_bricks_width + 2):
+            d0 = col * cell + offset
+            _emit_cell(positions, direction, start_pos, d0, cell, z, spans)
 
     return positions
 
@@ -1456,6 +1521,9 @@ def calculate_brick_positions_for_wall_gable(wall_length, base_height, peak_heig
     # Offset maximal des patterns (3/4 de cellule pour ENGLISH)
     max_offset = cell * 3 / 4
 
+    # Zones interdites (ouvertures + bande linteau + bords)
+    spans = _wall_spans_1d(openings, None, wall_length)
+
     def roof_bottom_at(x):
         """Face inférieure de la dalle à la position x (triangle du pignon)"""
         if half <= 0:
@@ -1463,11 +1531,8 @@ def calculate_brick_positions_for_wall_gable(wall_length, base_height, peak_heig
         ratio = 1.0 - abs(x - half) / half  # 0 aux égouts, 1 au faîtage
         return base_height + peak_height * max(0.0, ratio) - roof_gap
 
-    for col in range(num_bricks_width + 1):
+    for col in range(-1, num_bricks_width + 2):
         distance_base = col * cell
-
-        if distance_base + cell > wall_length + 0.001:
-            continue
 
         # ✅ FIX ANTI-BRIQUES-FLOTTANTES: La limite dépendait de l'offset du
         # pattern → non monotone en `row` → une rangée refusée pouvait être
@@ -1491,21 +1556,14 @@ def calculate_brick_positions_for_wall_gable(wall_length, base_height, peak_heig
 
             distance = distance_base + offset
 
-            if distance + cell > wall_length + 0.001:
-                continue
-
             z = row * (BRICK_HEIGHT + MORTAR_GAP)
             brick_top = z + BRICK_HEIGHT + MORTAR_GAP
 
             if brick_top > col_limit:
                 break  # Limite monotone par colonne → arrêt sûr
 
-            pos, rot = _calculate_brick_transform(direction, distance, z, start_pos)
-
-            if is_brick_in_opening(pos.x, pos.y, z, BRICK_LENGTH, BRICK_HEIGHT, openings):
-                continue
-
-            positions.append((pos, rot))
+            # ✅ BRIQUES COUPÉES (ouvertures + bords du pignon)
+            _emit_cell(positions, direction, start_pos, distance, cell, z, spans)
 
     return positions
 
@@ -1538,14 +1596,13 @@ def calculate_brick_positions_for_wall_sloped(wall_length, base_height, roof_hei
     # Calculer nombre maximum de rangées
     max_possible_rows = int((base_height + roof_height) / (BRICK_HEIGHT + MORTAR_GAP))
 
+    # Zones interdites (ouvertures + bande linteau + bords)
+    spans = _wall_spans_1d(openings, None, wall_length)
+
     # Pour chaque colonne
-    for col in range(num_bricks_width + 1):
+    for col in range(-1, num_bricks_width + 2):
         # Position X le long du mur
         distance_along_wall_base = col * (brick_spacing + MORTAR_GAP)
-
-        # ✅ FIX: Tolérance réduite (débord de 6cm possible avant)
-        if distance_along_wall_base + brick_spacing + MORTAR_GAP > wall_length + 0.001:
-            continue
 
         # ✅ FIX ANTI-INCOHÉRENCE: Limite CONSERVATRICE calculée à la base de
         # la colonne (offset 0 = position la plus basse du toit qui monte) —
@@ -1576,9 +1633,6 @@ def calculate_brick_positions_for_wall_sloped(wall_length, base_height, roof_hei
 
             distance_along_wall = distance_along_wall_base + offset
 
-            if distance_along_wall + brick_spacing + MORTAR_GAP > wall_length + 0.001:
-                continue
-
             # Position Z de la brique (bas)
             z = row * (BRICK_HEIGHT + MORTAR_GAP)
 
@@ -1591,14 +1645,9 @@ def calculate_brick_positions_for_wall_sloped(wall_length, base_height, roof_hei
             if brick_top > col_limit:
                 break
 
-            # ✅ REFACTOR: Utiliser fonction helper pour calcul position/rotation
-            pos, rot = _calculate_brick_transform(direction, distance_along_wall, z, start_pos)
-
-            # Vérifier si dans une ouverture
-            if is_brick_in_opening(pos.x, pos.y, z, BRICK_LENGTH, BRICK_HEIGHT, openings):
-                continue
-
-            positions.append((pos, rot))
+            # ✅ BRIQUES COUPÉES (ouvertures + bords)
+            _emit_cell(positions, direction, start_pos,
+                       distance_along_wall, brick_spacing + MORTAR_GAP, z, spans)
 
     return positions
 

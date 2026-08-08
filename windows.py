@@ -91,9 +91,27 @@ class WindowGenerator:
         window_obj = None
         glass_obj = None
         try:
-            # Créer la fenêtre selon le type
+            # ✅ V2: CASEMENT retourne (dormant, ouvrant articulé)
             if window_type == 'CASEMENT':
-                window_obj = self._create_casement_window(width, height, location, orientation)
+                frame_obj, sash_obj = self._create_casement_window(width, height, location, orientation)
+                frame_obj.name = "Window_CASEMENT"
+                frame_obj["house_part"] = "window"
+                sash_obj.name = "Window_CASEMENT_Sash"
+                sash_obj["house_part"] = "window"
+
+                self._apply_frame_material(frame_obj)
+                # Ouvrant: slot 0 = cadre, slot 1 = vitre
+                frame_mat = frame_obj.data.materials[0] if frame_obj.data.materials else None
+                glass_mat = self._get_or_make_glass_material()
+                if len(sash_obj.data.materials) < 2:
+                    while len(sash_obj.data.materials) < 2:
+                        sash_obj.data.materials.append(None)
+                sash_obj.data.materials[0] = frame_mat
+                sash_obj.data.materials[1] = glass_mat
+
+                collection.objects.link(frame_obj)
+                collection.objects.link(sash_obj)
+                return [frame_obj, sash_obj]
             elif window_type == 'SLIDING':
                 window_obj = self._create_sliding_window(width, height, location, orientation)
             elif window_type == 'DOUBLE_HUNG':
@@ -150,48 +168,125 @@ class WindowGenerator:
     # CASEMENT WINDOW (Fenêtre à battant) - Standard européen
     # ============================================================
     
-    def _create_casement_window(self, width, height, location, orientation):
-        """Fenêtre à battant - UN SEUL objet fusionné"""
-        bm = bmesh.new()
-        
+    def _get_or_make_glass_material(self):
+        """Matériau verre du battant (réutilise le cache du module look)"""
         try:
-            frame_w = self.frame_width
-            sash_w = self.sash_width
-            
-            # === CADRE EXTÉRIEUR (Dormant) ===
-            self._add_rectangular_frame(bm, width, height, frame_w, FRAME_DEPTH, offset_y=0)
-            
-            # === OUVRANT (Sash) ===
-            sash_width = width - frame_w * 2 - 0.003
-            sash_height = height - frame_w * 2 - 0.003
-            sash_center = Vector((0, 0.01, 0))  # Légèrement en avant
+            from . import look
+            return look.glass_material()
+        except Exception:
+            mat = bpy.data.materials.get("Window_Glass_Fallback")
+            if mat is None:
+                mat = bpy.data.materials.new("Window_Glass_Fallback")
+                mat.use_nodes = True
+            return mat
 
-            # ✅ FIX: Un seul décalage (le double offset sash_center + offset_y
-            # faisait dépasser l'ouvrant du dormant)
-            self._add_rectangular_frame(bm, sash_width, sash_height, sash_w, FRAME_DEPTH - 0.015,
-                                       offset=sash_center, offset_y=0)
-            
-            # === APPUI DE FENÊTRE ===
+    def _make_openable(self, obj, sign=1.0, max_angle_deg=85.0):
+        """✅ ARTICULATION: propriété 'ouverture' (0=fermée, 1=ouverte)
+        pilotant la rotation Z par driver — pivot = origine de l'objet,
+        placée SUR la ligne de charnières."""
+        obj["ouverture"] = 0.0
+        try:
+            ui = obj.id_properties_ui("ouverture")
+            ui.update(min=0.0, max=1.0, description="0 = fermée, 1 = ouverte")
+        except Exception:
+            pass
+        fcu = obj.driver_add('rotation_euler', 2)
+        drv = fcu.driver
+        drv.type = 'SCRIPTED'
+        var = drv.variables.new()
+        var.name = 'o'
+        var.type = 'SINGLE_PROP'
+        var.targets[0].id = obj
+        var.targets[0].data_path = '["ouverture"]'
+        drv.expression = f'{sign:.0f} * o * {math.radians(max_angle_deg):.5f}'
+
+    def _create_casement_window(self, width, height, location, orientation):
+        """✅ V2: Fenêtre à battant RÉELLEMENT OUVRABLE
+
+        Retourne (dormant, ouvrant): l'ouvrant est un objet SÉPARÉ
+        (cadre du battant + VITRE intégrée, 2 slots matériaux), origine
+        sur la ligne de charnières, driver 'ouverture' 0→1 (85°).
+        """
+        frame_w = self.frame_width
+        sash_w = self.sash_width
+        rotation_matrix = self._get_orientation_matrix(orientation)
+
+        # === DORMANT + APPUI (objet fixe) ===
+        bm = bmesh.new()
+        try:
+            self._add_rectangular_frame(bm, width, height, frame_w, FRAME_DEPTH, offset_y=0)
             self._add_window_sill(bm, width, height, FRAME_DEPTH)
-            
-            # === CHANFREINS (si qualité >= MEDIUM) ===
             if self.quality in ['MEDIUM', 'HIGH']:
                 self._apply_bevels(bm)
-            
-            # Appliquer orientation
-            rotation_matrix = self._get_orientation_matrix(orientation)
             bmesh.ops.transform(bm, matrix=rotation_matrix, verts=bm.verts)
-            
-            # Translater à la position
             bmesh.ops.translate(bm, verts=bm.verts, vec=location)
-            
-            # Créer l'objet
-            obj = self._bmesh_to_object(bm, "WindowCasement")
-            return obj
-            
+            frame_obj = self._bmesh_to_object(bm, "WindowCasement")
         finally:
             bm.free()
-    
+
+        # === OUVRANT (battant + vitre) — charnière à l'origine ===
+        sash_width = width - frame_w * 2 - 0.003
+        sash_height = height - frame_w * 2 - 0.003
+
+        bm = bmesh.new()
+        try:
+            # Cadre du battant (centré pour l'instant)
+            self._add_rectangular_frame(bm, sash_width, sash_height, sash_w,
+                                        FRAME_DEPTH - 0.015,
+                                        offset=Vector((0, 0.008, 0)), offset_y=0)
+            n_frame_faces = len(bm.faces)
+
+            # VITRE intégrée au battant (elle pivote avec lui!)
+            gw = sash_width - sash_w * 2 - 0.006
+            gh = sash_height - sash_w * 2 - 0.006
+            gt = GLASS_THICKNESS / 2
+            hw, hh = gw / 2, gh / 2
+            v = [bm.verts.new(c) for c in (
+                (-hw, 0.008 - gt, -hh), (hw, 0.008 - gt, -hh),
+                (hw, 0.008 - gt, hh), (-hw, 0.008 - gt, hh))]
+            v2 = [bm.verts.new((p.co.x, 0.008 + gt, p.co.z)) for p in v]
+            bm.faces.new(v[::-1])
+            bm.faces.new(v2)
+            for i in range(4):
+                j = (i + 1) % 4
+                bm.faces.new([v[i], v[j], v2[j], v2[i]])
+
+            if self.quality in ['MEDIUM', 'HIGH']:
+                self._apply_bevels(bm)
+
+            # ✅ Charnière → origine: décaler le battant pour que son bord
+            # gauche (gonds) soit à x=0 local
+            bmesh.ops.translate(bm, verts=bm.verts, vec=(sash_width / 2, 0, 0))
+
+            # Orientation du mur (la charnière verticale reste sur l'origine)
+            bmesh.ops.transform(bm, matrix=rotation_matrix, verts=bm.verts)
+
+            sash_obj = self._bmesh_to_object(bm, "WindowSash")
+        finally:
+            bm.free()
+
+        # Slots matériaux du battant: 0 = cadre, 1 = vitre
+        while len(sash_obj.data.materials) < 2:
+            sash_obj.data.materials.append(None)
+        for poly in sash_obj.data.polygons:
+            poly.material_index = 0 if poly.index < n_frame_faces else 1
+        # (les faces vitre sont les 6 dernières créées avant chanfreins;
+        # après bevel les index bougent → on marque par position Y centrale)
+        for poly in sash_obj.data.polygons:
+            c = poly.center
+            local = rotation_matrix.inverted() @ c
+            poly.material_index = 1 if abs(local.y - 0.008) < gt + 0.002 and \
+                abs(local.x - sash_width / 2) < hw + 0.002 else 0
+
+        # Position: l'origine de l'ouvrant = charnière (bord gauche du battant)
+        hinge_local = Vector((-sash_width / 2, 0, 0))
+        sash_obj.location = location + (rotation_matrix @ hinge_local)
+
+        # ✅ Battant articulé
+        self._make_openable(sash_obj, sign=1.0)
+
+        return frame_obj, sash_obj
+
     # ============================================================
     # SLIDING WINDOW (Fenêtre coulissante)
     # ============================================================

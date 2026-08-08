@@ -1,5 +1,46 @@
 # Changelog — House Generator
 
+## v1.3.0 — Refonte structurelle: menuiseries articulées, briques coupées, charpente
+
+**Validé au rendu Cycles headless à chaque bloc.**
+
+### 🧱 Briques coupées (fini les créneaux!)
+- Nouveau système de DÉCOUPE des cellules (`_clip_cell`/`_emit_cell`):
+  chaque brique traversée par un bord d'ouverture ou un bout de mur est
+  émise comme brique COUPÉE (instance à l'échelle) — tableaux de portes/
+  fenêtres nets, coins de murs droits. Les deux moteurs (instances,
+  Geometry Nodes) portent l'échelle par brique (attribut brick_scale).
+
+### 🚪🪟 Menuiseries RÉELLEMENT ouvrables (propriété 'ouverture' 0→1)
+- Porte d'entrée: panneau mouluré V2 (montants/traverses/panneaux en
+  retrait), pivot sur gonds + driver — simple ET double battant (miroir)
+- Fenêtre à battant (CASEMENT): OUVRANT SÉPARÉ du dormant, VITRE
+  intégrée au battant (elle pivote avec lui), charnière + driver 85°
+- Volets: chaque battant est un objet articulé, propriété 'fermeture'
+  (0 = ouverts contre le mur, 1 = fermés sur la fenêtre)
+- Porte de garage sectionnelle: coulisse vers le haut (driver)
+
+### 🏠 Toiture: la construction visible
+- CHEVRONS apparents sous les débords d'égout
+- PLANCHES DE RIVE (fascia) le long des égouts
+- TUILES DE RIVE le long des pignons (+ faîtières existantes)
+- Tuile maître V2: profil canal galbé lissé (~200 tris partagés),
+  micro-variations de pose par tuile
+
+### 🎨 Matériaux V2 (module look.py) — la maison, pas le décor
+- BRIQUES: variation PAR BRIQUE (Object Info Random), marbrures de
+  cuisson, grain, bump — remplace 685 lignes de nodes qui rendaient
+  noir-uniforme
+- Tuiles terre cuite (teinte par tuile), mortier sable granuleux, bois
+  veiné (portes/volets/terrasse), zinc brossé (gouttières), crépi
+  (garage), béton (fondations), verre teinté, PVC satiné, pelouse
+
+### Restant (prochaine itération, assumé)
+- Multi-volumes (plans en L), pièces intérieures, tuiles HIP/GAMBREL,
+  articulation des autres types de fenêtres, matrice de rendus de
+  conformité par option
+
+
 ## v1.2.0 — Le grand bond: 9 fonctionnalités + validation Blender headless réelle
 
 **Première version TESTÉE dans un vrai Blender 4.2** (bpy headless):

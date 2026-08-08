@@ -31,6 +31,7 @@ from . import brick_geometry
 
 NODE_GROUP_NAME = "House_Brick_Instancer"
 ROT_ATTR = "brick_rot"
+SCALE_ATTR = "brick_scale"
 
 
 def _build_instancer_node_group(brick_master):
@@ -70,6 +71,11 @@ def _build_instancer_node_group(brick_master):
     n_attr.data_type = 'FLOAT_VECTOR'
     n_attr.inputs['Name'].default_value = ROT_ATTR
 
+    n_scale = ng.nodes.new('GeometryNodeInputNamedAttribute')
+    n_scale.location = (-400, -560)
+    n_scale.data_type = 'FLOAT_VECTOR'
+    n_scale.inputs['Name'].default_value = SCALE_ATTR
+
     n_inst = ng.nodes.new('GeometryNodeInstanceOnPoints')
     n_inst.location = (-150, 0)
 
@@ -81,6 +87,7 @@ def _build_instancer_node_group(brick_master):
     links.new(n_pts.outputs['Points'], n_inst.inputs['Points'])
     links.new(n_obj.outputs['Geometry'], n_inst.inputs['Instance'])
     links.new(n_attr.outputs['Attribute'], n_inst.inputs['Rotation'])
+    links.new(n_scale.outputs['Attribute'], n_inst.inputs['Scale'])
     links.new(n_inst.outputs['Instances'], n_out.inputs['Geometry'])
 
     return ng
@@ -135,15 +142,22 @@ def generate_walls_geonodes(
 
     # 3. Nuage de points: 1 vertex par brique
     mesh = bpy.data.meshes.new("Brick_Walls_Points")
-    mesh.from_pydata([tuple(pos) for pos, _rot in brick_positions], [], [])
+    mesh.from_pydata([tuple(pos) for pos, _rot, _scl in brick_positions], [], [])
     mesh.update()
 
     # Rotation par brique stockée en attribut vectoriel (radians XYZ)
     attr = mesh.attributes.new(ROT_ATTR, 'FLOAT_VECTOR', 'POINT')
     flat = []
-    for _pos, rot in brick_positions:
+    for _pos, rot, _scl in brick_positions:
         flat.extend((rot.x, rot.y, rot.z))
     attr.data.foreach_set('vector', flat)
+
+    # ✅ BRIQUES COUPÉES: échelle par brique (X = fraction de cellule)
+    attr_s = mesh.attributes.new(SCALE_ATTR, 'FLOAT_VECTOR', 'POINT')
+    flat_s = []
+    for _pos, _rot, scl in brick_positions:
+        flat_s.extend((scl.x, scl.y, scl.z))
+    attr_s.data.foreach_set('vector', flat_s)
 
     walls_obj = bpy.data.objects.new("Brick_Walls_GN", mesh)
     walls_obj["house_part"] = "wall"

@@ -132,6 +132,10 @@ class HOUSE_OT_generate_auto(Operator):
                 print("[House] Couverture en tuiles...")
                 self._generate_roof_tiles(context, props, house_collection)
 
+            # ✅ NOUVEAU: Charpente visible (chevrons, rives, tuiles de rive)
+            print("[House] Charpente et finitions de toiture...")
+            self._generate_roof_details(context, props, house_collection)
+
             if props.include_gutters:
                 print("[House] Gouttières...")
                 self._generate_gutters(context, props, house_collection)
@@ -1708,6 +1712,13 @@ class HOUSE_OT_generate_auto(Operator):
         from . import features
         _h, _pitch, _peak, eave_l, eave_r, o_eave, o_rake = self._roof_metrics(props)
         features.build_gutters(props, collection, eave_l, eave_r, o_eave, o_rake)
+
+    def _generate_roof_details(self, context, props, collection):
+        """✅ Charpente apparente + rives (la 'façon de faire les toits' V2)"""
+        from . import features
+        h, pitch, _peak, _el, _er, o_eave, o_rake = self._roof_metrics(props)
+        features.build_roof_carpentry(props, collection, h, pitch, o_eave, o_rake,
+                                      tile_color=tuple(props.tile_color)[:3])
 
     def _generate_roof_tiles(self, context, props, collection):
         """✅ Couverture en tuiles instanciées (GN) — GABLE/SHED"""
