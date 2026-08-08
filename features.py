@@ -132,22 +132,72 @@ def build_chimney(props, collection, wall_height, roof_peak_z):
 
     cw, cd = 0.92, 0.60              # fût rectangulaire (double conduit)
     top = roof_peak_z + 0.55         # dépasse le faîtage (règle: +40cm min)
+    if props.roof_type == 'FLAT':
+        top = wall_height + 0.30 + 0.45 + 0.65  # au-dessus de l'acrotère
     base = wall_height - 1.2         # ancrée sous le toit
 
+    # ✅ v1.6: position, hauteur de toit et angle de solin EXACTS par
+    # type de toit (avant: maths GABLE appliquées partout)
     ridge_along_y = length >= width
-    half = (width / 2) if ridge_along_y else (length / 2)
-    slope = max(0.0, (roof_peak_z - wall_height) / max(half, 0.01))
-    pitch = math.atan(slope)
+    rtype = props.roof_type
+    h0 = wall_height
 
-    # Position: sur un versant, proche du faîtage
-    if ridge_along_y:
-        cx = width / 2 + 0.9
+    if rtype == 'GABLE':
+        half = (width / 2) if ridge_along_y else (length / 2)
+        slope = max(0.0, (roof_peak_z - h0) / max(half, 0.01))
+        pitch = math.atan(slope)
+        if ridge_along_y:
+            cx = width / 2 + 0.9
+            cy = length * 0.3
+            z_roof = h0 + slope * (width - cx)
+            flash_rot = Matrix.Rotation(pitch, 4, 'Y')
+        else:
+            cx = width * 0.3
+            cy = length / 2 + 0.9
+            z_roof = h0 + slope * (length - cy)
+            flash_rot = Matrix.Rotation(-pitch, 4, 'X')
+    elif rtype == 'HIP':
+        half = min(width, length) / 2
+        slope = max(0.0, (roof_peak_z - h0) / max(half, 0.01))
+        pitch = math.atan(slope)
+        # clampée sur la PARTIE TRAPÉZOÏDALE (le long du faîtage)
+        if ridge_along_y:
+            r0, r1 = width / 2, length - width / 2
+            cy = max(r0 + 0.8, min(r1 - 0.8, length * 0.3))
+            cx = width / 2 + 0.9
+            z_roof = roof_peak_z - slope * 0.9
+            flash_rot = Matrix.Rotation(pitch, 4, 'Y')
+        else:
+            r0, r1 = length / 2, width - length / 2
+            cx = max(r0 + 0.8, min(r1 - 0.8, width * 0.3))
+            cy = length / 2 + 0.9
+            z_roof = roof_peak_z - slope * 0.9
+            flash_rot = Matrix.Rotation(-pitch, 4, 'X')
+    elif rtype == 'SHED':
+        slope = max(0.0, (roof_peak_z - h0) / max(width, 0.01))
+        pitch = math.atan(slope)
+        cx = width * 0.7
         cy = length * 0.3
-        z_roof = wall_height + slope * (width - cx)
-    else:
+        z_roof = h0 + slope * cx
+        flash_rot = Matrix.Rotation(-pitch, 4, 'Y')
+    elif rtype == 'GAMBREL':
+        brisis_rad = math.radians(68.0)
+        bd = (width / 2) * 0.25
+        bh = bd * math.tan(brisis_rad)
+        terr_slope = max(0.0, (roof_peak_z - h0 - bh) / max(width / 2 - bd, 0.01))
+        pitch = math.atan(terr_slope)
+        slope = terr_slope
+        cx = min(width / 2 + 0.9, width - bd - 0.3)
+        cy = length * 0.3
+        z_roof = h0 + bh + terr_slope * (width - bd - cx)
+        flash_rot = Matrix.Rotation(pitch, 4, 'Y')
+    else:  # FLAT
+        pitch = 0.0
+        slope = 0.0
         cx = width * 0.3
-        cy = length / 2 + 0.9
-        z_roof = wall_height + slope * (length - cy)
+        cy = length / 2
+        z_roof = h0 + 0.30
+        flash_rot = Matrix.Identity(4)
 
     objs = []
 
@@ -169,10 +219,8 @@ def build_chimney(props, collection, wall_height, roof_peak_z):
     plate = bmesh.ops.create_cube(bm, size=1.0)
     bmesh.ops.transform(bm, verts=plate['verts'],
                         matrix=Matrix.Diagonal((cw + 2 * sk, cd + 2 * sk, 0.012, 1.0)))
-    rot = Matrix.Rotation(pitch, 4, 'Y') if ridge_along_y \
-        else Matrix.Rotation(-pitch, 4, 'X')
     bmesh.ops.transform(bm, verts=bm.verts,
-                        matrix=Matrix.Translation(Vector((cx, cy, z_roof + 0.03))) @ rot)
+                        matrix=Matrix.Translation(Vector((cx, cy, z_roof + 0.03))) @ flash_rot)
     zinc = _simple_material("House_Zinc", (0.62, 0.65, 0.67), roughness=0.35,
                             metallic=0.9)
     objs.append(_new_mesh_obj("Chimney_Flashing", bm, collection, "chimney", zinc))
@@ -257,7 +305,13 @@ def build_gutters(props, collection, eave_z_left, eave_z_right, o_eave, o_rake):
 
     ridge_along_y = length >= width
 
-    if roof_type == 'GAMBREL' or (roof_type == 'GABLE' and ridge_along_y) or roof_type == 'SHED':
+    if roof_type == 'SHED':
+        # ✅ v1.6: monopente — gouttière UNIQUEMENT à l'égout BAS (l'eau
+        # ne coule pas vers le haut); la tête reçoit un bandeau (charpente)
+        y0, y1 = -o_rake, length + o_rake
+        gutter_run((-o_eave, y0, eave_z_left - r), (-o_eave, y1, eave_z_left - r))
+        downspout(-down_r - 0.01, 0.35, eave_z_left - r)
+    elif roof_type == 'GAMBREL' or (roof_type == 'GABLE' and ridge_along_y):
         # Égouts sur les côtés X (gauche/droit)
         y0, y1 = -o_rake, length + o_rake
         gutter_run((-o_eave, y0, eave_z_left - r), (-o_eave, y1, eave_z_left - r))
@@ -562,7 +616,8 @@ def roof_window_layout(props, wall_height, effective_pitch, o_eave, o_rake):
         pan ∈ {'front', 'left'}; u le long de l'égout, v monte la pente.
     """
     n = int(getattr(props, 'num_roof_windows', 0))
-    if props.roof_type != 'GABLE' or not getattr(props, 'include_roof_windows', False) or n <= 0:
+    if props.roof_type not in ('GABLE', 'SHED') or \
+            not getattr(props, 'include_roof_windows', False) or n <= 0:
         return None
     width, length = props.house_width, props.house_length
     pitch_rad = math.radians(effective_pitch)
@@ -571,7 +626,14 @@ def roof_window_layout(props, wall_height, effective_pitch, o_eave, o_rake):
     slope = math.tan(pitch_rad)
     z_eave = h - o_eave * slope
     ridge_along_y = length >= width
-    if ridge_along_y:
+    if props.roof_type == 'SHED':
+        pan = 'shed'
+        u_len = length + 2 * o_rake
+        slope_len = (width + 2 * o_eave) / cosp
+        origin = Vector((-o_eave, -o_rake, z_eave))
+        u_axis = Vector((0, 1, 0))
+        v_axis = Vector((cosp, 0, sinp))
+    elif ridge_along_y:
         pan = 'left'
         u_len = length + 2 * o_rake
         slope_len = (width / 2 + o_eave) / cosp
@@ -756,7 +818,8 @@ def build_roof_tiles(props, collection, wall_height, effective_pitch, o_eave, o_
         dir_u = Vector((0, 1, 0))
         z_eave = h - o_eave * slope
         origin = Vector((-o_eave, -o_rake, z_eave + lift))
-        cover_slope(origin, dir_u, dir_v, length + 2 * o_rake, slope_len, rot_up_x)
+        cover_slope(origin, dir_u, dir_v, length + 2 * o_rake, slope_len, rot_up_x,
+                    keep=rw_keep)
     elif roof_type == 'GABLE':
         # GABLE: 2 pans, faîtage selon la grande dimension
         # ✅ FIX: branche EXPLICITE — le 'else' attrapait aussi HIP/GAMBREL
@@ -1100,15 +1163,208 @@ def build_shutters(props, collection, window_specs):
 # ✅ CHARPENTE VISIBLE + TUILES DE RIVE (GABLE)
 # ============================================================
 
+def _rake_board_seg(bm, p0, p1, out_axis, sign, bb_h=0.28, bb_t=0.025):
+    """Planche de rive le long d'un rampant p0→p1, plaquée au nu du
+    pignon (décalée de bb_t/2 le long de out_axis·sign)."""
+    axis = p1 - p0
+    if axis.length < 0.05:
+        return
+    quat = axis.normalized().to_track_quat('Z', 'Y')
+    box = bmesh.ops.create_cube(bm, size=1.0)
+    if out_axis == 'Y':
+        scale = Matrix.Diagonal((bb_h, bb_t, axis.length, 1.0))
+        off = Vector((0, sign * bb_t / 2, -bb_h * 0.25))
+    else:
+        scale = Matrix.Diagonal((bb_t, bb_h, axis.length, 1.0))
+        off = Vector((sign * bb_t / 2, 0, -bb_h * 0.25))
+    bmesh.ops.transform(bm, verts=box['verts'], matrix=scale)
+    center = (p0 + p1) / 2 + off
+    bmesh.ops.transform(bm, verts=box['verts'],
+                        matrix=Matrix.Translation(center) @ quat.to_matrix().to_4x4())
+
+
+def _carpentry_other_roofs(props, collection, wall_height, effective_pitch,
+                           o_eave, o_rake):
+    """✅ v1.6: finitions RÉELLES des toits non-GABLE.
+
+    SHED: fascia d'égout bas + bandeau haut + planches de rive le long
+    des rampants + chevrons apparents sous l'égout bas.
+    HIP: fascia périphérique sur les 4 égouts + chevrons sur les 4 côtés.
+    GAMBREL: fascias d'égout + planches de rive des pignons (2 segments
+    brisis/terrasson par rampant).
+    FLAT: COUVERTINE zinc sur l'acrotère + MEMBRANE bitume sur la dalle.
+    """
+    width, length = props.house_width, props.house_length
+    pitch_rad = math.radians(effective_pitch)
+    slope = math.tan(pitch_rad)
+    cosp = math.cos(pitch_rad)
+    h = wall_height
+    rt = 0.15
+    objs = []
+    fascia_mat = _simple_material("House_Fascia", (0.92, 0.92, 0.90), roughness=0.5)
+    wood = _simple_material("House_Rafter", (0.36, 0.25, 0.15), roughness=0.7)
+    fh, ft = 0.18, 0.022
+
+    if props.roof_type == 'SHED':
+        z_low = h - o_eave * slope
+        z_high = h + (width + o_eave) * slope
+        y0, y1 = -o_rake, length + o_rake
+        bm = bmesh.new()
+        # Fascia d'égout bas (x = -o_eave)
+        _add_box(bm, -o_eave - ft, y0, z_low - rt - fh + 0.06,
+                 -o_eave, y1, z_low - rt + 0.06)
+        # Bandeau haut (x = width + o_eave) — pas de gouttière en tête
+        _add_box(bm, width + o_eave, y0, z_high - rt - fh + 0.06,
+                 width + o_eave + ft, y1, z_high - rt + 0.06)
+        objs.append(_new_mesh_obj("Roof_Fascia", bm, collection, "roof", fascia_mat))
+        # Planches de rive le long des rampants (±Y)
+        bm = bmesh.new()
+        for yy, sgn in ((y0, -1), (y1, 1)):
+            _rake_board_seg(bm, Vector((-o_eave, yy, z_low)),
+                            Vector((width + o_eave, yy, z_high)), 'Y', sgn)
+        objs.append(_new_mesh_obj("Roof_Bargeboard", bm, collection, "roof", fascia_mat))
+        # Chevrons apparents sous l'égout bas
+        bm = bmesh.new()
+        sec_w, sec_h = 0.06, 0.09
+        inner = 0.30
+        tail_len = (o_eave + inner) / cosp
+        n = max(2, int((length + 2 * o_rake) / 0.6))
+        for i in range(n + 1):
+            yy = -o_rake + 0.06 + i * (length + 2 * o_rake - 0.12) / n
+            ret = bmesh.ops.create_cube(bm, size=1.0)
+            bmesh.ops.transform(bm, verts=ret['verts'],
+                                matrix=Matrix.Diagonal((tail_len, sec_w, sec_h, 1.0)))
+            rot = Matrix.Rotation(-pitch_rad, 4, 'Y')
+            xc = (inner - o_eave) / 2
+            z_under = h + slope * xc - rt
+            center = Vector((xc, yy, z_under - (sec_h / 2) / cosp + 0.005))
+            bmesh.ops.transform(bm, verts=ret['verts'],
+                                matrix=Matrix.Translation(center) @ rot)
+        objs.append(_new_mesh_obj("Roof_Rafters", bm, collection, "roof", wood))
+        print("[House] ✓ Finitions monopente: fascia + bandeau + rives + chevrons")
+
+    elif props.roof_type == 'HIP':
+        z_eave = h - o_eave * slope
+        drop = rt / max(0.2, cosp)   # dalle solidifiée perpendiculairement
+        bm = bmesh.new()
+        # Fascia périphérique (4 côtés)
+        _add_box(bm, -o_eave - ft, -o_eave, z_eave - drop - fh + 0.06,
+                 -o_eave, length + o_eave, z_eave - drop + 0.06)
+        _add_box(bm, width + o_eave, -o_eave, z_eave - drop - fh + 0.06,
+                 width + o_eave + ft, length + o_eave, z_eave - drop + 0.06)
+        _add_box(bm, -o_eave - ft, -o_eave - ft, z_eave - drop - fh + 0.06,
+                 width + o_eave + ft, -o_eave, z_eave - drop + 0.06)
+        _add_box(bm, -o_eave - ft, length + o_eave, z_eave - drop - fh + 0.06,
+                 width + o_eave + ft, length + o_eave + ft, z_eave - drop + 0.06)
+        objs.append(_new_mesh_obj("Roof_Fascia", bm, collection, "roof", fascia_mat))
+        # Chevrons sur les 4 côtés (à l'écart des angles: les arêtiers y règnent)
+        bm = bmesh.new()
+        sec_w, sec_h = 0.06, 0.09
+        inner = 0.30
+        tail_len = (o_eave + inner) / cosp
+
+        def hip_rafter(axis, sign, coord):
+            ret = bmesh.ops.create_cube(bm, size=1.0)
+            if axis == 'X':   # égouts x=cst → chevrons le long de X
+                bmesh.ops.transform(bm, verts=ret['verts'],
+                                    matrix=Matrix.Diagonal((tail_len, sec_w, sec_h, 1.0)))
+                ang = -pitch_rad if sign < 0 else pitch_rad
+                rot = Matrix.Rotation(ang, 4, 'Y')
+                xc = (inner - o_eave) / 2 if sign < 0 else width - (inner - o_eave) / 2
+                x_in = xc if sign < 0 else width - xc
+                z_under = h + slope * x_in - rt / cosp
+                center = Vector((xc, coord, z_under - (sec_h / 2) / cosp + 0.005))
+            else:
+                bmesh.ops.transform(bm, verts=ret['verts'],
+                                    matrix=Matrix.Diagonal((sec_w, tail_len, sec_h, 1.0)))
+                ang = pitch_rad if sign < 0 else -pitch_rad
+                rot = Matrix.Rotation(ang, 4, 'X')
+                yc = (inner - o_eave) / 2 if sign < 0 else length - (inner - o_eave) / 2
+                y_in = yc if sign < 0 else length - yc
+                z_under = h + slope * y_in - rt / cosp
+                center = Vector((coord, yc, z_under - (sec_h / 2) / cosp + 0.005))
+            bmesh.ops.transform(bm, verts=ret['verts'],
+                                matrix=Matrix.Translation(center) @ rot)
+
+        margin = 0.55
+        n = max(1, int((length - 2 * margin) / 0.6))
+        for i in range(n + 1):
+            yy = margin + i * (length - 2 * margin) / max(n, 1)
+            hip_rafter('X', -1, yy)
+            hip_rafter('X', +1, yy)
+        n = max(1, int((width - 2 * margin) / 0.6))
+        for i in range(n + 1):
+            xx = margin + i * (width - 2 * margin) / max(n, 1)
+            hip_rafter('Y', -1, xx)
+            hip_rafter('Y', +1, xx)
+        objs.append(_new_mesh_obj("Roof_Rafters", bm, collection, "roof", wood))
+        print("[House] ✓ Finitions croupe: fascia périphérique + chevrons 4 côtés")
+
+    elif props.roof_type == 'GAMBREL':
+        brisis_rad = math.radians(68.0)
+        bd = (width / 2) * 0.25
+        bh = bd * math.tan(brisis_rad)
+        rh = bh + (width / 2 - bd) * slope
+        z_eave = h - o_eave * math.tan(brisis_rad)
+        y0, y1 = -o_rake, length + o_rake
+        bm = bmesh.new()
+        # Fascias d'égout (pieds de brisis, ±X)
+        _add_box(bm, -o_eave - ft, y0, z_eave - rt - fh + 0.06,
+                 -o_eave, y1, z_eave - rt + 0.06)
+        _add_box(bm, width + o_eave, y0, z_eave - rt - fh + 0.06,
+                 width + o_eave + ft, y1, z_eave - rt + 0.06)
+        objs.append(_new_mesh_obj("Roof_Fascia", bm, collection, "roof", fascia_mat))
+        # Planches de rive des pignons: 2 segments par rampant × 2 côtés × 2 pignons
+        bm = bmesh.new()
+        for yy, sgn in ((y0, -1), (y1, 1)):
+            for xs, xb, xr in ((-o_eave, bd, width / 2),
+                               (width + o_eave, width - bd, width / 2)):
+                _rake_board_seg(bm, Vector((xs, yy, z_eave)),
+                                Vector((xb, yy, h + bh)), 'Y', sgn)
+                _rake_board_seg(bm, Vector((xb, yy, h + bh)),
+                                Vector((xr, yy, h + rh)), 'Y', sgn)
+        objs.append(_new_mesh_obj("Roof_Bargeboard", bm, collection, "roof", fascia_mat))
+        print("[House] ✓ Finitions mansarde: fascias + rives brisis/terrasson")
+
+    elif props.roof_type == 'FLAT':
+        # COUVERTINE zinc sur l'acrotère + MEMBRANE bitume
+        # Géométrie EXACTE de _create_flat_roof: dalle h..h+0.30,
+        # acrotère 0.45 au-dessus, épaisseur clampée comme là-bas
+        o = props.roof_overhang
+        top_slab = h + 0.30
+        pz = top_slab + 0.45
+        pt = min(0.15, (width + 2 * o) / 3, (length + 2 * o) / 3)
+        zinc = _simple_material("House_Zinc", (0.62, 0.65, 0.67), roughness=0.35,
+                                metallic=0.9)
+        bm = bmesh.new()
+        e = 0.03  # débord de couvertine
+        x0, x1 = -o, width + o
+        y0, y1 = -o, length + o
+        _add_box(bm, x0 - e, y0 - e, pz, x1 + e, y0 + pt + e, pz + 0.04)
+        _add_box(bm, x0 - e, y1 - pt - e, pz, x1 + e, y1 + e, pz + 0.04)
+        _add_box(bm, x0 - e, y0 + pt + e, pz, x0 + pt + e, y1 - pt - e, pz + 0.04)
+        _add_box(bm, x1 - pt - e, y0 + pt + e, pz, x1 + e, y1 - pt - e, pz + 0.04)
+        objs.append(_new_mesh_obj("Roof_Coping", bm, collection, "roof", zinc))
+        membrane = _simple_material("House_Membrane", (0.16, 0.15, 0.14),
+                                    roughness=0.95)
+        bm = bmesh.new()
+        _add_box(bm, x0 + pt, y0 + pt, top_slab, x1 - pt, y1 - pt, top_slab + 0.012)
+        objs.append(_new_mesh_obj("Roof_Membrane", bm, collection, "roof", membrane))
+        print("[House] ✓ Finitions toit-terrasse: couvertine zinc + membrane")
+
+    return objs
+
+
 def build_roof_carpentry(props, collection, wall_height, effective_pitch,
                          o_eave, o_rake, tile_color=(0.34, 0.115, 0.062)):
     """La 'façon de faire les toits' V2: chevrons apparents sous les
-    débords, planche de rive (fascia), et tuiles de rive le long des
-    pignons — ce qu'on voit d'une vraie toiture en levant les yeux.
-    (GABLE v1; autres types à venir)
+    débords, planches de rive (fascia), bargeboards et couvertines —
+    ce qu'on voit d'une vraie toiture en levant les yeux.
+    ✅ v1.6: les 5 types de toit sont finis sérieusement.
     """
     if props.roof_type != 'GABLE':
-        return []
+        return _carpentry_other_roofs(props, collection, wall_height,
+                                      effective_pitch, o_eave, o_rake)
 
     width = props.house_width
     length = props.house_length

@@ -1,5 +1,32 @@
 # Changelog — House Generator
 
+## v1.6.0 — Les 5 toits finis SÉRIEUSEMENT + état des lieux (ROADMAP.md)
+
+**Matrice des 5 types rendue et vérifiée.**
+
+### Finitions réelles par type (nouveau `_carpentry_other_roofs`)
+- **Monopente**: chevrons apparents sous l'égout bas, fascia d'égout,
+  BANDEAU de tête, planches de rive le long des rampants; **gouttière
+  UNIQUEMENT à l'égout bas** (l'eau ne remonte pas!) ; velux supportés
+- **Croupe (HIP)**: fascia PÉRIPHÉRIQUE sur les 4 égouts + chevrons
+  sur les 4 côtés (à l'écart des arêtiers)
+- **Mansarde**: fascias d'égout + planches de rive des pignons en
+  2 segments (brisis puis terrasson) suivant le profil en W
+- **Toit plat**: COUVERTINE zinc sur l'acrotère (géométrie exacte du
+  muret) + MEMBRANE bitume sur la dalle
+
+### Cheminée EXACTE par type de toit
+- Avant: maths GABLE appliquées partout. Désormais: position clampée
+  sur la partie trapézoïdale du HIP (elle pouvait tomber sur le pan
+  triangulaire!), hauteur de toit et angle de SOLIN exacts par type
+  (profil piecewise mansarde, pente monopente, au-dessus de l'acrotère
+  en toit plat)
+
+### Divers
+- Velux étendus à la monopente (calepinage partagé, tuiles exclues)
+- **ROADMAP.md**: état des lieux honnête — problèmes connus classés
+  par gravité + améliorations possibles court/moyen/long terme
+
 ## v1.5.0 — Toits complets, plans T/U, escalier, doublage, velux, bibliothèque d'assets
 
 **Chaque bloc validé au rendu Cycles headless.**

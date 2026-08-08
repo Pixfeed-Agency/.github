@@ -140,8 +140,8 @@ class HOUSE_PT_roof_panel(Panel):
         col.prop(props, "include_roof_windows", text="Fenêtres de toit")
         if props.include_roof_windows:
             col.prop(props, "num_roof_windows", text="Nombre")
-            if props.roof_type != 'GABLE':
-                col.label(text="Toit GABLE requis", icon='ERROR')
+            if props.roof_type not in ('GABLE', 'SHED'):
+                col.label(text="Toit GABLE ou monopente requis", icon='ERROR')
 
         # ✅ UX: Avertir DANS l'UI quand la pente sera clampée à la plage
         # normative du type de toit (avant: clamp silencieux, console only)
