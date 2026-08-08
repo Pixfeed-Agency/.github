@@ -31,7 +31,6 @@ bl_info = {
 }
 
 import bpy
-from bpy.props import PointerProperty
 
 # ✅ BONNES PRATIQUES BLENDER 4.2 : Imports au niveau du module
 from . import (
@@ -44,17 +43,6 @@ from . import (
     utils,
 )
 
-# Liste des modules à recharger (pour le développement)
-modules = [
-    preferences,
-    properties,
-    materials,
-    ui_panels,
-    operators_auto,
-    operators_manual,
-    utils,
-]
-
 # Classes à enregistrer
 classes = []
 
@@ -62,7 +50,7 @@ def register_classes():
     """Collecte les classes des modules QUI N'ONT PAS leur propre register()"""
     global classes
     classes.clear()
-    
+
     # SEULEMENT les opérateurs (operators_auto, operators_manual)
     # Les autres modules (properties, ui_panels, etc.) ont leur propre register()
     for module in [operators_auto, operators_manual]:
@@ -71,30 +59,35 @@ def register_classes():
 
 def register():
     """Enregistrement de l'extension"""
-    
-    # Recharger les modules en mode développement
-    if "bpy" in locals():
-        import importlib
-        for module in modules:
-            importlib.reload(module)
-    
+
+    # ✅ FIX: Suppression du bloc de rechargement mort ('"bpy" in locals()'
+    # n'était jamais vrai dans register()) et de l'import inutilisé
+    # PointerProperty.
+
     # Enregistrer les modules qui ont leur propre register()
     preferences.register()
     properties.register()
     materials.register()
     ui_panels.register()
     utils.register()
-    
+
     # Collecter et enregistrer les classes des opérateurs
     register_classes()
-    
+
+    # ✅ FIX: Message final honnête — avant, un échec d'enregistrement
+    # affichait quand même "chargée avec succès"
+    failures = []
     for cls in classes:
         try:
             bpy.utils.register_class(cls)
         except Exception as e:
+            failures.append(cls.__name__)
             print(f"[House] Erreur lors de l'enregistrement de {cls}: {e}")
-    
-    print("[House] ✅ Extension chargée avec succès!")
+
+    if failures:
+        print(f"[House] ⚠️ Extension chargée avec {len(failures)} erreur(s): {', '.join(failures)}")
+    else:
+        print("[House] ✅ Extension chargée avec succès!")
 
 def unregister():
     """Désenregistement de l'extension"""

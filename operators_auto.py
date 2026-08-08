@@ -92,10 +92,12 @@ class HOUSE_OT_generate_auto(Operator):
             print(f"[House] Style architectural: {props.architectural_style}")
             
             house_collection = self._create_house_collection(context)
-            
-            print("[House] Fondations...")
-            self._generate_foundation(context, props, house_collection)
-            
+
+            # ✅ FIX: Réinitialiser real_wall_height (l'opérateur est réutilisé
+            # par le panneau Redo — une valeur périmée décalait toit/fenêtres
+            # après un changement de type de mur)
+            self.real_wall_height = None
+
             print("[House] Murs...")
             walls = self._generate_walls(context, props, house_collection)
             
@@ -234,18 +236,74 @@ class HOUSE_OT_generate_auto(Operator):
         tolerance = 0.01
         return all(abs(user_color[i] - default_color[i]) < tolerance for i in range(3))
     
+    def _get_wall_depth(self, props):
+        """✅ Épaisseur réelle du mur selon le type de construction
+
+        Valeur PARTAGÉE entre ouvertures, fenêtres et portes — les
+        incohérences ici créaient des fenêtres flottantes / des jeux.
+        """
+        if props.wall_construction_type == 'BRICK_3D':
+            from .materials.brick_geometry import BRICK_DEPTH, MORTAR_GAP
+            return BRICK_DEPTH + MORTAR_GAP  # 0.112m (brique + mortier)
+        return props.wall_thickness
+
+    def _get_window_layout(self, props, style_config):
+        """✅ Paramètres fenêtres PARTAGÉS (ouvertures + objets visuels)
+
+        Câble les sliders utilisateur qui étaient ignorés
+        (num_windows_front/side, window_width) et fait primer le ratio
+        utilisateur sur celui du style s'il a été modifié.
+        """
+        if abs(props.window_height_ratio - 0.4) > 1e-6:
+            ratio = props.window_height_ratio  # L'utilisateur a changé le slider
+        else:
+            ratio = style_config.get('window_height_ratio', props.window_height_ratio)
+        return {
+            'num_front': props.num_windows_front,
+            'num_side': props.num_windows_side,
+            'width': props.window_width,
+            'height_ratio': ratio,
+        }
+
+    @staticmethod
+    def _window_vertical(floor_z, floor_height, height_ratio):
+        """✅ Géométrie verticale UNIQUE d'une fenêtre (hauteur, z bas, z centre)
+
+        Partagée par les ouvertures (briques = bas, murs simples = centre)
+        et par les objets fenêtres visuels — le décalage d'une demi-hauteur
+        entre le trou et la fenêtre venait de conventions différentes ici.
+        La fenêtre est clampée pour ne pas dépasser le plafond de l'étage.
+        """
+        window_height = floor_height * height_ratio
+        sill_ratio = min(WINDOW_HEIGHT_DEFAULT, max(0.05, 1.0 - height_ratio - 0.05))
+        z_bottom = floor_z + floor_height * sill_ratio
+        return window_height, z_bottom, z_bottom + window_height / 2
+
     def _create_house_collection(self, context):
         """Crée une collection pour la maison"""
-        collection_name = "House"
-        
+        props = context.scene.house_generator
+        # ✅ FIX: Utiliser le nom de collection choisi par l'utilisateur
+        collection_name = props.collection_name or "House"
+
         if collection_name in bpy.data.collections:
             collection = bpy.data.collections[collection_name]
+            # ✅ FIX: Purger aussi les meshes orphelins (fuite mémoire à
+            # chaque régénération) et re-lier la collection à la scène si
+            # elle avait été détachée (sinon la maison est invisible)
             for obj in list(collection.objects):
+                mesh_data = obj.data if obj.type == 'MESH' else None
                 bpy.data.objects.remove(obj, do_unlink=True)
+                if mesh_data is not None and mesh_data.users == 0:
+                    bpy.data.meshes.remove(mesh_data)
+            if collection.name not in context.scene.collection.children:
+                try:
+                    context.scene.collection.children.link(collection)
+                except RuntimeError:
+                    pass  # Déjà liée ailleurs dans la hiérarchie
         else:
             collection = bpy.data.collections.new(collection_name)
             context.scene.collection.children.link(collection)
-        
+
         return collection
     
     def _create_box_mesh(self, name, location, dimensions):
@@ -282,29 +340,20 @@ class HOUSE_OT_generate_auto(Operator):
             
             bm.to_mesh(mesh)
             mesh.update()
-            
+
         except Exception as e:
             print(f"[House] Erreur mesh {name}: {e}")
+            # ✅ FIX: Ne pas laisser un datablock mesh orphelin en cas d'erreur
+            bpy.data.meshes.remove(mesh)
             raise
-        
+
         obj = bpy.data.objects.new(name, mesh)
         return obj, mesh
     
-    def _generate_foundation(self, context, props, collection):
-        """Génère les fondations"""
-        width = props.house_width
-        length = props.house_length
-        thickness = FOUNDATION_THICKNESS
-        
-        location = Vector((width/2, length/2, -thickness/2))
-        dimensions = Vector((width, length, thickness))
-        
-        foundation, mesh = self._create_box_mesh("Foundation", location, dimensions)
-        collection.objects.link(foundation)
-        foundation["house_part"] = "floor"
-        
-        return foundation
-    
+    # Note: l'ancienne première définition de _generate_foundation a été
+    # supprimée — elle était écrasée par la définition complète plus bas
+    # et provoquait une double génération des fondations.
+
     def _generate_walls(self, context, props, collection):
         """Génère les murs extérieurs (SIMPLE ou BRIQUES 3D) - ULTIMATE"""
         
@@ -385,11 +434,12 @@ class HOUSE_OT_generate_auto(Operator):
         # === SINON MUR SIMPLE ===
         width = props.house_width
         length = props.house_length
-        wall_thickness = WALL_THICKNESS
+        # ✅ FIX: Utiliser l'épaisseur de mur choisie par l'utilisateur
+        # (le slider "Épaisseur murs" était ignoré avant)
+        wall_thickness = props.wall_thickness
         total_height = props.num_floors * props.floor_height
 
         # ✅ FIX: Calculer hauteur additionnelle pour SHED roof
-        import math
         if props.roof_type == 'SHED':
             pitch_rad = math.radians(props.roof_pitch)
             roof_height = width * math.tan(pitch_rad)
@@ -398,7 +448,6 @@ class HOUSE_OT_generate_auto(Operator):
             roof_height = 0
 
         walls = []
-        mesh = bpy.data.meshes.new("Walls")
         bm = bmesh.new()
 
         try:
@@ -422,25 +471,38 @@ class HOUSE_OT_generate_auto(Operator):
             # ✅ FIX: Vertices du haut avec hauteur variable pour SHED roof
             if props.roof_type == 'SHED':
                 # SHED: Gauche (X=0) bas, Droite (X=width) haut
-                # ✅ NOUVEAU: Abaisser le plafond pour éviter intersection avec le toit
-                # Le toit commence à h, donc on abaisse de ROOF_THICKNESS + 0.05m (gap)
+                # Abaisser le plafond sous la FACE INFÉRIEURE de la dalle du toit
+                # (épaisseur ROOF_THICKNESS_PITCHED + gap de sécurité)
                 wall_cap_offset = ROOF_THICKNESS_PITCHED + 0.05
+
+                # ✅ FIX: Calculer la hauteur du toit à la position X RÉELLE de
+                # chaque vertex (les sommets intérieurs ne sont pas aux bords!)
+                def shed_top(x):
+                    return h + roof_height * (x / width) - wall_cap_offset
+
                 outer_top = [
-                    bm.verts.new((0, 0, h - wall_cap_offset)),                  # 0: gauche-avant (bas)
-                    bm.verts.new((width, 0, h + roof_height - wall_cap_offset)),     # 1: droite-avant (haut)
-                    bm.verts.new((width, length, h + roof_height - wall_cap_offset)),  # 2: droite-arrière (haut)
-                    bm.verts.new((0, length, h - wall_cap_offset))              # 3: gauche-arrière (bas)
+                    bm.verts.new((0, 0, shed_top(0))),                  # 0: gauche-avant (bas)
+                    bm.verts.new((width, 0, shed_top(width))),          # 1: droite-avant (haut)
+                    bm.verts.new((width, length, shed_top(width))),     # 2: droite-arrière (haut)
+                    bm.verts.new((0, length, shed_top(0)))              # 3: gauche-arrière (bas)
                 ]
                 inner_top = [
-                    bm.verts.new((wall_thickness, wall_thickness, h - wall_cap_offset)),
-                    bm.verts.new((width - wall_thickness, wall_thickness, h + roof_height - wall_cap_offset)),
-                    bm.verts.new((width - wall_thickness, length - wall_thickness, h + roof_height - wall_cap_offset)),
-                    bm.verts.new((wall_thickness, length - wall_thickness, h - wall_cap_offset))
+                    bm.verts.new((wall_thickness, wall_thickness, shed_top(wall_thickness))),
+                    bm.verts.new((width - wall_thickness, wall_thickness, shed_top(width - wall_thickness))),
+                    bm.verts.new((width - wall_thickness, length - wall_thickness, shed_top(width - wall_thickness))),
+                    bm.verts.new((wall_thickness, length - wall_thickness, shed_top(wall_thickness)))
                 ]
             else:
-                # Hauteur constante pour autres toits
-                outer_top = [bm.verts.new(v.co + Vector((0, 0, h))) for v in outer]
-                inner_top = [bm.verts.new(v.co + Vector((0, 0, h))) for v in inner]
+                # ✅ FIX: Pour les toits en pente (GABLE/HIP/GAMBREL), la dalle
+                # du toit descend de ROOF_THICKNESS sous le plan de base —
+                # abaisser le plafond des murs pour ne pas transpercer le toit
+                # près des avant-toits. FLAT garde la hauteur pleine.
+                if props.roof_type in ('GABLE', 'HIP', 'GAMBREL'):
+                    cap = ROOF_THICKNESS_PITCHED + 0.05
+                else:
+                    cap = 0.0
+                outer_top = [bm.verts.new(v.co + Vector((0, 0, h - cap))) for v in outer]
+                inner_top = [bm.verts.new(v.co + Vector((0, 0, h - cap))) for v in inner]
             
             # Faces verticales extérieures
             for i in range(4):
@@ -481,22 +543,17 @@ class HOUSE_OT_generate_auto(Operator):
 
         openings = []
 
-        # ✅ FIX: Ajuster profondeur des ouvertures selon type de mur
-        if props.wall_construction_type == 'BRICK_3D':
-            wall_depth = 0.10  # Murs briques 3D: 10cm
-        else:
-            wall_depth = WALL_THICKNESS  # Murs simples: 25cm
-
-        # Récupérer window_height_ratio
+        # ✅ FIX: Profondeur/paramètres PARTAGÉS via helpers (les valeurs
+        # divergentes créaient des jeux entre trous et fenêtres)
+        wall_depth = self._get_wall_depth(props)
         style_config = self._apply_architectural_style(props)
-        window_height_ratio = style_config.get('window_height_ratio', props.window_height_ratio)
-
-        # Calculer nombre de fenêtres
-        num_windows_front = max(2, int(width / WINDOW_SPACING_INTERVAL))
-        num_windows_side = max(2, int(length / WINDOW_SPACING_INTERVAL))
+        layout = self._get_window_layout(props, style_config)
+        window_height_ratio = layout['height_ratio']
+        num_windows_front = layout['num_front']
+        num_windows_side = layout['num_side']
 
         # ✅ FIX: Utiliser la hauteur RÉELLE si disponible
-        if hasattr(self, 'real_wall_height') and self.real_wall_height:
+        if getattr(self, 'real_wall_height', None):
             floor_height_actual = self.real_wall_height / props.num_floors
         else:
             floor_height_actual = props.floor_height
@@ -520,9 +577,11 @@ class HOUSE_OT_generate_auto(Operator):
         # FENÊTRES
         for floor in range(props.num_floors):
             floor_z = floor * floor_height_actual
-            window_height = floor_height_actual * window_height_ratio
-            window_z = floor_z + floor_height_actual * WINDOW_HEIGHT_DEFAULT
-            window_width = WINDOW_WIDTH
+            # ✅ FIX: Géométrie verticale partagée (les ouvertures briques
+            # utilisent le BAS de la fenêtre)
+            window_height, window_z, _ = self._window_vertical(
+                floor_z, floor_height_actual, window_height_ratio)
+            window_width = layout['width']
             
             # Mur AVANT
             spacing_front = width / (num_windows_front + 1)
@@ -601,22 +660,26 @@ class HOUSE_OT_generate_auto(Operator):
         width = props.house_width
         length = props.house_length
         floor_thickness = FLOOR_THICKNESS
-        
+
+        # ✅ FIX: Calculer l'encastrement depuis l'épaisseur RÉELLE des murs.
+        # L'ancien ratio 0.95 faisait déborder le plancher DANS les murs
+        # pour toute maison de moins de 10m.
+        wall_t = self._get_wall_depth(props)
+        inset_width = max(0.1, width - 2 * wall_t)
+        inset_length = max(0.1, length - 2 * wall_t)
+
         floors = []
-        
+
         for floor_num in range(props.num_floors):
             if floor_num == 0:
                 z_pos = floor_thickness / 2
             else:
                 z_pos = floor_num * props.floor_height + floor_thickness / 2
-            
-            inset_width = width * FLOOR_INSET
-            inset_length = length * FLOOR_INSET
-            
+
             location = Vector((width/2, length/2, z_pos))
             dimensions = Vector((inset_width, inset_length, floor_thickness))
-            
-            floor_name = f"Floor_Ground" if floor_num == 0 else f"Floor_{floor_num}"
+
+            floor_name = "Floor_Ground" if floor_num == 0 else f"Floor_{floor_num}"
             floor, mesh = self._create_box_mesh(floor_name, location, dimensions)
             collection.objects.link(floor)
             floor["house_part"] = "floor"
@@ -699,14 +762,13 @@ class HOUSE_OT_generate_auto(Operator):
             f2 = bm.faces.new([v2, v3, v6, v5])
             f3 = bm.faces.new([v3, v4, v6])
             f4 = bm.faces.new([v4, v1, v5, v6])
-            
-            faces_to_extrude = [f1, f2, f3, f4]
-            ret = bmesh.ops.extrude_face_region(bm, geom=faces_to_extrude)
-            
-            extruded_verts = [v for v in ret['geom'] if isinstance(v, bmesh.types.BMVert)]
-            offset_vector = Vector((0, 0, -roof_thickness))
-            bmesh.ops.translate(bm, verts=extruded_verts, vec=offset_vector)
-            
+
+            # ✅ FIX: Utiliser solidify au lieu d'une extrusion -Z manuelle.
+            # L'extrusion verticale des pignons (f1/f3) créait des faces
+            # coplanaires dégénérées (z-fighting, géométrie non-manifold).
+            bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+            bmesh.ops.solidify(bm, geom=list(bm.faces), thickness=roof_thickness)
+
             roof, mesh = self._create_mesh_from_bmesh("GableRoof", bm)
             
         finally:
@@ -723,11 +785,9 @@ class HOUSE_OT_generate_auto(Operator):
         # Un toit en croupe a une arête (ridge) au centre si rectangulaire
         if width < length:
             # Ridge court le long de X, pente le long de Y
-            ridge_length = length - width  # Longueur de l'arête centrale
             roof_height = (width / 2) * math.tan(pitch_rad)
         else:
             # Ridge court le long de Y, pente le long de X
-            ridge_length = width - length
             roof_height = (length / 2) * math.tan(pitch_rad)
 
         bm = bmesh.new()
@@ -768,10 +828,13 @@ class HOUSE_OT_generate_auto(Operator):
                 v6 = bm.verts.new((ridge_end_x, length/2, h + rh))
 
                 # 4 faces du toit
+                # ✅ FIX: f3 doit être le TRAPÈZE [v3,v4,v5,v6] et f4 le
+                # TRIANGLE [v4,v1,v5] (les faces étaient inversées → toit
+                # ouvert et auto-intersecté pour toute maison plus large que longue)
                 f1 = bm.faces.new([v1, v2, v6, v5])  # Trapèze avant (face Y-)
-                f2 = bm.faces.new([v2, v3, v6])  # Triangle droite (face X+)
-                f3 = bm.faces.new([v3, v4, v5])  # Trapèze arrière (face Y+)
-                f4 = bm.faces.new([v4, v1, v5, v6])  # Triangle gauche (face X-)
+                f2 = bm.faces.new([v2, v3, v6])      # Triangle droite (face X+)
+                f3 = bm.faces.new([v3, v4, v5, v6])  # Trapèze arrière (face Y+)
+                f4 = bm.faces.new([v4, v1, v5])      # Triangle gauche (face X-)
 
             else:
                 # Maison carrée: pyramide parfaite avec sommet au centre
@@ -783,13 +846,10 @@ class HOUSE_OT_generate_auto(Operator):
                 f3 = bm.faces.new([v3, v4, v5])
                 f4 = bm.faces.new([v4, v1, v5])
 
-            # Extruder pour donner de l'épaisseur au toit
-            faces_to_extrude = [f1, f2, f3, f4]
-            ret = bmesh.ops.extrude_face_region(bm, geom=faces_to_extrude)
-
-            extruded_verts = [v for v in ret['geom'] if isinstance(v, bmesh.types.BMVert)]
-            offset_vector = Vector((0, 0, -roof_thickness))
-            bmesh.ops.translate(bm, verts=extruded_verts, vec=offset_vector)
+            # ✅ FIX: solidify donne une épaisseur propre et manifold
+            # (l'extrusion -Z manuelle laissait la surface d'origine ouverte)
+            bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+            bmesh.ops.solidify(bm, geom=list(bm.faces), thickness=roof_thickness)
 
             roof, mesh = self._create_mesh_from_bmesh("HipRoof", bm)
 
@@ -809,20 +869,29 @@ class HOUSE_OT_generate_auto(Operator):
         try:
             h = height
             o = overhang
-            rh = roof_height
             t = roof_thickness
 
+            # ✅ FIX: La pente doit être tan(pitch) sur TOUTE la surface, y
+            # compris le débord. Avant, le toit montait de rh entre -o et
+            # width+o, donc la pente réelle était plus faible et le toit
+            # arrivait TROP BAS à x=width → les murs le transperçaient.
+            slope = math.tan(pitch_rad)
+
+            def roof_z(x):
+                """Hauteur du toit à la position x (ligne de toit: h à x=0)"""
+                return h + slope * x
+
             # Face supérieure du toit (4 vertices)
-            v1_top = bm.verts.new((-o, -o, h))
-            v2_top = bm.verts.new((width + o, -o, h + rh))
-            v3_top = bm.verts.new((width + o, length + o, h + rh))
-            v4_top = bm.verts.new((-o, length + o, h))
+            v1_top = bm.verts.new((-o, -o, roof_z(-o)))
+            v2_top = bm.verts.new((width + o, -o, roof_z(width + o)))
+            v3_top = bm.verts.new((width + o, length + o, roof_z(width + o)))
+            v4_top = bm.verts.new((-o, length + o, roof_z(-o)))
 
             # Face inférieure du toit (4 vertices décalés vers le bas)
-            v1_bot = bm.verts.new((-o, -o, h - t))
-            v2_bot = bm.verts.new((width + o, -o, h + rh - t))
-            v3_bot = bm.verts.new((width + o, length + o, h + rh - t))
-            v4_bot = bm.verts.new((-o, length + o, h - t))
+            v1_bot = bm.verts.new((-o, -o, roof_z(-o) - t))
+            v2_bot = bm.verts.new((width + o, -o, roof_z(width + o) - t))
+            v3_bot = bm.verts.new((width + o, length + o, roof_z(width + o) - t))
+            v4_bot = bm.verts.new((-o, length + o, roof_z(-o) - t))
 
             # Créer les 6 faces pour fermer le volume
             # Face supérieure (inclinée)
@@ -921,13 +990,11 @@ class HOUSE_OT_generate_auto(Operator):
             f7 = bm.faces.new([v4, v5_back, v6_back, v3])  # Base arrière
             f8 = bm.faces.new([v5_back, v_top_back, v6_back])  # Sommet arrière
 
-            # Extruder pour l'épaisseur
-            faces_to_extrude = [f1, f2, f3, f4, f5, f6, f7, f8]
-            ret = bmesh.ops.extrude_face_region(bm, geom=faces_to_extrude)
-
-            extruded_verts = [v for v in ret['geom'] if isinstance(v, bmesh.types.BMVert)]
-            offset_vector = Vector((0, 0, -t))
-            bmesh.ops.translate(bm, verts=extruded_verts, vec=offset_vector)
+            # ✅ FIX: solidify au lieu d'extrusion -Z manuelle — l'extrusion
+            # verticale des pignons (f5-f8) créait des faces coplanaires
+            # dégénérées (épaisseur nulle, z-fighting)
+            bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+            bmesh.ops.solidify(bm, geom=list(bm.faces), thickness=t)
 
             roof, mesh = self._create_mesh_from_bmesh("GambrelRoof", bm)
 
@@ -940,77 +1007,85 @@ class HOUSE_OT_generate_auto(Operator):
         """Génère les trous dans les murs (Boolean) - pour murs SIMPLES uniquement"""
         width = props.house_width
         length = props.house_length
-        
-        window_height_ratio = style_config.get('window_height_ratio', props.window_height_ratio)
-        
-        num_windows_front = max(2, int(width / WINDOW_SPACING_INTERVAL))
-        num_windows_side = max(2, int(length / WINDOW_SPACING_INTERVAL))
-        
+
+        # ✅ FIX: Paramètres fenêtres partagés (mêmes valeurs que les visuels)
+        layout = self._get_window_layout(props, style_config)
+        window_height_ratio = layout['height_ratio']
+        num_windows_front = layout['num_front']
+        num_windows_side = layout['num_side']
+        wall_thickness = props.wall_thickness
+
         combined_bm = bmesh.new()
-        
+
         try:
             # PORTE
             door_height = DOOR_HEIGHT
             door_width = props.front_door_width
-            door_depth = WALL_THICKNESS + DOOR_DEPTH_EXTRA
-            
+            door_depth = wall_thickness + DOOR_DEPTH_EXTRA
+
             door_bm = bmesh.new()
             bmesh.ops.create_cube(door_bm, size=1.0)
-            
+
             door_scale = Matrix.Diagonal((door_width, door_depth, door_height, 1.0))
             bmesh.ops.transform(door_bm, matrix=door_scale, verts=door_bm.verts)
-            
-            door_location = Vector((width/2, WALL_THICKNESS/2, door_height/2))
+
+            door_location = Vector((width/2, wall_thickness/2, door_height/2))
             bmesh.ops.translate(door_bm, verts=door_bm.verts, vec=door_location)
-            
+
+            # ✅ FIX: index_update() obligatoire — les .index de bmesh ne sont
+            # pas maintenus automatiquement (faces du cutter corrompues sinon)
+            door_bm.verts.index_update()
+            vert_offset = len(combined_bm.verts)
             for v in door_bm.verts:
                 combined_bm.verts.new(v.co)
             combined_bm.verts.ensure_lookup_table()
-            
+
             for f in door_bm.faces:
-                combined_bm.faces.new([combined_bm.verts[v.index] for v in f.verts])
-            
+                combined_bm.faces.new([combined_bm.verts[vert_offset + v.index] for v in f.verts])
+
             door_bm.free()
-            
+
             # FENÊTRES
             for floor in range(props.num_floors):
                 floor_z = floor * props.floor_height
-                window_height = props.floor_height * window_height_ratio
-                window_z = floor_z + props.floor_height * WINDOW_HEIGHT_DEFAULT
-                window_depth = WALL_THICKNESS + WINDOW_DEPTH_EXTRA
-                window_width = WINDOW_WIDTH
-                
+                # ✅ FIX: Géométrie verticale partagée (le cutter des murs
+                # simples est centré sur le CENTRE de la fenêtre)
+                window_height, _, window_z = self._window_vertical(
+                    floor_z, props.floor_height, window_height_ratio)
+                window_depth = wall_thickness + WINDOW_DEPTH_EXTRA
+                window_width = layout['width']
+
                 spacing_front = width / (num_windows_front + 1)
                 for i in range(num_windows_front):
                     x_pos = spacing_front * (i + 1)
-                    
+
                     if floor == 0 and abs(x_pos - width/2) < door_width * 1.5:
                         continue
-                    
+
                     self._add_window_to_combined_mesh(
-                        combined_bm, x_pos, WALL_THICKNESS/2, window_z,
+                        combined_bm, x_pos, wall_thickness/2, window_z,
                         window_width, window_depth, window_height
                     )
-                
+
                 for i in range(num_windows_front):
                     x_pos = spacing_front * (i + 1)
                     self._add_window_to_combined_mesh(
-                        combined_bm, x_pos, length - WALL_THICKNESS/2, window_z,
+                        combined_bm, x_pos, length - wall_thickness/2, window_z,
                         window_width, window_depth, window_height
                     )
-                
+
                 spacing_side = length / (num_windows_side + 1)
                 for i in range(num_windows_side):
                     y_pos = spacing_side * (i + 1)
                     self._add_window_to_combined_mesh(
-                        combined_bm, WALL_THICKNESS/2, y_pos, window_z,
+                        combined_bm, wall_thickness/2, y_pos, window_z,
                         window_depth, window_width, window_height
                     )
-                
+
                 for i in range(num_windows_side):
                     y_pos = spacing_side * (i + 1)
                     self._add_window_to_combined_mesh(
-                        combined_bm, width - WALL_THICKNESS/2, y_pos, window_z,
+                        combined_bm, width - wall_thickness/2, y_pos, window_z,
                         window_depth, window_width, window_height
                     )
             
@@ -1039,7 +1114,9 @@ class HOUSE_OT_generate_auto(Operator):
         
         window_location = Vector((x, y, z))
         bmesh.ops.translate(window_bm, verts=window_bm.verts, vec=window_location)
-        
+
+        # ✅ FIX: index_update() obligatoire — .index n'est pas maintenu par bmesh
+        window_bm.verts.index_update()
         vert_offset = len(combined_bm.verts)
         for v in window_bm.verts:
             combined_bm.verts.new(v.co)
@@ -1055,38 +1132,39 @@ class HOUSE_OT_generate_auto(Operator):
         width = props.house_width
         length = props.house_length
 
-        num_windows_front = max(2, int(width / WINDOW_SPACING_INTERVAL))
-        num_windows_side = max(2, int(length / WINDOW_SPACING_INTERVAL))
-
-        window_height_ratio = style_config.get('window_height_ratio', props.window_height_ratio)
+        # ✅ FIX: Paramètres PARTAGÉS avec les ouvertures — le "jeu" entre
+        # les trous et les fenêtres venait de valeurs calculées différemment
+        layout = self._get_window_layout(props, style_config)
+        window_height_ratio = layout['height_ratio']
+        num_windows_front = layout['num_front']
+        num_windows_side = layout['num_side']
 
         # ✅ FIX: Utiliser la hauteur RÉELLE si disponible (murs en briques)
-        if hasattr(self, 'real_wall_height') and self.real_wall_height:
+        if getattr(self, 'real_wall_height', None):
             floor_height_actual = self.real_wall_height / props.num_floors
             print(f"[House] Fenêtres positionnées selon hauteur réelle: {floor_height_actual:.3f}m/étage")
         else:
             floor_height_actual = props.floor_height
             print(f"[House] Fenêtres positionnées selon hauteur théorique: {floor_height_actual:.3f}m/étage")
 
-        # ✅ FIX: Ajuster profondeur fenêtres selon type de mur
-        if props.wall_construction_type == 'BRICK_3D':
-            # Murs briques 3D: épaisseur = BRICK_DEPTH (10cm)
-            wall_depth = 0.10
-            print(f"[House] Fenêtres ajustées pour murs BRICK_3D: profondeur {wall_depth*100:.0f}cm")
-        else:
-            # Murs simples: épaisseur = WALL_THICKNESS (25cm)
-            wall_depth = WALL_THICKNESS
-            print(f"[House] Fenêtres ajustées pour murs simples: profondeur {wall_depth*100:.0f}cm")
+        # ✅ FIX: Profondeur de mur partagée (0.112m briques / épaisseur réglée sinon)
+        wall_depth = self._get_wall_depth(props)
+        print(f"[House] Fenêtres ajustées: profondeur mur {wall_depth*100:.1f}cm")
 
-        window_height = floor_height_actual * window_height_ratio
-        window_width = WINDOW_WIDTH
+        window_width = layout['width']
 
         window_gen = WindowGenerator(quality=props.window_quality)
 
         for floor in range(props.num_floors):
             floor_z = floor * floor_height_actual
-            window_z = floor_z + floor_height_actual * WINDOW_HEIGHT_DEFAULT
-            
+            # ✅ FIX MAJEUR: L'objet fenêtre est construit CENTRÉ sur son
+            # origine, mais les ouvertures des murs briques stockent le BAS
+            # du trou → la fenêtre visuelle était une demi-hauteur trop bas
+            # (le fameux "jeu" entre le trou et la fenêtre). On place
+            # désormais la fenêtre à son CENTRE, cohérent avec le trou.
+            window_height, _, window_z = self._window_vertical(
+                floor_z, floor_height_actual, window_height_ratio)
+
             # Mur avant
             spacing_front = width / (num_windows_front + 1)
             for i in range(num_windows_front):
@@ -1143,19 +1221,12 @@ class HOUSE_OT_generate_auto(Operator):
 
     def _generate_door_visual(self, context, props, collection):
         """Génère la porte d'entrée visuelle (objet 3D)"""
+        from .doors import DOOR_FRAME_DEPTH
+
         width = props.house_width
 
-        # ✅ FIX: Utiliser la hauteur RÉELLE si disponible
-        if hasattr(self, 'real_wall_height') and self.real_wall_height:
-            floor_height_actual = self.real_wall_height / props.num_floors
-        else:
-            floor_height_actual = props.floor_height
-
-        # ✅ FIX: Ajuster profondeur porte selon type de mur
-        if props.wall_construction_type == 'BRICK_3D':
-            wall_depth = 0.10  # Murs briques 3D: 10cm
-        else:
-            wall_depth = WALL_THICKNESS  # Murs simples: 25cm
+        # ✅ FIX: Profondeur de mur partagée avec les ouvertures
+        wall_depth = self._get_wall_depth(props)
 
         door_width = props.front_door_width
         door_height = DOOR_HEIGHT
@@ -1165,11 +1236,14 @@ class HOUSE_OT_generate_auto(Operator):
 
         door_gen = DoorGenerator(quality=props.door_quality)
 
+        # ✅ FIX: Le cadre de porte s'étend de y=0 à y=DOOR_FRAME_DEPTH dans
+        # son repère local — on le CENTRE dans l'épaisseur du mur (avant, il
+        # était enfoncé d'une demi-épaisseur vers l'intérieur de la maison)
         door_gen.generate_door(
             door_type=props.door_type,
             width=door_width,
             height=door_height,
-            location=Vector((door_x - door_width/2, wall_depth/2, 0)),
+            location=Vector((door_x - door_width/2, (wall_depth - DOOR_FRAME_DEPTH) / 2, 0)),
             orientation='front',
             collection=collection
         )
@@ -1346,13 +1420,16 @@ class HOUSE_OT_generate_auto(Operator):
             mat.use_nodes = True
         
         nodes = mat.node_tree.nodes
-        principled = nodes.get("Principled BSDF")
-        
+        # ✅ FIX: Chercher par TYPE de node, pas par nom anglais (les noms
+        # peuvent être localisés/renommés → matériau noir silencieux)
+        principled = next((n for n in nodes if n.type == 'BSDF_PRINCIPLED'), None)
+
         if not principled:
             principled = nodes.new(type='ShaderNodeBsdfPrincipled')
-            output = nodes.get("Material Output")
-            if output:
-                mat.node_tree.links.new(principled.outputs["BSDF"], output.inputs["Surface"])
+            output = next((n for n in nodes if n.type == 'OUTPUT_MATERIAL'), None)
+            if not output:
+                output = nodes.new(type='ShaderNodeOutputMaterial')
+            mat.node_tree.links.new(principled.outputs["BSDF"], output.inputs["Surface"])
         
         principled.inputs["Base Color"].default_value = (*color, 1.0)
         principled.inputs["Roughness"].default_value = MATERIAL_ROUGHNESS
@@ -1381,9 +1458,14 @@ class HOUSE_OT_generate_auto(Operator):
         
         mat.node_tree.links.new(glass_bsdf.outputs["BSDF"], output.inputs["Surface"])
         
-        mat.blend_method = 'BLEND'
-        mat.shadow_method = 'NONE'
-        
+        # ✅ Compat Blender 4.2+ (EEVEE Next): 'surface_render_method' remplace
+        # 'blend_method' (conservé en fallback pour les versions antérieures)
+        if hasattr(mat, "surface_render_method"):
+            mat.surface_render_method = 'BLENDED'
+        elif hasattr(mat, "blend_method"):
+            mat.blend_method = 'BLEND'
+        # Note: 'shadow_method' n'existe plus dans Blender 4.2+ (EEVEE Next)
+
         return mat
 
 

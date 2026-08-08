@@ -1,0 +1,19 @@
+# Manifeste d'extension Blender 4.2+
+# Permet l'installation comme Extension (le format bl_info seul est
+# déprécié depuis Blender 4.2)
+schema_version = "1.0.0"
+
+id = "house_generator"
+version = "1.0.0"
+name = "House"
+tagline = "Automatic and manual house generation with floor plans support"
+maintainer = "mvaertan"
+type = "add-on"
+
+blender_version_min = "4.2.0"
+
+license = [
+  "SPDX:GPL-3.0-or-later",
+]
+
+tags = ["Add Mesh", "3D View"]

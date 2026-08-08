@@ -20,34 +20,68 @@ from bpy.props import (
 )
 
 
+_regenerate_pending = False
+
+
+def _deferred_regenerate():
+    """Exécute la régénération hors du contexte restreint du callback update"""
+    global _regenerate_pending
+    _regenerate_pending = False
+    try:
+        bpy.ops.house.generate_auto()
+    except Exception as e:
+        print(f"[House] ⚠️ Mise à jour auto échouée: {e}")
+    return None  # Ne pas répéter le timer
+
+
 def regenerate_house(self, context):
-    """Callback pour régénérer la maison quand une propriété change"""
-    if hasattr(context.scene, 'house_auto_update') and context.scene.house_auto_update:
-        # Déclencher la régénération (sera implémenté plus tard)
-        pass
+    """Callback pour régénérer la maison quand une propriété change
+
+    ✅ FIX: Implémenté (avant: stub 'pass' — la case 'Mise à jour auto'
+    ne faisait rien). L'appel d'opérateur est différé via un timer car les
+    callbacks update s'exécutent dans un contexte restreint.
+    """
+    global _regenerate_pending
+    if not getattr(context.scene, 'house_auto_update', False):
+        return
+    if _regenerate_pending:
+        return  # Une régénération est déjà planifiée (anti-rafale)
+    _regenerate_pending = True
+    bpy.app.timers.register(_deferred_regenerate, first_interval=0.1)
+
+
+# ✅ FIX: Cache module-level pour les items d'EnumProperty dynamiques.
+# Blender ne copie PAS les chaînes retournées par un callback items= ;
+# sans référence Python vivante, elles peuvent être libérées pendant
+# l'affichage (crash / texte corrompu — bug classique Blender).
+_PRESET_ITEMS_CACHE = []
+
+_PRESET_ITEMS_FALLBACK = [
+    ('BRICK_RED', "🧱 Briques rouges", "Briques rouges traditionnelles", 'MATERIAL', 0),
+    ('BRICK_RED_DARK', "🧱 Briques rouges foncées", "Briques rouges sombres", 'MATERIAL', 1),
+    ('BRICK_ORANGE', "🧱 Briques orangées", "Briques orangées/terre cuite", 'MATERIAL', 2),
+    ('BRICK_BROWN', "🧱 Briques brunes", "Briques brunes/chocolat", 'MATERIAL', 3),
+    ('BRICK_YELLOW', "🧱 Briques jaunes (London)", "Briques jaunes type London", 'MATERIAL', 4),
+    ('BRICK_GREY', "🧱 Briques grises modernes", "Briques grises contemporaines", 'MATERIAL', 5),
+]
 
 
 def get_brick_presets_safe(self, context):
     """Wrapper sécurisé pour get_brick_preset_items avec fallback
-    
-    ✅ CORRECTION: Lazy loading du scanner pour éviter l'import au chargement du module
+
+    ✅ CORRECTION: Lazy loading du scanner + cache des chaînes (voir ci-dessus)
     """
-    # ✅ Importer seulement quand on en a besoin (lazy loading)
+    global _PRESET_ITEMS_CACHE
     try:
         from .materials import pbr_scanner
-        return pbr_scanner.get_brick_preset_items(self, context)
+        _PRESET_ITEMS_CACHE = pbr_scanner.get_brick_preset_items(self, context)
+        return _PRESET_ITEMS_CACHE
     except Exception as e:
         print(f"[House] ⚠️ Erreur scan PBR: {e}")
-    
+
     # Fallback: presets hardcodés si le scanner ne marche pas
-    return [
-        ('BRICK_RED', "🧱 Briques rouges", "Briques rouges traditionnelles", 'MATERIAL', 0),
-        ('BRICK_RED_DARK', "🧱 Briques rouges foncées", "Briques rouges sombres", 'MATERIAL', 1),
-        ('BRICK_ORANGE', "🧱 Briques orangées", "Briques orangées/terre cuite", 'MATERIAL', 2),
-        ('BRICK_BROWN', "🧱 Briques brunes", "Briques brunes/chocolat", 'MATERIAL', 3),
-        ('BRICK_YELLOW', "🧱 Briques jaunes (London)", "Briques jaunes type London", 'MATERIAL', 4),
-        ('BRICK_GREY', "🧱 Briques grises modernes", "Briques grises contemporaines", 'MATERIAL', 5),
-    ]
+    _PRESET_ITEMS_CACHE = list(_PRESET_ITEMS_FALLBACK)
+    return _PRESET_ITEMS_CACHE
 
 
 class HouseGeneratorProperties(PropertyGroup):
@@ -162,7 +196,8 @@ class HouseGeneratorProperties(PropertyGroup):
         default=35.0,
         min=5.0,
         max=60.0,
-        subtype='ANGLE',
+        # ✅ FIX: subtype='ANGLE' supprimé — il faisait stocker des radians et
+        # afficher ~2005° dans l'UI alors que tout le code attend des degrés
         update=regenerate_house
     )
     
@@ -291,20 +326,11 @@ class HouseGeneratorProperties(PropertyGroup):
     # PORTES
     # ============================================================
     
-    door_width: FloatProperty(
-        name="Largeur porte",
-        description="Largeur de la porte d'entrée",
-        default=1.0,
-        min=0.8,
-        max=2.0,
-        unit='LENGTH',
-        update=regenerate_house
-    )
-    
-    # Alias pour compatibilité
+    # ✅ FIX: 'door_width' supprimé — c'était un doublon jamais lu de
+    # 'front_door_width' (deux propriétés indépendantes désynchronisées)
     front_door_width: FloatProperty(
         name="Largeur porte entrée",
-        description="Alias pour door_width",
+        description="Largeur de la porte d'entrée",
         default=1.0,
         min=0.8,
         max=2.0,
@@ -351,17 +377,10 @@ class HouseGeneratorProperties(PropertyGroup):
     # GARAGE
     # ============================================================
     
-    add_garage: BoolProperty(
-        name="Ajouter garage",
-        description="Ajouter un garage à la maison",
-        default=False,
-        update=regenerate_house
-    )
-    
-    # Alias pour compatibilité avec l'ancien code
+    # ✅ FIX: 'add_garage' supprimé — doublon jamais lu de 'include_garage'
     include_garage: BoolProperty(
         name="Inclure garage",
-        description="Inclure un garage (alias pour add_garage)",
+        description="Inclure un garage",
         default=False,
         update=regenerate_house
     )
@@ -403,32 +422,18 @@ class HouseGeneratorProperties(PropertyGroup):
     # BALCONS / TERRASSES
     # ============================================================
     
-    add_balcony: BoolProperty(
-        name="Ajouter balcon",
-        description="Ajouter un balcon aux étages supérieurs",
-        default=False,
-        update=regenerate_house
-    )
-    
-    # Alias pour compatibilité
+    # ✅ FIX: 'add_balcony' et 'add_terrace' supprimés — doublons jamais lus
+    # de 'include_balcony' / 'include_terrace'
     include_balcony: BoolProperty(
         name="Inclure balcon",
-        description="Alias pour add_balcony (compatibilité)",
+        description="Inclure un balcon aux étages supérieurs",
         default=False,
         update=regenerate_house
     )
-    
-    # Propriétés terrasse (manquantes)
-    add_terrace: BoolProperty(
-        name="Ajouter terrasse",
-        description="Ajouter une terrasse au rez-de-chaussée",
-        default=False,
-        update=regenerate_house
-    )
-    
+
     include_terrace: BoolProperty(
         name="Inclure terrasse",
-        description="Alias pour add_terrace (compatibilité)",
+        description="Inclure une terrasse au rez-de-chaussée",
         default=False,
         update=regenerate_house
     )
@@ -606,29 +611,10 @@ class HouseGeneratorProperties(PropertyGroup):
         update=regenerate_house
     )
     
-    # ============================================================
-    # PROPRIÉTÉ AJOUTÉE : CHOIX BRIQUES 3D OU SIMPLE MATÉRIAU
-    # ============================================================
-    
-    use_geometry_bricks: BoolProperty(
-        name="Utiliser briques 3D",
-        description="Utiliser de vraies briques 3D géométriques au lieu d'un simple matériau shader",
-        default=False,
-        update=regenerate_house
-    )
-    
-    geometry_brick_quality: EnumProperty(
-        name="Qualité briques 3D",
-        description="Niveau de détail de la géométrie des briques 3D",
-        items=[
-            ('LOW', "Basse (Instancing)", "Utilise l'instancing pour optimiser (grandes scènes)", 'MESH_CUBE', 0),
-            ('MEDIUM', "Moyenne (Instancing HQ)", "Instancing avec briques haute qualité", 'MESH_UVSPHERE', 1),
-            ('HIGH', "Haute (Géométrie complète)", "Chaque brique est unique (lourd!)", 'MESH_ICOSPHERE', 2),
-        ],
-        default='MEDIUM',
-        update=regenerate_house
-    )
-    
+    # ✅ FIX: 'use_geometry_bricks' et 'geometry_brick_quality' supprimés —
+    # doublons jamais lus de 'wall_construction_type' et 'brick_3d_quality'
+    # (trois sources de vérité concurrentes pour le même réglage)
+
     wall_material_color: FloatVectorProperty(
         name="Couleur murs (legacy)",
         description="Couleur des murs (ancienne propriété, conservée pour compatibilité)",
@@ -833,10 +819,12 @@ def register():
 
 def unregister():
     """Désenregistrement des propriétés"""
-    del bpy.types.Scene.house_generator
-    del bpy.types.Scene.house_auto_update
-    
+    # ✅ FIX: Guards pour ne pas planter si register() a partiellement échoué
+    for attr in ("house_generator", "house_auto_update"):
+        if hasattr(bpy.types.Scene, attr):
+            delattr(bpy.types.Scene, attr)
+
     for cls in reversed(classes):
         bpy.utils.unregister_class(cls)
-    
+
     print("[House] Propriétés désenregistrées")

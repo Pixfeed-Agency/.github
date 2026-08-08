@@ -81,53 +81,69 @@ class WindowGenerator:
             print(f"[Windows] Dimensions invalides: {width}x{height}")
             return []
         
+        # ✅ FIX: Normaliser les types inconnus AVANT tout — la vitre était
+        # créée avec le type original inconnu → objet mesh VIDE lié à la scène
+        known_types = ('CASEMENT', 'SLIDING', 'FIXED', 'DOUBLE_HUNG', 'ARCHED', 'PICTURE')
+        if window_type not in known_types:
+            print(f"[Windows] Type inconnu '{window_type}' → FIXED")
+            window_type = 'FIXED'
+
+        window_obj = None
+        glass_obj = None
         try:
             # Créer la fenêtre selon le type
             if window_type == 'CASEMENT':
                 window_obj = self._create_casement_window(width, height, location, orientation)
             elif window_type == 'SLIDING':
                 window_obj = self._create_sliding_window(width, height, location, orientation)
-            elif window_type == 'FIXED':
-                window_obj = self._create_fixed_window(width, height, location, orientation)
             elif window_type == 'DOUBLE_HUNG':
                 window_obj = self._create_double_hung_window(width, height, location, orientation)
             elif window_type == 'ARCHED':
                 window_obj = self._create_arched_window(width, height, location, orientation)
             elif window_type == 'PICTURE':
                 window_obj = self._create_picture_window(width, height, location, orientation)
-            else:
-                # Fallback : fenêtre fixe
+            else:  # FIXED
                 window_obj = self._create_fixed_window(width, height, location, orientation)
-            
+
             if window_obj:
                 window_obj.name = f"Window_{window_type}"
-                collection.objects.link(window_obj)
-                window_obj["house_part"] = "wall"
-                
-                # Appliquer matériau cadre
+                # ✅ FIX: 'window' au lieu de 'wall' — les cadres de fenêtres
+                # étaient traités comme des murs par les filtres house_part
+                window_obj["house_part"] = "window"
+
+                # Appliquer matériau cadre AVANT de lier (en cas d'erreur,
+                # aucun objet à moitié construit ne reste dans la scène)
                 self._apply_frame_material(window_obj)
-                
+
                 # Créer le verre séparé avec matériau glass
                 glass_obj = self._create_glass_object(width, height, location, orientation, window_type)
                 if glass_obj:
                     glass_obj.name = f"Window_Glass_{window_type}"
-                    collection.objects.link(glass_obj)
                     glass_obj["house_part"] = "glass"
-                    
-                    # Appliquer matériau verre
                     self._apply_glass_material(glass_obj)
-                    
+
+                # ✅ FIX: Lier en DERNIER (voir ci-dessus)
+                collection.objects.link(window_obj)
+                if glass_obj:
+                    collection.objects.link(glass_obj)
                     return [window_obj, glass_obj]
-                
+
                 return [window_obj]
-            
+
         except Exception as e:
             print(f"[Windows] ERREUR création fenêtre {window_type}: {e}")
             import traceback
             traceback.print_exc()
+            # ✅ FIX: Nettoyer les objets partiellement créés avant le fallback
+            for obj in (window_obj, glass_obj):
+                if obj is not None and obj.name not in collection.objects:
+                    try:
+                        bpy.data.objects.remove(obj, do_unlink=True)
+                    except Exception:
+                        pass
             # Créer fenêtre simple de secours
             return self._create_fallback_window(width, height, location, orientation, collection)
-        
+
         return []
     
     # ============================================================
@@ -149,9 +165,11 @@ class WindowGenerator:
             sash_width = width - frame_w * 2 - 0.003
             sash_height = height - frame_w * 2 - 0.003
             sash_center = Vector((0, 0.01, 0))  # Légèrement en avant
-            
-            self._add_rectangular_frame(bm, sash_width, sash_height, sash_w, FRAME_DEPTH - 0.015, 
-                                       offset=sash_center, offset_y=0.01)
+
+            # ✅ FIX: Un seul décalage (le double offset sash_center + offset_y
+            # faisait dépasser l'ouvrant du dormant)
+            self._add_rectangular_frame(bm, sash_width, sash_height, sash_w, FRAME_DEPTH - 0.015,
+                                       offset=sash_center, offset_y=0)
             
             # === APPUI DE FENÊTRE ===
             self._add_window_sill(bm, width, height, FRAME_DEPTH)
@@ -355,53 +373,61 @@ class WindowGenerator:
     # ============================================================
     
     def _add_rectangular_frame(self, bm, width, height, frame_w, depth, offset=Vector((0,0,0)), offset_y=0):
-        """Ajoute un cadre rectangulaire au bmesh"""
+        """Ajoute un cadre rectangulaire au bmesh
+
+        ✅ FIX: Le cadre est maintenant CENTRÉ en Y (± depth/2) — avant il
+        s'étendait de 0 à depth, donc décalé d'une demi-profondeur vers
+        l'intérieur du mur au lieu d'être centré dans son épaisseur.
+        """
         hw = width / 2
         hh = height / 2
         fw = frame_w
         d = depth
-        
+
         # Créer les 4 barres du cadre
         # HAUT
-        self._add_box(bm, 
-            center=offset + Vector((0, offset_y + d/2, hh - fw/2)),
+        self._add_box(bm,
+            center=offset + Vector((0, offset_y, hh - fw/2)),
             size=(width, d, fw))
-        
+
         # BAS
         self._add_box(bm,
-            center=offset + Vector((0, offset_y + d/2, -hh + fw/2)),
+            center=offset + Vector((0, offset_y, -hh + fw/2)),
             size=(width, d, fw))
-        
+
         # GAUCHE
         self._add_box(bm,
-            center=offset + Vector((-hw + fw/2, offset_y + d/2, 0)),
+            center=offset + Vector((-hw + fw/2, offset_y, 0)),
             size=(fw, d, height))
-        
+
         # DROITE
         self._add_box(bm,
-            center=offset + Vector((hw - fw/2, offset_y + d/2, 0)),
+            center=offset + Vector((hw - fw/2, offset_y, 0)),
             size=(fw, d, height))
-    
+
     def _add_rectangular_frame_partial(self, bm, width, height, frame_w, depth, offset=Vector((0,0,0)), top_open=False):
-        """Ajoute un cadre rectangulaire partiel (pour fenêtre cintrée)"""
+        """Ajoute un cadre rectangulaire partiel (pour fenêtre cintrée)
+
+        ✅ FIX: Centré en Y comme _add_rectangular_frame.
+        """
         hw = width / 2
         hh = height / 2
         fw = frame_w
         d = depth
-        
+
         # BAS
         self._add_box(bm,
-            center=offset + Vector((0, d/2, -hh + fw/2)),
+            center=offset + Vector((0, 0, -hh + fw/2)),
             size=(width, d, fw))
-        
+
         # GAUCHE
         self._add_box(bm,
-            center=offset + Vector((-hw + fw/2, d/2, 0)),
+            center=offset + Vector((-hw + fw/2, 0, 0)),
             size=(fw, d, height))
-        
+
         # DROITE
         self._add_box(bm,
-            center=offset + Vector((hw - fw/2, d/2, 0)),
+            center=offset + Vector((hw - fw/2, 0, 0)),
             size=(fw, d, height))
         
         # HAUT (optionnel)
@@ -487,54 +513,25 @@ class WindowGenerator:
             size=(width, depth, height))
     
     def _add_window_sill(self, bm, width, height, depth, thin=False, modern=False):
-        """Ajoute un appui de fenêtre avec profil réaliste - CORRIGÉ"""
+        """Ajoute un appui de fenêtre (boîte simple inclinée vers l'extérieur)
+
+        ✅ FIX: L'ancien "profil" mélangeait les axes X et YZ dans une seule
+        face à 12 sommets non-plane (surface auto-intersectée, extrusion
+        cassée). Remplacé par une boîte simple robuste, légèrement plus
+        large que la fenêtre et débordant vers l'extérieur (+Y).
+        """
         hw = width / 2 + 0.02  # Légèrement plus large
         hh = height / 2
-        
+
         sill_depth = SILL_DEPTH if not thin else SILL_DEPTH * 0.6
         sill_height = 0.03 if not thin else 0.02
-        
-        if modern:
-            # Profil moderne simple
-            points = [
-                (-hw, 0, -hh - 0.015),
-                (hw, 0, -hh - 0.015),
-                (hw, sill_depth * 0.8, -hh - sill_height - 0.015),
-                (hw, sill_depth, -hh - sill_height - 0.02),
-                (-hw, sill_depth, -hh - sill_height - 0.02),
-                (-hw, sill_depth * 0.8, -hh - sill_height - 0.015),
-            ]
-        else:
-            # Profil standard avec goutte d'eau
-            points = [
-                (-hw, 0, -hh - 0.01),
-                (-hw, 0, -hh),
-                (hw, 0, -hh),
-                (hw, 0, -hh - 0.01),
-                (hw, sill_depth * 0.3, -hh - 0.01),
-                (hw, sill_depth * 0.9, -hh - sill_height * 0.9),
-                (hw, sill_depth, -hh - sill_height),
-                (hw - 0.005, sill_depth - 0.003, -hh - sill_height - 0.005),  # Goutte d'eau
-                (-hw + 0.005, sill_depth - 0.003, -hh - sill_height - 0.005),
-                (-hw, sill_depth, -hh - sill_height),
-                (-hw, sill_depth * 0.9, -hh - sill_height * 0.9),
-                (-hw, sill_depth * 0.3, -hh - 0.01),
-            ]
-        
-        # Créer les vertices du profil
-        verts = [bm.verts.new(Vector(p)) for p in points]
-        
-        # Créer la face du profil
-        bm.faces.new(verts)
-        
-        # === CORRECTION CRITIQUE : Mettre à jour la lookup table ===
-        bm.faces.ensure_lookup_table()
-        
-        # Extruder pour donner l'épaisseur
-        face = bm.faces[-1]
-        ret = bmesh.ops.extrude_face_region(bm, geom=[face])
-        extruded_verts = [v for v in ret['geom'] if isinstance(v, bmesh.types.BMVert)]
-        bmesh.ops.translate(bm, verts=extruded_verts, vec=Vector((0, 0, -0.01)))
+
+        # Boîte d'appui: sous le bas de la fenêtre, débordant vers +Y (extérieur)
+        self._add_box(
+            bm,
+            center=Vector((0, sill_depth / 2 - 0.01, -hh - sill_height / 2)),
+            size=(hw * 2, sill_depth, sill_height)
+        )
     
     def _add_box(self, bm, center, size):
         """Ajoute un cube au bmesh à la position donnée"""
@@ -612,64 +609,79 @@ class WindowGenerator:
         bm = bmesh.new()
         
         try:
+            # ✅ FIX: Réduction = 2× largeur de cadre + inset — avant (×1.6),
+            # la vitre était PLUS GRANDE que l'ouverture du cadre et
+            # traversait les montants sur les 4 côtés
+            frame_reduction = self.frame_width * 2 + GLASS_INSET
+
             # Calculer dimensions du verre
             if window_type in ['CASEMENT', 'FIXED', 'PICTURE']:
-                # Verre simple
-                frame_reduction = self.frame_width * 1.6
-                glass_width = width - frame_reduction
-                glass_height = height - frame_reduction
-                
+                # Verre simple (le battant CASEMENT ajoute ses propres montants)
+                reduction = frame_reduction + (self.sash_width * 2 if window_type == 'CASEMENT' else 0)
+                glass_width = max(0.05, width - reduction)
+                glass_height = max(0.05, height - reduction)
+
                 self._add_glass_pane(bm, glass_width, glass_height, Vector((0, 0.02, 0)))
-                
+
             elif window_type == 'SLIDING':
                 # 2 panneaux de verre
-                frame_reduction = self.frame_width * 1.6
-                glass_width = (width - frame_reduction - self.mullion_width) / 2 - 0.01
-                glass_height = height - frame_reduction
-                
+                glass_width = max(0.05, (width - frame_reduction - self.mullion_width) / 2 - 0.01)
+                glass_height = max(0.05, height - frame_reduction)
+
+                # ✅ FIX: Centre de panneau = (largeur_vitre + meneau)/2 —
+                # l'ancien width/4 décalait chaque panneau de ~25mm (vitre
+                # dans le montant + trou au meneau)
+                offset_x = (glass_width + self.mullion_width) / 2
+
                 # Panneau gauche
-                self._add_glass_pane(bm, glass_width, glass_height, 
-                                    Vector((-width/4 - self.mullion_width/4, 0.02, 0)))
+                self._add_glass_pane(bm, glass_width, glass_height,
+                                    Vector((-offset_x, 0.02, 0)))
                 # Panneau droit
                 self._add_glass_pane(bm, glass_width, glass_height,
-                                    Vector((width/4 + self.mullion_width/4, 0.025, 0)))
-                
+                                    Vector((offset_x, 0.025, 0)))
+
             elif window_type == 'DOUBLE_HUNG':
                 # 2 panneaux verticaux
-                frame_reduction = self.frame_width * 1.6
-                glass_width = width - frame_reduction
-                glass_height = (height - frame_reduction - self.mullion_width) / 2 - 0.01
-                
+                glass_width = max(0.05, width - frame_reduction)
+                glass_height = max(0.05, (height - frame_reduction - self.mullion_width) / 2 - 0.01)
+
+                # ✅ FIX: Même correction de centrage en Z
+                offset_z = (glass_height + self.mullion_width) / 2
+
                 # Panneau haut
                 self._add_glass_pane(bm, glass_width, glass_height,
-                                    Vector((0, 0.02, height/4 + self.mullion_width/4)))
+                                    Vector((0, 0.02, offset_z)))
                 # Panneau bas
                 self._add_glass_pane(bm, glass_width, glass_height,
-                                    Vector((0, 0.025, -height/4 - self.mullion_width/4)))
-                
+                                    Vector((0, 0.025, -offset_z)))
+
             elif window_type == 'ARCHED':
                 # Verre rectangulaire + arc
-                frame_reduction = self.frame_width * 1.6
-                glass_width = width - frame_reduction
+                glass_width = max(0.05, width - frame_reduction)
                 rect_height = height * 0.65
-                
+
                 # Partie rectangulaire
                 self._add_glass_pane(bm, glass_width, rect_height,
                                     Vector((0, 0.02, -height * 0.15)))
-                
+
                 # Partie arc
                 arc_height = height * 0.25
                 self._add_glass_arc(bm, glass_width, arc_height,
                                    Vector((0, 0.02, height * 0.35)))
-            
+
+            # ✅ FIX: Garde-fou — ne pas créer d'objet mesh vide
+            if not bm.faces:
+                print(f"[Windows] Aucune géométrie de verre pour '{window_type}'")
+                return None
+
             # Appliquer orientation et position
             rotation_matrix = self._get_orientation_matrix(orientation)
             bmesh.ops.transform(bm, matrix=rotation_matrix, verts=bm.verts)
             bmesh.ops.translate(bm, verts=bm.verts, vec=location)
-            
+
             obj = self._bmesh_to_object(bm, "WindowGlass")
             return obj
-            
+
         finally:
             bm.free()
     
@@ -837,7 +849,12 @@ class WindowGenerator:
                 glass.inputs['Color'].default_value = (0.85, 0.92, 0.95, 1.0)  # Légèrement bleuté
                 
                 # Glossy BSDF pour reflets
-                glossy = nodes.new('ShaderNodeBsdfGlossy')
+                # ✅ Compat 4.x: le node Glossy/Anisotropic a été fusionné en
+                # 4.0 — on choisit l'identifiant disponible
+                if hasattr(bpy.types, 'ShaderNodeBsdfGlossy'):
+                    glossy = nodes.new('ShaderNodeBsdfGlossy')
+                else:
+                    glossy = nodes.new('ShaderNodeBsdfAnisotropic')
                 glossy.location = (0, -100)
                 glossy.inputs['Roughness'].default_value = 0.05 if self.quality == 'HIGH' else 0.1
                 glossy.inputs['Color'].default_value = (1.0, 1.0, 1.0, 1.0)
@@ -859,8 +876,8 @@ class WindowGenerator:
                 
                 # Paramètres de rendu pour transparence
                 mat.blend_method = 'BLEND'
-                mat.shadow_method = 'HASHED' if self.quality == 'MEDIUM' else 'CLIP'
-                # Note: 'use_screen_refraction' et 'refraction_depth' n'existent plus dans Blender 4.2+
+                # Note: 'shadow_method', 'use_screen_refraction' et 'refraction_depth'
+                # n'existent plus dans Blender 4.2+ (EEVEE Next)
                 # La réfraction est gérée automatiquement via le Glass BSDF
             
             print(f"[Windows] Matériau verre créé: {mat_name}")
@@ -876,11 +893,17 @@ class WindowGenerator:
     # ============================================================
     
     def _get_orientation_matrix(self, orientation):
-        """Retourne la matrice de rotation selon l'orientation"""
+        """Retourne la matrice de rotation selon l'orientation
+
+        ✅ FIX: La géométrie locale (appui de fenêtre, détails) pointe vers
+        +Y. L'extérieur du mur AVANT est en -Y (la maison occupe y>=0), donc
+        front doit tourner de 180° et back rester identité — c'était inversé
+        (les appuis des fenêtres avant/arrière pointaient vers l'INTÉRIEUR).
+        """
         if orientation == 'front':
-            return Matrix.Identity(4)
-        elif orientation == 'back':
             return Matrix.Rotation(math.radians(180), 4, 'Z')
+        elif orientation == 'back':
+            return Matrix.Identity(4)
         elif orientation == 'left':
             return Matrix.Rotation(math.radians(90), 4, 'Z')
         elif orientation == 'right':
@@ -919,7 +942,7 @@ class WindowGenerator:
             
             obj = self._bmesh_to_object(bm, "WindowFallback")
             collection.objects.link(obj)
-            obj["house_part"] = "wall"
+            obj["house_part"] = "window"  # ✅ FIX: pas "wall"
             
             return [obj]
             

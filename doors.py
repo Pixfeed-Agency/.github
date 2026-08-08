@@ -74,20 +74,29 @@ class DoorGenerator:
 
         print(f"[Doors] Génération porte {door_type}: {width}x{height}m à {location}")
 
-        # Générer selon le type
-        if door_type == 'SINGLE':
-            objects = self._create_single_door(width, height, location, orientation, collection)
-        elif door_type == 'DOUBLE':
-            objects = self._create_double_door(width, height, location, orientation, collection)
-        elif door_type == 'SLIDING':
-            objects = self._create_sliding_door(width, height, location, orientation, collection)
-        elif door_type == 'FRENCH':
-            objects = self._create_french_door(width, height, location, orientation, collection)
-        else:
-            print(f"[Doors] Type '{door_type}' non reconnu, utilisation SINGLE par défaut")
-            objects = self._create_single_door(width, height, location, orientation, collection)
+        # ✅ FIX: try/except comme les fenêtres — une erreur bmesh ne doit
+        # pas interrompre toute la génération de la maison
+        try:
+            # Générer selon le type
+            if door_type == 'SINGLE':
+                objects = self._create_single_door(width, height, location, orientation, collection)
+            elif door_type == 'DOUBLE':
+                objects = self._create_double_door(width, height, location, orientation, collection)
+            elif door_type == 'SLIDING':
+                objects = self._create_sliding_door(width, height, location, orientation, collection)
+            elif door_type == 'FRENCH':
+                objects = self._create_french_door(width, height, location, orientation, collection)
+            else:
+                print(f"[Doors] Type '{door_type}' non reconnu, utilisation SINGLE par défaut")
+                objects = self._create_single_door(width, height, location, orientation, collection)
 
-        return objects
+            return objects
+
+        except Exception as e:
+            print(f"[Doors] ERREUR création porte {door_type}: {e}")
+            import traceback
+            traceback.print_exc()
+            return []
 
     def _create_single_door(self, width, height, location, orientation, collection):
         """Crée une porte simple battant"""
@@ -115,7 +124,7 @@ class DoorGenerator:
 
         return objects
 
-    def _create_double_door(self, width, height, location, orientation, collection):
+    def _create_double_door(self, width, height, location, orientation, collection, with_mullion=True):
         """Crée une porte double battant"""
         objects = []
 
@@ -145,12 +154,13 @@ class DoorGenerator:
         collection.objects.link(panel_right)
         objects.append(panel_right)
 
-        # Montant central
-        mullion = self._create_mullion(height - self.frame_width, orientation)
-        mullion.name = "Door_Mullion"
-        mullion.location = location + self._get_mullion_offset(width, orientation)
-        collection.objects.link(mullion)
-        objects.append(mullion)
+        # Montant central (sauf porte coulissante)
+        if with_mullion:
+            mullion = self._create_mullion(height - self.frame_width, orientation)
+            mullion.name = "Door_Mullion"
+            mullion.location = location + self._get_mullion_offset(width, orientation)
+            collection.objects.link(mullion)
+            objects.append(mullion)
 
         # Appliquer matériaux
         for obj in objects:
@@ -163,8 +173,9 @@ class DoorGenerator:
 
     def _create_sliding_door(self, width, height, location, orientation, collection):
         """Crée une porte coulissante (simplifié)"""
-        # Pour l'instant, identique à double door mais sans montant central
-        return self._create_double_door(width, height, location, orientation, collection)
+        # ✅ FIX: vraiment SANS montant central (avant: identique à DOUBLE)
+        return self._create_double_door(width, height, location, orientation, collection,
+                                        with_mullion=False)
 
     def _create_french_door(self, width, height, location, orientation, collection):
         """Crée une porte-fenêtre vitrée (simplifié)"""
@@ -178,6 +189,7 @@ class DoorGenerator:
     def _create_door_frame(self, width, height, orientation):
         """Crée le cadre de porte (dormant)"""
         bm = bmesh.new()
+        mesh = None
 
         try:
             fw = self.frame_width
@@ -200,16 +212,24 @@ class DoorGenerator:
             ]
 
             # Créer faces avant
-            bm.faces.new([outer_verts[0], outer_verts[1], inner_verts[1], inner_verts[0]])  # Bas
+            # ✅ FIX: Pas de face "Bas" — les 4 points (z=0, y=0) étaient
+            # colinéaires → face d'aire nulle (normales NaN, artefacts).
+            # Un dormant de porte n'a pas de traverse basse.
             bm.faces.new([outer_verts[1], outer_verts[2], inner_verts[2], inner_verts[1]])  # Droite
             bm.faces.new([outer_verts[2], outer_verts[3], inner_verts[3], inner_verts[2]])  # Haut
             bm.faces.new([outer_verts[3], outer_verts[0], inner_verts[0], inner_verts[3]])  # Gauche
 
             # Extrusion pour donner de la profondeur
+            # ✅ FIX: use_keep_orig garde la face d'origine → volume fermé
+            # (avant: le cadre était creux/ouvert côté y=0)
             extrude_faces = list(bm.faces)
-            ret = bmesh.ops.extrude_face_region(bm, geom=extrude_faces)
+            ret = bmesh.ops.extrude_face_region(bm, geom=extrude_faces, use_keep_orig=True)
             extruded_verts = [g for g in ret['geom'] if isinstance(g, bmesh.types.BMVert)]
             bmesh.ops.translate(bm, verts=extruded_verts, vec=(0, fd, 0))
+
+            # ✅ FIX: Recalculer les normales (elles pointaient vers
+            # l'intérieur du volume → rendu inversé/noir)
+            bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
 
             mesh = bpy.data.meshes.new("Door_Frame_Mesh")
             bm.to_mesh(mesh)
@@ -226,6 +246,7 @@ class DoorGenerator:
     def _create_door_panel(self, width, height, orientation):
         """Crée le panneau de porte"""
         bm = bmesh.new()
+        mesh = None
 
         try:
             th = self.door_thickness
@@ -239,6 +260,20 @@ class DoorGenerator:
 
             # Décalage pour centrer
             bmesh.ops.translate(bm, verts=bm.verts, vec=(width/2, th/2, height/2))
+
+            # ✅ FIX: Appliquer la qualité — bevel_amount était défini par
+            # niveau (LOW/MEDIUM/HIGH) mais jamais utilisé
+            if self.bevel_amount > 0:
+                bmesh.ops.bevel(
+                    bm,
+                    geom=list(bm.edges),
+                    offset=self.bevel_amount,
+                    segments=2,
+                    profile=0.5,
+                    affect='EDGES'
+                )
+
+            bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
 
             mesh = bpy.data.meshes.new("Door_Panel_Mesh")
             bm.to_mesh(mesh)
@@ -255,17 +290,23 @@ class DoorGenerator:
     def _create_mullion(self, height, orientation):
         """Crée un montant central pour porte double"""
         bm = bmesh.new()
+        mesh = None
 
         try:
             fw = self.frame_width
-            fd = self.frame_depth
+            th = self.door_thickness
 
             # Montant vertical simple
+            # ✅ FIX: Profondeur = épaisseur du PANNEAU (avant: frame_depth
+            # entière → le montant dépassait de 3cm des deux côtés)
             bmesh.ops.create_cube(bm, size=1.0)
 
-            scale_matrix = Matrix.Diagonal((fw, fd, height, 1.0))
+            scale_matrix = Matrix.Diagonal((fw, th, height, 1.0))
             bmesh.ops.transform(bm, matrix=scale_matrix, verts=bm.verts)
-            bmesh.ops.translate(bm, verts=bm.verts, vec=(fw/2, fd/2, height/2))
+            bmesh.ops.translate(bm, verts=bm.verts,
+                                vec=(fw/2, self.frame_depth/2, height/2))
+
+            bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
 
             mesh = bpy.data.meshes.new("Door_Mullion_Mesh")
             bm.to_mesh(mesh)

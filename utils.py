@@ -57,19 +57,24 @@ def create_box(name, location, dimensions, collection=None):
     Returns:
         bpy.types.Object: L'objet créé
     """
-    bpy.ops.mesh.primitive_cube_add(size=1, location=location)
+    # ✅ FIX: size=2 → scale dimension/2 donne la dimension exacte
+    # (avec size=1, toutes les boîtes sortaient à MOITIÉ taille)
+    bpy.ops.mesh.primitive_cube_add(size=2, location=location)
     obj = bpy.context.active_object
     obj.name = name
     obj.scale = (dimensions[0]/2, dimensions[1]/2, dimensions[2]/2)
-    
+
     # Appliquer l'échelle
     bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
-    
-    # Déplacer vers la collection si spécifiée
+
+    # ✅ FIX: Retirer de TOUTES les collections actuelles avant de lier
+    # (unlink depuis scene.collection levait RuntimeError si l'objet avait
+    # été créé dans une autre collection active)
     if collection and obj.name not in collection.objects:
+        for c in list(obj.users_collection):
+            c.objects.unlink(obj)
         collection.objects.link(obj)
-        bpy.context.scene.collection.objects.unlink(obj)
-    
+
     return obj
 
 
@@ -157,19 +162,23 @@ def point_in_polygon_2d(point, polygon):
     x, y = point
     n = len(polygon)
     inside = False
-    
+
     p1x, p1y = polygon[0]
     for i in range(1, n + 1):
         p2x, p2y = polygon[i % n]
         if y > min(p1y, p2y):
             if y <= max(p1y, p2y):
                 if x <= max(p1x, p2x):
+                    # ✅ FIX: xinters pouvait être non défini quand
+                    # p1y == p2y et p1x != p2x → UnboundLocalError
                     if p1y != p2y:
                         xinters = (y - p1y) * (p2x - p1x) / (p2y - p1y) + p1x
-                    if p1x == p2x or x <= xinters:
+                        if p1x == p2x or x <= xinters:
+                            inside = not inside
+                    elif p1x == p2x:
                         inside = not inside
         p1x, p1y = p2x, p2y
-    
+
     return inside
 
 
@@ -195,16 +204,20 @@ def create_simple_material(name, base_color, roughness=0.7, metallic=0.0):
     else:
         mat = bpy.data.materials.new(name=name)
         mat.use_nodes = True
-    
-    # Récupérer le noeud Principled BSDF
+
+    # ✅ FIX: Un matériau existant sans nodes plantait sur node_tree
+    if not mat.use_nodes:
+        mat.use_nodes = True
+
+    # ✅ FIX: Chercher par TYPE, pas par nom anglais localisable
     nodes = mat.node_tree.nodes
-    principled = nodes.get("Principled BSDF")
-    
+    principled = next((n for n in nodes if n.type == 'BSDF_PRINCIPLED'), None)
+
     if principled:
         principled.inputs["Base Color"].default_value = (*base_color, 1.0)
         principled.inputs["Roughness"].default_value = roughness
         principled.inputs["Metallic"].default_value = metallic
-    
+
     return mat
 
 
@@ -260,14 +273,16 @@ def create_material_with_texture(name, texture_path, base_color=(1, 1, 1)):
     node_output.location = (300, 0)
     
     # Charger la texture
+    # ✅ FIX: Recherche par basename + erreur loggée (le bare except cachait
+    # tous les échecs de chargement)
     try:
-        if texture_path in bpy.data.images:
-            img = bpy.data.images[texture_path]
-        else:
+        import os
+        img = bpy.data.images.get(os.path.basename(texture_path))
+        if img is None:
             img = bpy.data.images.load(texture_path)
         node_tex.image = img
-    except:
-        pass
+    except Exception as e:
+        print(f"[House] Échec chargement texture '{texture_path}': {e}")
     
     # Connecter les noeuds
     links.new(node_tex.outputs['Color'], node_bsdf.inputs['Base Color'])
@@ -370,7 +385,8 @@ def apply_boolean_modifier(target_obj, tool_obj, operation='DIFFERENCE'):
     try:
         bpy.ops.object.modifier_apply(modifier=mod.name)
         return True
-    except:
+    except RuntimeError as e:
+        print(f"[House] Échec boolean sur {target_obj.name}: {e}")
         return False
 
 
@@ -419,17 +435,24 @@ def extrude_face_along_normal(obj, face_index, distance):
     # Désélectionner tout
     for face in bm.faces:
         face.select = False
-    
+
     # Sélectionner la face
+    bm.faces.ensure_lookup_table()
     if face_index < len(bm.faces):
-        bm.faces[face_index].select = True
-        bm.faces.active = bm.faces[face_index]
-        
-        # Extruder
-        bmesh.ops.extrude_face_region(bm, geom=[bm.faces[face_index]])
-        
+        face = bm.faces[face_index]
+        face.select = True
+        bm.faces.active = face
+
+        # ✅ FIX: Translater la géométrie extrudée le long de la normale —
+        # avant, le paramètre 'distance' était ignoré (extrusion de longueur
+        # nulle: géométrie dupliquée sur place)
+        normal = face.normal.copy()
+        ret = bmesh.ops.extrude_face_region(bm, geom=[face])
+        extruded_verts = [g for g in ret['geom'] if isinstance(g, bmesh.types.BMVert)]
+        bmesh.ops.translate(bm, verts=extruded_verts, vec=normal * distance)
+
         bmesh.update_edit_mesh(mesh)
-    
+
     bpy.ops.object.mode_set(mode='OBJECT')
 
 
@@ -485,19 +508,22 @@ def safe_delete_object(obj):
 def clean_unused_data():
     """
     Nettoie les données non utilisées (meshes, materials, etc.)
+
+    ✅ FIX: Itérer sur une COPIE (list(...)) — supprimer pendant l'itération
+    sur bpy.data.* saute des éléments et peut invalider l'itérateur.
     """
     # Nettoyer les meshes
-    for mesh in bpy.data.meshes:
+    for mesh in list(bpy.data.meshes):
         if mesh.users == 0:
             bpy.data.meshes.remove(mesh)
-    
+
     # Nettoyer les matériaux
-    for material in bpy.data.materials:
+    for material in list(bpy.data.materials):
         if material.users == 0:
             bpy.data.materials.remove(material)
-    
+
     # Nettoyer les images
-    for image in bpy.data.images:
+    for image in list(bpy.data.images):
         if image.users == 0:
             bpy.data.images.remove(image)
 

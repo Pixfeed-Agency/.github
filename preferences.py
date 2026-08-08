@@ -59,11 +59,14 @@ class HouseAddonPreferences(AddonPreferences):
     default_style: EnumProperty(
         name="Style par défaut",
         description="Style architectural utilisé par défaut",
+        # ✅ FIX: Alignée sur les styles réels de properties.py
+        # (COTTAGE/VILLA n'existaient pas dans le générateur)
         items=[
-            ('MODERN', "Moderne", "Style contemporain"),
+            ('MODERN', "Moderne", "Style contemporain épuré"),
             ('TRADITIONAL', "Traditionnel", "Style classique"),
-            ('COTTAGE', "Cottage", "Style campagne"),
-            ('VILLA', "Villa", "Style méditerranéen"),
+            ('MEDITERRANEAN', "Méditerranéen", "Style villa méditerranéenne"),
+            ('CONTEMPORARY', "Contemporain", "Style contemporain audacieux"),
+            ('ASIAN', "Asiatique", "Style zen asiatique"),
         ],
         default='MODERN'
     )
@@ -262,7 +265,9 @@ class HouseAddonPreferences(AddonPreferences):
         
         # ===== SECTION EXPÉRIMENTAL =====
         box = layout.box()
-        box.label(text="Fonctionnalités expérimentales", icon='EXPERIMENTAL')
+        # ✅ FIX: 'EXPERIMENTAL' n'est pas un identifiant d'icône Blender
+        # valide (le panneau de préférences plantait à l'affichage)
+        box.label(text="Fonctionnalités expérimentales", icon='ERROR')
         
         col = box.column(align=True)
         col.prop(self, "experimental_features")
@@ -305,23 +310,16 @@ class HOUSE_OT_reset_preferences(bpy.types.Operator):
     def execute(self, context):
         # Récupérer les préférences
         prefs = context.preferences.addons[__package__].preferences
-        
-        # Réinitialiser aux valeurs par défaut
-        prefs.property_unset("default_units")
-        prefs.property_unset("auto_save")
-        prefs.property_unset("show_tips")
-        prefs.property_unset("debug_mode")
-        prefs.property_unset("default_style")
-        prefs.property_unset("auto_apply_materials")
-        prefs.property_unset("create_collection")
-        prefs.property_unset("ui_scale")
-        prefs.property_unset("show_advanced_by_default")
-        prefs.property_unset("max_subdivision")
-        prefs.property_unset("use_instances")
-        prefs.property_unset("optimize_mesh")
-        prefs.property_unset("experimental_features")
-        prefs.property_unset("enable_ai_generation")
-        
+
+        # ✅ FIX: Réinitialisation GÉNÉRIQUE — la liste manuelle oubliait
+        # plusieurs propriétés (panel_category, assets_path, presets_path,
+        # enable_shortcuts...)
+        for key in type(prefs).__annotations__.keys():
+            try:
+                prefs.property_unset(key)
+            except Exception as e:
+                print(f"[House] Impossible de réinitialiser '{key}': {e}")
+
         self.report({'INFO'}, "Préférences réinitialisées")
         return {'FINISHED'}
     
@@ -330,34 +328,73 @@ class HOUSE_OT_reset_preferences(bpy.types.Operator):
 
 
 class HOUSE_OT_export_preferences(bpy.types.Operator):
-    """Exporte les préférences dans un fichier"""
+    """Exporte les préférences dans un fichier JSON"""
     bl_idname = "house.export_preferences"
     bl_label = "Exporter les préférences"
     bl_options = {'REGISTER'}
-    
-    filepath: StringProperty(subtype='FILE_PATH')
-    
+
+    filepath: StringProperty(subtype='FILE_PATH', default="house_preferences.json")
+
     def execute(self, context):
-        self.report({'INFO'}, "Fonctionnalité à venir...")
+        # ✅ FIX: Implémenté (avant: ouvrait un sélecteur de fichier puis
+        # affichait "Fonctionnalité à venir" sans rien faire)
+        import json
+        prefs = context.preferences.addons[__package__].preferences
+
+        data = {}
+        for key in type(prefs).__annotations__.keys():
+            val = getattr(prefs, key)
+            if hasattr(val, '__len__') and not isinstance(val, str):
+                val = list(val)
+            data[key] = val
+
+        try:
+            path = self.filepath if self.filepath.endswith('.json') else self.filepath + '.json'
+            with open(path, 'w', encoding='utf-8') as f:
+                json.dump(data, f, indent=2, ensure_ascii=False)
+            self.report({'INFO'}, f"Préférences exportées: {path}")
+        except OSError as e:
+            self.report({'ERROR'}, f"Échec export: {e}")
+            return {'CANCELLED'}
         return {'FINISHED'}
-    
+
     def invoke(self, context, event):
         context.window_manager.fileselect_add(self)
         return {'RUNNING_MODAL'}
 
 
 class HOUSE_OT_import_preferences(bpy.types.Operator):
-    """Importe les préférences depuis un fichier"""
+    """Importe les préférences depuis un fichier JSON"""
     bl_idname = "house.import_preferences"
     bl_label = "Importer les préférences"
     bl_options = {'REGISTER'}
-    
+
     filepath: StringProperty(subtype='FILE_PATH')
-    
+
     def execute(self, context):
-        self.report({'INFO'}, "Fonctionnalité à venir...")
+        # ✅ FIX: Implémenté (voir export)
+        import json
+        prefs = context.preferences.addons[__package__].preferences
+
+        try:
+            with open(self.filepath, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+        except (OSError, json.JSONDecodeError) as e:
+            self.report({'ERROR'}, f"Échec import: {e}")
+            return {'CANCELLED'}
+
+        applied = 0
+        for key, val in data.items():
+            if key in type(prefs).__annotations__:
+                try:
+                    setattr(prefs, key, val)
+                    applied += 1
+                except Exception as e:
+                    print(f"[House] Préférence '{key}' ignorée: {e}")
+
+        self.report({'INFO'}, f"Préférences importées ({applied} paramètres)")
         return {'FINISHED'}
-    
+
     def invoke(self, context, event):
         context.window_manager.fileselect_add(self)
         return {'RUNNING_MODAL'}

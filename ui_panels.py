@@ -66,7 +66,9 @@ class HOUSE_PT_main_panel(Panel):
         
         layout.separator()
         layout.operator("house.import_plan", text="Importer le plan", icon='IMPORT')
-        layout.operator("house.generate_from_plan", text="Générer depuis le plan", icon='HOME')
+        # ✅ FIX: 'house.generate_from_plan' n'existe pas (le panneau entier
+        # plantait en mode MANUEL) — l'opérateur réel est finalize_manual
+        layout.operator("house.finalize_manual", text="Finaliser la construction", icon='HOME')
 
 
 class HOUSE_PT_roof_panel(Panel):
@@ -145,7 +147,6 @@ class HOUSE_PT_doors_panel(Panel):
         
         col = layout.column(align=True)
         col.prop(props, "front_door_width", text="Largeur porte")
-        col.prop(props, "include_back_door", text="Porte arrière")
 
 
 class HOUSE_PT_walls_panel(Panel):
@@ -250,20 +251,34 @@ class HOUSE_PT_materials_panel(Panel):
                     'BRICK_YELLOW': "🟡 Jaune (London)",
                     'BRICK_GREY': "⚪ Gris moderne"
                 }
-                if props.brick_preset_type in preset_colors:
-                    subbox.label(text=preset_colors[props.brick_preset_type], icon='INFO')
+                # ✅ FIX: .get() avec fallback — les presets PBR scannés
+                # (PBR_*) n'apparaissaient pas dans l'aperçu
+                subbox.label(
+                    text=preset_colors.get(props.brick_preset_type, "🎨 Preset PBR (texture)"),
+                    icon='INFO')
             
             # MODE CUSTOM
             elif props.brick_material_mode == 'CUSTOM':
                 subbox = col.box()
                 subbox.label(text="Matériau personnalisé:", icon='MATERIAL_DATA')
                 subbox.prop(props, "brick_custom_material", text="")
-                
+
                 if not props.brick_custom_material:
                     warning = subbox.box()
                     warning.label(text="⚠ Aucun matériau sélectionné", icon='ERROR')
                     warning.label(text="Preset utilisé par défaut")
-        
+
+            # ✅ NOUVEAU: Couleur du mortier (joints entre briques)
+            col.separator()
+            subbox = col.box()
+            subbox.label(text="Mortier (joints):", icon='MOD_BUILD')
+            subbox.prop(props, "mortar_color", text="")
+
+            # ✅ NOUVEAU: Pattern d'appareillage des briques
+            subbox = col.box()
+            subbox.label(text="Appareillage:", icon='MESH_GRID')
+            subbox.prop(props, "brick_bonding_pattern", text="")
+
         # Si murs simples : afficher l'ancien système (inchangé)
         else:
             col.label(text="Type de briques:", icon='MESH_CUBE')
@@ -300,55 +315,27 @@ class HOUSE_PT_elements_panel(Panel):
         layout = self.layout
         props = context.scene.house_generator
         
+        # Note: fonctionnalités en cours de développement (affichent un
+        # avertissement à la génération tant qu'elles ne sont pas implémentées)
         box = layout.box()
-        row = box.row()
-        row.prop(props, "include_garage", text="Garage", toggle=True)
-        if props.include_garage:
-            box.prop(props, "garage_size", text="")
-        
+        box.prop(props, "include_garage", text="Garage (bientôt)", toggle=True)
+
         box = layout.box()
-        box.prop(props, "include_terrace", text="Terrasse", toggle=True)
-        
+        box.prop(props, "include_terrace", text="Terrasse (bientôt)", toggle=True)
+
         box = layout.box()
-        box.prop(props, "include_balcony", text="Balcon", toggle=True)
-        
-        box = layout.box()
-        box.prop(props, "add_chimney", text="Cheminée", toggle=True)
-        
+        box.prop(props, "include_balcony", text="Balcon (bientôt)", toggle=True)
+
         layout.separator()
         box = layout.box()
         box.label(text="Fondations", icon='MESH_PLANE')
         box.prop(props, "foundation_height", text="Hauteur")
 
 
-class HOUSE_PT_rooms_panel(Panel):
-    """Panneau pour la distribution des pièces"""
-    bl_label = "Distribution des pièces"
-    bl_idname = "HOUSE_PT_rooms_panel"
-    bl_space_type = 'VIEW_3D'
-    bl_region_type = 'UI'
-    bl_category = 'House'
-    bl_parent_id = "HOUSE_PT_main_panel"
-    bl_options = {'DEFAULT_CLOSED'}
-    
-    def draw(self, context):
-        layout = self.layout
-        props = context.scene.house_generator
-        
-        layout.use_property_split = True
-        layout.use_property_decorate = False
-        
-        col = layout.column(align=True)
-        col.prop(props, "num_rooms", text="Pièces principales")
-        
-        layout.separator()
-        
-        col = layout.column(align=True)
-        col.prop(props, "include_kitchen", text="Cuisine")
-        col.prop(props, "include_bathroom", text="Salle de bain")
-        
-        if props.include_bathroom:
-            col.prop(props, "num_bathrooms", text="Nombre SDB")
+# Note: le panneau "Distribution des pièces" a été retiré car il référençait
+# des propriétés inexistantes (num_rooms, include_kitchen, include_bathroom,
+# num_bathrooms) et cassait l'affichage. À réintroduire quand la génération
+# de pièces intérieures sera implémentée.
 
 
 class HOUSE_PT_advanced_panel(Panel):
@@ -387,6 +374,8 @@ class HOUSE_PT_info_panel(Panel):
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
     bl_category = 'House'
+    # ✅ FIX: Rattaché au panneau principal comme les autres sous-panneaux
+    bl_parent_id = "HOUSE_PT_main_panel"
     bl_options = {'DEFAULT_CLOSED'}
     
     def draw(self, context):
@@ -430,7 +419,6 @@ classes = (
     HOUSE_PT_walls_panel,
     HOUSE_PT_materials_panel,
     HOUSE_PT_elements_panel,
-    HOUSE_PT_rooms_panel,
     HOUSE_PT_advanced_panel,
     HOUSE_PT_info_panel,
 )

@@ -1,9 +1,24 @@
 import bpy
 import math
 
-def create_ultimate_red_brick_material_v4_final():
-    """Crée un matériau de brique rouge ULTIMATE v4 FINAL avec 12 améliorations avancées"""
-    
+def create_ultimate_red_brick_material_v4_final(base_colors=None):
+    """Crée un matériau de brique ULTIMATE v4 FINAL avec 12 améliorations avancées
+
+    Args:
+        base_colors: Liste de 5 tuples RGBA (du plus foncé au plus clair) pour
+            le dégradé de couleur des briques. Si None, palette rouge par défaut.
+    """
+
+    # Palette par défaut: rouge traditionnel (5 nuances, foncé → clair)
+    if base_colors is None:
+        base_colors = [
+            (0.38, 0.10, 0.07, 1.0),
+            (0.52, 0.15, 0.10, 1.0),
+            (0.61, 0.19, 0.13, 1.0),
+            (0.68, 0.24, 0.17, 1.0),
+            (0.74, 0.30, 0.21, 1.0),
+        ]
+
     mat = bpy.data.materials.new(name="Brique_Rouge_ULTIMATE_v4_FINAL")
     mat.use_nodes = True
     nodes = mat.node_tree.nodes
@@ -187,20 +202,21 @@ def create_ultimate_red_brick_material_v4_final():
     ramp_color.location = (-1800, 350)
     ramp_color.color_ramp.interpolation = 'B_SPLINE'
     
+    # Dégradé 5 nuances selon la palette du preset (foncé → clair)
     ramp_color.color_ramp.elements[0].position = 0.0
-    ramp_color.color_ramp.elements[0].color = (0.38, 0.10, 0.07, 1.0)
-    
+    ramp_color.color_ramp.elements[0].color = base_colors[0]
+
     ramp_color.color_ramp.elements.new(0.25)
-    ramp_color.color_ramp.elements[1].color = (0.52, 0.15, 0.10, 1.0)
-    
+    ramp_color.color_ramp.elements[1].color = base_colors[1]
+
     ramp_color.color_ramp.elements.new(0.5)
-    ramp_color.color_ramp.elements[2].color = (0.61, 0.19, 0.13, 1.0)
-    
+    ramp_color.color_ramp.elements[2].color = base_colors[2]
+
     ramp_color.color_ramp.elements.new(0.75)
-    ramp_color.color_ramp.elements[3].color = (0.68, 0.24, 0.17, 1.0)
-    
+    ramp_color.color_ramp.elements[3].color = base_colors[3]
+
     ramp_color.color_ramp.elements[4].position = 1.0
-    ramp_color.color_ramp.elements[4].color = (0.74, 0.30, 0.21, 1.0)
+    ramp_color.color_ramp.elements[4].color = base_colors[4]
     
     links.new(mix_freq2.outputs[1], ramp_color.inputs['Fac'])
     

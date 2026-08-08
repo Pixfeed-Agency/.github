@@ -68,22 +68,13 @@ def get_brick_preset_items(self, context):
     # PRESETS PBR (scannés dynamiquement depuis materials/textures/)
     # ============================================================
     pbr_presets = []
-    
+
     try:
-        # Trouver le module materials
-        import sys
-        materials_dir = None
-        
-        for module_name in sys.modules:
-            if 'materials' in module_name:
-                module = sys.modules[module_name]
-                if hasattr(module, '__file__') and module.__file__:
-                    potential_dir = os.path.dirname(module.__file__)
-                    # Vérifier que c'est bien le bon dossier materials
-                    if os.path.basename(potential_dir) == 'materials':
-                        materials_dir = potential_dir
-                        break
-        
+        # ✅ FIX: Ce fichier EST dans le package materials — utiliser
+        # directement son dossier. L'ancien scan de sys.modules pouvait
+        # matcher le module 'materials' d'un AUTRE addon.
+        materials_dir = os.path.dirname(os.path.abspath(__file__))
+
         if materials_dir:
             textures_dir = os.path.join(materials_dir, "textures")
             
