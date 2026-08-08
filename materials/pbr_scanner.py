@@ -113,8 +113,8 @@ def get_brick_preset_items(self, context):
                             ))
                     
                     except Exception as e:
-                        # Ignorer les dossiers problématiques
-                        pass
+                        # ✅ FIX: Logger au lieu d'avaler silencieusement
+                        print(f"[HousePBR] Dossier ignoré '{folder_name}': {e}")
     
     except Exception as e:
         # En cas d'erreur, on continue sans les presets PBR
@@ -154,23 +154,11 @@ def find_texture_files(preset_id):
     # Extraire le nom du dossier depuis l'ID
     # Ex: 'PBR_BRICK_WORN' -> 'brick_worn'
     folder_name = preset_id[4:].lower()
-    
-    # Trouver le module materials
-    import sys
-    materials_dir = None
-    
-    for module_name in sys.modules:
-        if 'materials' in module_name:
-            module = sys.modules[module_name]
-            if hasattr(module, '__file__') and module.__file__:
-                potential_dir = os.path.dirname(module.__file__)
-                if os.path.basename(potential_dir) == 'materials':
-                    materials_dir = potential_dir
-                    break
-    
-    if not materials_dir:
-        print(f"[HousePBR] ⚠️ Module materials introuvable")
-        return {}
+
+    # ✅ FIX: Ce fichier EST dans le package materials — même correction que
+    # get_brick_preset_items (le scan de sys.modules pouvait résoudre le
+    # dossier 'materials' d'un AUTRE addon → textures jamais trouvées)
+    materials_dir = os.path.dirname(os.path.abspath(__file__))
     
     # Chemin vers le dossier de textures
     texture_folder = os.path.join(materials_dir, "textures", folder_name)

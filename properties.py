@@ -312,15 +312,6 @@ class HouseGeneratorProperties(PropertyGroup):
         update=regenerate_house
     )
     
-    window_spacing: FloatProperty(
-        name="Espacement fenêtres",
-        description="Espacement entre les fenêtres",
-        default=2.0,
-        min=0.5,
-        max=5.0,
-        unit='LENGTH',
-        update=regenerate_house
-    )
     
     # ============================================================
     # PORTES
@@ -458,22 +449,9 @@ class HouseGeneratorProperties(PropertyGroup):
         update=regenerate_house
     )
     
-    # ============================================================
-    # QUALITÉ GLOBALE
-    # ============================================================
-    
-    global_quality: EnumProperty(
-        name="Qualité globale",
-        description="Niveau de détail général de la maison",
-        items=[
-            ('LOW', "Basse (rapide)", "Peu de détails, optimisé pour l'édition", 'PREFERENCES', 0),
-            ('MEDIUM', "Moyenne", "Bon équilibre entre qualité et performance", 'PREFERENCES', 1),
-            ('HIGH', "Haute (lent)", "Maximum de détails pour rendus finaux", 'PREFERENCES', 2),
-        ],
-        default='MEDIUM',
-        update=regenerate_house
-    )
-    
+    # ✅ FIX: 'global_quality' supprimée — 4e molette de qualité qui ne
+    # pilotait rien (window/door/brick_3d_quality existent déjà)
+
     # ============================================================
     # MATÉRIAUX ET TEXTURES
     # ============================================================
@@ -481,7 +459,8 @@ class HouseGeneratorProperties(PropertyGroup):
     use_materials: BoolProperty(
         name="Utiliser matériaux",
         description="Appliquer automatiquement des matériaux",
-        default=True
+        default=True,
+        update=regenerate_house
     )
     
     # ============================================================
@@ -536,13 +515,16 @@ class HouseGeneratorProperties(PropertyGroup):
         subtype='COLOR',
         size=4,
         default=(0.65, 0.25, 0.15, 1.0),
-        update=regenerate_house
+        update=regenerate_house,
+        min=0.0,
+        max=1.0
     )
     
     brick_custom_material: PointerProperty(
         name="Matériau custom",
         description="Matériau personnalisé pour briques 3D",
-        type=bpy.types.Material
+        type=bpy.types.Material,
+        update=regenerate_house
     )
 
     # ✅ NOUVEAU MOTEUR: Geometry Nodes (1 objet au lieu de milliers)
@@ -583,46 +565,11 @@ class HouseGeneratorProperties(PropertyGroup):
         update=regenerate_house
     )
 
-    wall_material_type: EnumProperty(
-        name="Matériau murs",
-        description="Type de matériau pour les murs extérieurs",
-        items=[
-            ('BRICK_RED', "Briques rouges", "Briques traditionnelles rouges", 'MATERIAL', 0),
-            ('BRICK_RED_DARK', "Briques rouges foncées", "Briques rouge foncé", 'MATERIAL', 1),
-            ('BRICK_ORANGE', "Briques orangées", "Briques orange terre cuite", 'MATERIAL', 2),
-            ('BRICK_BROWN', "Briques brunes", "Briques marron", 'MATERIAL', 3),
-            ('BRICK_YELLOW', "Briques jaunes", "Briques jaunes (style London)", 'MATERIAL', 4),
-            ('BRICK_GREY', "Briques grises", "Briques grises modernes", 'MATERIAL', 5),
-            ('BRICK_WHITE', "Briques blanches", "Briques peintes en blanc", 'MATERIAL', 6),
-            ('BRICK_PAINTED', "Briques peintes", "Briques avec couleur personnalisée", 'COLOR', 7),
-        ],
-        default='BRICK_RED',
-        update=regenerate_house
-    )
-    
-    wall_brick_quality: EnumProperty(
-        name="Qualité matériau briques",
-        description="Niveau de détail du matériau shader des briques (pour mur simple)",
-        items=[
-            ('LOW', "Basse", "Peu de détails shader (grandes scènes)", 'PREFERENCES', 0),
-            ('MEDIUM', "Moyenne", "Bon équilibre", 'PREFERENCES', 1),
-            ('HIGH', "Haute", "Maximum de détails shader", 'PREFERENCES', 2),
-        ],
-        default='MEDIUM',
-        update=regenerate_house
-    )
-    
-    wall_brick_color: FloatVectorProperty(
-        name="Couleur briques",
-        description="Couleur personnalisée pour les briques peintes",
-        subtype='COLOR',
-        size=4,
-        min=0.0,
-        max=1.0,
-        default=(0.8, 0.7, 0.5, 1.0),
-        update=regenerate_house
-    )
-    
+    # ✅ FIX: 'wall_material_type', 'wall_brick_quality' et 'wall_brick_color'
+    # supprimées — 8 styles et 3 qualités affichés que le générateur ne
+    # lisait JAMAIS (les murs simples utilisent wall_material_color)
+
+
     # ✅ FIX: 'use_geometry_bricks' et 'geometry_brick_quality' supprimés —
     # doublons jamais lus de 'wall_construction_type' et 'brick_3d_quality'
     # (trois sources de vérité concurrentes pour le même réglage)
@@ -634,19 +581,10 @@ class HouseGeneratorProperties(PropertyGroup):
         default=(0.9, 0.9, 0.85),
         min=0.0,
         max=1.0,
-        size=3
-    )
-    
-    roof_color: FloatVectorProperty(
-        name="Couleur toit",
-        description="Couleur du toit",
-        subtype='COLOR',
-        default=(0.4, 0.2, 0.1),
-        min=0.0,
-        max=1.0,
         size=3,
         update=regenerate_house
     )
+    
     
     roof_material_color: FloatVectorProperty(
         name="Couleur toit",
@@ -655,7 +593,8 @@ class HouseGeneratorProperties(PropertyGroup):
         default=(0.3, 0.2, 0.15),
         min=0.0,
         max=1.0,
-        size=3
+        size=3,
+        update=regenerate_house
     )
     
     floor_material_color: FloatVectorProperty(
@@ -665,7 +604,8 @@ class HouseGeneratorProperties(PropertyGroup):
         default=(0.7, 0.6, 0.5),
         min=0.0,
         max=1.0,
-        size=3
+        size=3,
+        update=regenerate_house
     )
     
     # ============================================================
@@ -682,55 +622,10 @@ class HouseGeneratorProperties(PropertyGroup):
         precision=3
     )
     
-    interior_wall_thickness: FloatProperty(
-        name="Mur intérieur",
-        description="Épaisseur des murs intérieurs",
-        default=0.10,
-        min=0.05,
-        max=0.25,
-        unit='LENGTH',
-        precision=3
-    )
     
-    manual_floor_height: FloatProperty(
-        name="Hauteur étage",
-        description="Hauteur d'un étage en mode manuel",
-        default=2.7,
-        min=2.0,
-        max=4.0,
-        unit='LENGTH',
-        precision=2
-    )
     
-    manual_door_height: FloatProperty(
-        name="Hauteur porte",
-        description="Hauteur standard des portes",
-        default=2.1,
-        min=1.8,
-        max=2.5,
-        unit='LENGTH',
-        precision=2
-    )
     
-    manual_window_height: FloatProperty(
-        name="Hauteur fenêtre",
-        description="Hauteur standard des fenêtres",
-        default=1.2,
-        min=0.5,
-        max=2.0,
-        unit='LENGTH',
-        precision=2
-    )
     
-    manual_window_sill_height: FloatProperty(
-        name="Hauteur allège",
-        description="Hauteur du bas de fenêtre par rapport au sol",
-        default=0.9,
-        min=0.3,
-        max=1.5,
-        unit='LENGTH',
-        precision=2
-    )
     
     plan_image_path: StringProperty(
         name="Chemin du plan",
@@ -764,33 +659,26 @@ class HouseGeneratorProperties(PropertyGroup):
     auto_lighting: BoolProperty(
         name="Éclairage automatique",
         description="Ajouter des lumières à la scène",
-        default=True
+        default=False,
+        update=regenerate_house
     )
     
     collection_name: StringProperty(
         name="Nom collection",
         description="Nom de la collection où créer la maison",
-        default="House"
+        default="House",
+        update=regenerate_house
     )
     
-    show_dimensions: BoolProperty(
-        name="Afficher dimensions",
-        description="Afficher les dimensions sur la maison",
-        default=False
-    )
     
-    show_grid: BoolProperty(
-        name="Afficher grille",
-        description="Afficher une grille de référence",
-        default=True
-    )
     
     random_seed: IntProperty(
         name="Seed aléatoire",
         description="Seed pour la génération procédurale (0 = aléatoire)",
         default=0,
         min=0,
-        max=999999
+        max=999999,
+        update=regenerate_house
     )
     
     advanced_mode: BoolProperty(

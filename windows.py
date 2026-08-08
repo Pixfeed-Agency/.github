@@ -948,20 +948,3 @@ class WindowGenerator:
             
         finally:
             bm.free()
-
-
-# Liste des classes à enregistrer
-classes = ()
-
-
-def register():
-    """Enregistrement du module"""
-    print("[House] Module Windows ULTIMATE chargé")
-    print("  - Système qualité LOW/MEDIUM/HIGH")
-    print("  - Chanfreins automatiques")
-    print("  - Matériaux procéduraux PBR")
-
-
-def unregister():
-    """Désenregistrement du module"""
-    print("[House] Module Windows déchargé")

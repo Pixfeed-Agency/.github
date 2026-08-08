@@ -1,5 +1,56 @@
 # Changelog — House Generator
 
+## v1.1.1 — Tour du propriétaire: 40+ correctifs post-audit
+
+Trois audits croisés sur l'état v1.1.0 (dont un sur les nouveautés
+elles-mêmes) — corrections notables:
+
+### Géométrie / architecture
+- **MANSARDE réellement corrigée**: les points de cassure étaient aux
+  mauvaises positions (le "brisis 68°" ne faisait que ~39°). Reconstruite
+  en dalles à épaisseur verticale, cassures près des façades.
+- **Plans de toit ancrés à la façade** (GABLE/HIP): le plan pivotait au
+  bord du débord → pente effective plus faible que demandée + jour d'air
+  entre mur et toit. Les égouts descendent maintenant de o·tan(pente).
+- **Dégagements pitch-aware**: solidify épaissit perpendiculairement →
+  chute verticale = t/cos(θ). Plafonds des murs et briques adaptés
+  (validé: 0 collision à 20/35/50°, marge ≥2.1cm).
+- **Pignons maçonnés visibles**: le toit GABLE ne ferme plus ses pignons
+  quand les murs sont en briques (ses triangles pleins les masquaient).
+- **Briques flottantes éliminées** (pignons/rampants): limites de colonne
+  monotones → arrêt sûr.
+- **Linteaux**: bande d'exclusion au-dessus des ouvertures (les soldats
+  s'interpénétraient avec les briques du mur), rang centré sur
+  l'ouverture, clamp au plafond effectif par mur (wall_top).
+- **Acrotère en anneau manifold**, seuil de porte butant contre le socle
+  (fini le z-fighting), **porte posée SUR le soubassement**, ouvertures
+  alignées, fondations générées en premier, dalles d'étage à la hauteur
+  réelle des briques, cutter booléen en solver EXACT et masqué.
+
+### Moteur Geometry Nodes
+- **FIX critique**: le master en hide_viewport sortait du depsgraph →
+  Object Info vide → murs invisibles. Passage en hide_set (œil) via
+  keep_evaluated.
+- Node group neuf par génération (l'ancien remove-par-nom cassait la
+  maison précédente), nettoyage des objets partiels si fallback.
+
+### Interface & propriétés
+- Le swatch "Couleur toit" éditait une propriété que le générateur ne
+  lisait pas; la section matériaux "murs simples" (8 styles, 3 qualités)
+  ne pilotait rien — remplacée par les vraies couleurs murs/toit/planchers.
+- Exposés: type/qualité de porte, ratio hauteur fenêtres, avertissement
+  UI quand la pente sera clampée, boutons du mode manuel (add_wall/door/
+  window/toggle_plan étaient implémentés mais inaccessibles!).
+- num_windows_back enfin câblé; estimation de briques corrigée (~28%
+  de surestimation); version lue depuis bl_info (1.1.1 partout).
+- 16 propriétés mortes supprimées; callbacks update ajoutés aux couleurs
+  et réglages qui échappaient à la mise à jour auto; auto_lighting off
+  par défaut (il levait un warning à chaque génération).
+- ~550 lignes de code mort supprimées (ancien chemin "géométrie
+  complète" et tout son sous-arbre).
+- pbr_scanner: résolution du dossier textures par __file__ (le scan de
+  sys.modules pouvait matcher un autre addon).
+
 ## v1.1.0 — Mise à niveau architecturale + moteur Geometry Nodes
 
 ### 🏛️ Conformité architecturale des toits

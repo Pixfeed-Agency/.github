@@ -104,11 +104,18 @@ def generate_house_walls_bricks(
 
 def create_brick_master(collection, quality, brick_material_mode='PRESET',
                         brick_color=None, brick_preset='BRICK_RED',
-                        custom_material=None, mortar_color=None):
+                        custom_material=None, mortar_color=None,
+                        keep_evaluated=False):
     """✅ REFACTOR: Crée la brique maître avec ses 2 matériaux (partagé
     entre le moteur instancing et le moteur Geometry Nodes)
 
     Slot 0 = Matériau brique, Slot 1 = Matériau mortier
+
+    Args:
+        keep_evaluated: ✅ FIX GN — hide_viewport (icône moniteur) RETIRE
+            l'objet du depsgraph: le node Object Info du moteur Geometry
+            Nodes recevrait une géométrie VIDE (murs invisibles!). Le moteur
+            GN passe True pour ne masquer que l'affichage (icône œil).
     """
     print("\n[BrickGeometry] Création de la brique maître...")
 
@@ -117,10 +124,17 @@ def create_brick_master(collection, quality, brick_material_mode='PRESET',
 
     # IMPORTANT : Linker AVANT de cacher
     collection.objects.link(brick_master)
-    # ✅ FIX: hide_viewport (niveau datablock) au lieu de hide_set qui lève
-    # RuntimeError si la collection n'est pas dans le view layer actif
-    brick_master.hide_viewport = True
     brick_master.hide_render = True
+    if keep_evaluated:
+        # Masquage "œil" seulement — l'objet reste évalué pour Object Info
+        try:
+            brick_master.hide_set(True)
+        except RuntimeError:
+            pass  # Collection hors du view layer actif: rester visible
+    else:
+        # ✅ FIX: hide_viewport (niveau datablock) au lieu de hide_set qui
+        # lève RuntimeError si la collection n'est pas dans le view layer
+        brick_master.hide_viewport = True
 
     # Obtenir le matériau brique
     if brick_material_mode == 'COLOR':
@@ -196,8 +210,16 @@ def compute_all_brick_positions(house_width, house_length, total_height,
 
     # ✅ Pour les toits en pente, les murs SOUS LES ÉGOUTS s'arrêtent sous
     # la face inférieure de la dalle (sinon ils la transpercent aux égouts)
-    pitched = roof_type in ('GABLE', 'HIP', 'GAMBREL', 'SHED')
-    eave_capped_height = roof_base - (ROOF_GAP if pitched else 0)
+    # ✅ FIX: pitched = tout sauf FLAT (un futur type en pente sera couvert)
+    pitched = roof_type != 'FLAT'
+    # ✅ FIX: GABLE/HIP sont épaissis par solidify (perpendiculaire) → la
+    # chute VERTICALE de la dalle est thickness/cos(pente). SHED/GAMBREL
+    # sont en dalles à épaisseur verticale → ROOF_GAP suffit.
+    if roof_type in ('GABLE', 'HIP'):
+        roof_gap = ROOF_THICKNESS_PITCHED / max(0.2, math.cos(math.radians(roof_pitch))) + ROOF_CLEARANCE
+    else:
+        roof_gap = ROOF_GAP
+    eave_capped_height = roof_base - (roof_gap if pitched else 0)
 
     print("\n[BrickGeometry] Calcul des positions des briques...")
 
@@ -223,7 +245,8 @@ def compute_all_brick_positions(house_width, house_length, total_height,
             start_pos=Vector((0, 0, 0)),
             direction='X',
             openings=front_openings,
-            bonding_pattern=bonding_pattern
+            bonding_pattern=bonding_pattern,
+            roof_gap=roof_gap
         )
     else:
         front_positions = calculate_brick_positions_for_wall(
@@ -256,7 +279,8 @@ def compute_all_brick_positions(house_width, house_length, total_height,
             start_pos=back_start,
             direction='X',
             openings=back_openings,
-            bonding_pattern=bonding_pattern
+            bonding_pattern=bonding_pattern,
+            roof_gap=roof_gap
         )
     else:
         back_positions = calculate_brick_positions_for_wall(
@@ -282,7 +306,8 @@ def compute_all_brick_positions(house_width, house_length, total_height,
             start_pos=left_start,
             direction='Y',
             openings=left_openings,
-            bonding_pattern=bonding_pattern
+            bonding_pattern=bonding_pattern,
+            roof_gap=roof_gap
         )
     else:
         # SHED: côté bas → sous la dalle; autres toits en pente: idem
@@ -316,7 +341,8 @@ def compute_all_brick_positions(house_width, house_length, total_height,
             start_pos=Vector((house_width, 0, 0)),
             direction='Y',
             openings=right_openings,
-            bonding_pattern=bonding_pattern
+            bonding_pattern=bonding_pattern,
+            roof_gap=roof_gap
         )
     else:
         right_positions = calculate_brick_positions_for_wall(
@@ -332,17 +358,29 @@ def compute_all_brick_positions(house_width, house_length, total_height,
     # ✅ NOUVEAU: Calculer les lintaux au-dessus des ouvertures
     print("\n[BrickGeometry] Calcul des lintaux (briques de support au-dessus des ouvertures)...")
 
+    # ✅ FIX: Plafond EFFECTIF par mur pour le clamp des linteaux —
+    # murs sous égouts: capés sous la dalle; murs pignons maçonnés:
+    # jusqu'au sommet nominal (le triangle monte plus haut)
+    if roof_type == 'GABLE' and gable_ridge_along_y:
+        wall_tops = {'front': roof_base, 'back': roof_base,
+                     'left': eave_capped_height, 'right': eave_capped_height}
+    elif roof_type == 'GABLE':
+        wall_tops = {'front': eave_capped_height, 'back': eave_capped_height,
+                     'left': roof_base, 'right': roof_base}
+    else:
+        wall_tops = {w: eave_capped_height for w in ('front', 'back', 'left', 'right')}
+
     # Lintaux pour chaque mur (avec vérification collision toit)
-    front_lintels = calculate_lintel_positions(openings, 'front', house_width, house_length, roof_type, roof_pitch, roof_base)
+    front_lintels = calculate_lintel_positions(openings, 'front', house_width, house_length, roof_type, roof_pitch, roof_base, wall_top=wall_tops['front'])
     brick_positions.extend(front_lintels)
 
-    back_lintels = calculate_lintel_positions(openings, 'back', house_width, house_length, roof_type, roof_pitch, roof_base)
+    back_lintels = calculate_lintel_positions(openings, 'back', house_width, house_length, roof_type, roof_pitch, roof_base, wall_top=wall_tops['back'])
     brick_positions.extend(back_lintels)
 
-    left_lintels = calculate_lintel_positions(openings, 'left', house_width, house_length, roof_type, roof_pitch, roof_base)
+    left_lintels = calculate_lintel_positions(openings, 'left', house_width, house_length, roof_type, roof_pitch, roof_base, wall_top=wall_tops['left'])
     brick_positions.extend(left_lintels)
 
-    right_lintels = calculate_lintel_positions(openings, 'right', house_width, house_length, roof_type, roof_pitch, roof_base)
+    right_lintels = calculate_lintel_positions(openings, 'right', house_width, house_length, roof_type, roof_pitch, roof_base, wall_top=wall_tops['right'])
     brick_positions.extend(right_lintels)
 
     total_lintels = len(front_lintels) + len(back_lintels) + len(left_lintels) + len(right_lintels)
@@ -387,10 +425,10 @@ def generate_walls_with_instancing(
         openings=openings, roof_type=roof_type,
         roof_pitch=roof_pitch, bonding_pattern=bonding_pattern)
 
-    
+
     # Créer toutes les instances
     print("\n[BrickGeometry] Création des instances de briques...")
-    
+
     for i, (pos, rot) in enumerate(brick_positions):
         instance = bpy.data.objects.new(f"Brick_Instance_{i}", brick_master.data)
         instance.location = pos
@@ -398,11 +436,10 @@ def generate_walls_with_instancing(
         instance["house_part"] = "wall"
         collection.objects.link(instance)
         walls.append(instance)
-        
-        # Variation de couleur légère par instance (via custom properties)
-        if quality == 'MEDIUM':
-            instance["color_variation"] = random.uniform(0.9, 1.1)
-    
+
+        # ✅ FIX: 'color_variation' supprimée — propriété écrite pour des
+        # milliers d'instances mais lue par AUCUN shader (poids mort)
+
     print(f"[BrickGeometry] ✓ {len(brick_positions)} instances créées")
 
     # Note: Le mortier est maintenant INTÉGRÉ à chaque brique, pas besoin de mortier séparé!
@@ -421,175 +458,8 @@ def generate_walls_with_instancing(
     print(f"[BrickGeometry] Hauteur réelle:    {real_wall_height:.3f}m ({num_rows} rangées)")
     print(f"[BrickGeometry] Ouvertures:        {len(openings or [])} exclues")
     print(f"[BrickGeometry] Matériau brique:   {brick_material_mode}")
-    print(f"[BrickGeometry] Matériau mortier:  Gris clair (automatique)")
+    print("[BrickGeometry] Matériau mortier:  personnalisable (mortar_color)")
     print("="*70 + "\n")
-
-    return walls, real_wall_height
-
-
-def generate_walls_full_geometry(
-    house_width,
-    house_length,
-    total_height,
-    collection,
-    quality,
-    openings=None,
-    brick_material_mode='PRESET',
-    brick_color=None,
-    brick_preset='BRICK_RED',
-    custom_material=None,
-    roof_type='GABLE',
-    roof_pitch=35.0
-):
-    """Génère les murs avec géométrie complète (HIGH quality)
-
-    NOTE: Cette fonction utilise encore l'ancien système (briques + mortier séparés).
-    Pour bénéficier du nouveau système (mortier intégré), utilisez quality='MEDIUM' ou 'LOW'.
-
-    NOTE 2: Le support SHED roof n'est pas implémenté en mode HIGH quality.
-    Utilisez MEDIUM ou LOW pour le shed roof avec murs adaptés.
-    """
-
-    if roof_type == 'SHED':
-        print("[BrickGeometry] AVERTISSEMENT: SHED roof non supporté en qualité HIGH")
-        print("[BrickGeometry] Utilisez qualité MEDIUM ou LOW pour murs adaptés")
-
-    walls = []
-    
-    # === MUR AVANT (FAÇADE) ===
-    print("[BrickGeometry] Mur avant (façade)...")
-    wall_front_bricks, wall_front_mortar = generate_brick_wall(
-        house_width, total_height, BRICK_DEPTH, quality,
-        openings=[o for o in (openings or []) if o.get('wall') == 'front']
-    )
-    wall_front_bricks.name = "Wall_Front_Bricks"
-    wall_front_mortar.name = "Wall_Front_Mortar"
-    
-    wall_front_bricks.location = Vector((0, 0, 0))
-    wall_front_mortar.location = Vector((0, 0, 0))
-    wall_front_bricks.rotation_euler = Euler((0, 0, 0), 'XYZ')
-    wall_front_mortar.rotation_euler = Euler((0, 0, 0), 'XYZ')
-    
-    # ✅ APPLIQUER LE MATÉRIAU
-    apply_brick_material_to_object(
-        wall_front_bricks, 
-        brick_material_mode, 
-        brick_color, 
-        brick_preset, 
-        custom_material
-    )
-    apply_mortar_material_to_object(wall_front_mortar)
-    
-    wall_front_bricks["house_part"] = "wall"
-    wall_front_mortar["house_part"] = "wall"
-    collection.objects.link(wall_front_bricks)
-    collection.objects.link(wall_front_mortar)
-    walls.extend([wall_front_bricks, wall_front_mortar])
-    
-    # === MUR ARRIÈRE ===
-    print("[BrickGeometry] Mur arrière...")
-    wall_back_bricks, wall_back_mortar = generate_brick_wall(
-        house_width, total_height, BRICK_DEPTH, quality,
-        openings=[o for o in (openings or []) if o.get('wall') == 'back']
-    )
-    wall_back_bricks.name = "Wall_Back_Bricks"
-    wall_back_mortar.name = "Wall_Back_Mortar"
-    
-    wall_back_bricks.location = Vector((0, house_length, 0))
-    wall_back_mortar.location = Vector((0, house_length, 0))
-    wall_back_bricks.rotation_euler = Euler((0, 0, 0), 'XYZ')
-    wall_back_mortar.rotation_euler = Euler((0, 0, 0), 'XYZ')
-    
-    # ✅ APPLIQUER LE MATÉRIAU
-    apply_brick_material_to_object(
-        wall_back_bricks, 
-        brick_material_mode, 
-        brick_color, 
-        brick_preset, 
-        custom_material
-    )
-    apply_mortar_material_to_object(wall_back_mortar)
-    
-    wall_back_bricks["house_part"] = "wall"
-    wall_back_mortar["house_part"] = "wall"
-    collection.objects.link(wall_back_bricks)
-    collection.objects.link(wall_back_mortar)
-    walls.extend([wall_back_bricks, wall_back_mortar])
-    
-    # === MUR GAUCHE ===
-    print("[BrickGeometry] Mur gauche...")
-    wall_left_bricks, wall_left_mortar = generate_brick_wall(
-        house_length, total_height, BRICK_DEPTH, quality,
-        openings=[o for o in (openings or []) if o.get('wall') == 'left']
-    )
-    wall_left_bricks.name = "Wall_Left_Bricks"
-    wall_left_mortar.name = "Wall_Left_Mortar"
-    
-    wall_left_bricks.location = Vector((0, 0, 0))
-    wall_left_mortar.location = Vector((0, 0, 0))
-    wall_left_bricks.rotation_euler = Euler((0, 0, math.radians(90)), 'XYZ')
-    wall_left_mortar.rotation_euler = Euler((0, 0, math.radians(90)), 'XYZ')
-    
-    # ✅ APPLIQUER LE MATÉRIAU
-    apply_brick_material_to_object(
-        wall_left_bricks, 
-        brick_material_mode, 
-        brick_color, 
-        brick_preset, 
-        custom_material
-    )
-    apply_mortar_material_to_object(wall_left_mortar)
-    
-    wall_left_bricks["house_part"] = "wall"
-    wall_left_mortar["house_part"] = "wall"
-    collection.objects.link(wall_left_bricks)
-    collection.objects.link(wall_left_mortar)
-    walls.extend([wall_left_bricks, wall_left_mortar])
-    
-    # === MUR DROIT ===
-    print("[BrickGeometry] Mur droit...")
-    wall_right_bricks, wall_right_mortar = generate_brick_wall(
-        house_length, total_height, BRICK_DEPTH, quality,
-        openings=[o for o in (openings or []) if o.get('wall') == 'right']
-    )
-    wall_right_bricks.name = "Wall_Right_Bricks"
-    wall_right_mortar.name = "Wall_Right_Mortar"
-    
-    wall_right_bricks.location = Vector((house_width, 0, 0))
-    wall_right_mortar.location = Vector((house_width, 0, 0))
-    wall_right_bricks.rotation_euler = Euler((0, 0, math.radians(90)), 'XYZ')
-    wall_right_mortar.rotation_euler = Euler((0, 0, math.radians(90)), 'XYZ')
-    
-    # ✅ APPLIQUER LE MATÉRIAU
-    apply_brick_material_to_object(
-        wall_right_bricks, 
-        brick_material_mode, 
-        brick_color, 
-        brick_preset, 
-        custom_material
-    )
-    apply_mortar_material_to_object(wall_right_mortar)
-    
-    wall_right_bricks["house_part"] = "wall"
-    wall_right_mortar["house_part"] = "wall"
-    collection.objects.link(wall_right_bricks)
-    collection.objects.link(wall_right_mortar)
-    walls.extend([wall_right_bricks, wall_right_mortar])
-    
-    # Calculer statistiques
-    total_bricks = calculate_brick_count(house_width, total_height) * 2 + \
-                   calculate_brick_count(house_length, total_height) * 2
-
-    # ✅ FIX: Calculer la hauteur RÉELLE des murs (pour positionner le toit correctement)
-    num_rows = int(total_height / (BRICK_HEIGHT + MORTAR_GAP))
-    real_wall_height = num_rows * (BRICK_HEIGHT + MORTAR_GAP)
-
-    print(f"[BrickGeometry] ✅ Maison en briques créée!")
-    print(f"[BrickGeometry]    Total briques: ~{total_bricks}")
-    print(f"[BrickGeometry]    Objets créés: {len(walls)}")
-    print(f"[BrickGeometry]    Ouvertures exclues: {len(openings or [])}")
-    print(f"[BrickGeometry]    Matériau: {brick_material_mode}")
-    print(f"[BrickGeometry]    Hauteur réelle: {real_wall_height:.3f}m ({num_rows} rangées)")
 
     return walls, real_wall_height
 
@@ -598,55 +468,17 @@ def generate_walls_full_geometry(
 # SYSTÈME DE MATÉRIAUX
 # ============================================================
 
-def apply_brick_material_to_object(obj, mode, color, preset, custom_mat):
-    """Applique le matériau aux briques selon le mode choisi
-    
-    Args:
-        obj: Objet Blender
-        mode (str): 'COLOR', 'PRESET', 'CUSTOM'
-        color (tuple): Couleur RGB/RGBA pour mode COLOR
-        preset (str): Type de preset pour mode PRESET
-        custom_mat: Matériau custom pour mode CUSTOM
-    """
-    
-    if mode == 'COLOR':
-        # Mode couleur unie
-        mat = create_brick_material_solid_color(color)
-        obj.data.materials.clear()
-        obj.data.materials.append(mat)
-        print(f"[BrickGeometry]   ✓ Matériau couleur unie appliqué")
-        
-    elif mode == 'PRESET':
-        # Mode preset réaliste
-        mat = create_brick_material_preset(preset)
-        obj.data.materials.clear()
-        obj.data.materials.append(mat)
-        print(f"[BrickGeometry]   ✓ Matériau preset appliqué: {preset}")
-        
-    elif mode == 'CUSTOM':
-        # Mode matériau custom
-        if custom_mat:
-            obj.data.materials.clear()
-            obj.data.materials.append(custom_mat)
-            print(f"[BrickGeometry]   ✓ Matériau custom appliqué: {custom_mat.name}")
-        else:
-            # Fallback sur preset si pas de custom
-            mat = create_brick_material_preset('BRICK_RED')
-            obj.data.materials.clear()
-            obj.data.materials.append(mat)
-            print(f"[BrickGeometry]   ⚠ Pas de matériau custom, preset par défaut")
-
 
 def create_brick_material_solid_color(color):
     """Crée un matériau brique couleur unie
-    
+
     Args:
         color (tuple): RGB (3) ou RGBA (4)
-        
+
     Returns:
         bpy.types.Material: Matériau créé
     """
-    
+
     # ✅ CORRECTION : Gérer None, RGB (3) et RGBA (4)
     if color is None:
         rgba_color = (0.65, 0.25, 0.15, 1.0)  # Fallback rouge classique
@@ -656,29 +488,29 @@ def create_brick_material_solid_color(color):
         rgba_color = tuple(color)  # Déjà RGBA, convertir en tuple standard
     else:
         rgba_color = (0.65, 0.25, 0.15, 1.0)  # Fallback rouge classique
-    
+
     mat_name = f"Brick_SolidColor_{int(rgba_color[0]*255)}_{int(rgba_color[1]*255)}_{int(rgba_color[2]*255)}"
-    
+
     if mat_name in bpy.data.materials:
         return bpy.data.materials[mat_name]
-    
+
     mat = bpy.data.materials.new(name=mat_name)
     mat.use_nodes = True
     nodes = mat.node_tree.nodes
     nodes.clear()
-    
+
     # Principled BSDF
     principled = nodes.new(type='ShaderNodeBsdfPrincipled')
     principled.location = (0, 0)
     principled.inputs["Base Color"].default_value = rgba_color  # ✅ CORRIGÉ
     principled.inputs["Roughness"].default_value = 0.8
-    
+
     # Output
     output = nodes.new(type='ShaderNodeOutputMaterial')
     output.location = (300, 0)
-    
+
     mat.node_tree.links.new(principled.outputs["BSDF"], output.inputs["Surface"])
-    
+
     return mat
 
 
@@ -687,60 +519,59 @@ def create_brick_material_solid_color(color):
 # ============================================================
 
 
-
 def create_brick_material_pbr_textured(preset_name='BRICK_WORN_PBR'):
     """Crée un matériau brique avec textures PBR (SYSTÈME DYNAMIQUE)
-    
+
     ✅ NOUVEAU: Utilise pbr_scanner.find_texture_files() pour trouver automatiquement
     les textures au lieu de chemins hardcodés
-    
+
     Args:
         preset_name (str): ID du preset (ex: 'PBR_BRICK_WORN')
-        
+
     Returns:
         bpy.types.Material: Matériau avec textures PBR
     """
-    
+
     mat_name = f"Brick_PBR_{preset_name}"
-    
+
     # Vérifier si existe déjà
     if mat_name in bpy.data.materials:
         return bpy.data.materials[mat_name]
-    
+
     print(f"\n[BrickPBR] Création matériau PBR: {preset_name}")
-    
+
     # ✅ NOUVEAU: Utiliser find_texture_files() au lieu de chemins hardcodés
     texture_files = pbr_scanner.find_texture_files(preset_name)
-    
+
     if not texture_files:
         print(f"[BrickPBR] ⚠ Aucune texture trouvée, fallback preset procédural")
         return create_brick_material_preset('BRICK_RED')
-    
+
     print(f"[BrickPBR] {len(texture_files)} texture(s) trouvée(s)")
-    
+
     # Créer le matériau
     mat = bpy.data.materials.new(name=mat_name)
     mat.use_nodes = True
     nodes = mat.node_tree.nodes
     nodes.clear()
-    
+
     # ============================================================
     # PRINCIPLED BSDF
     # ============================================================
     principled = nodes.new(type='ShaderNodeBsdfPrincipled')
     principled.location = (300, 300)
-    
+
     # ============================================================
     # TEXTURE COORDINATE + MAPPING
     # ============================================================
     tex_coord = nodes.new(type='ShaderNodeTexCoord')
     tex_coord.location = (-1200, 0)
-    
+
     mapping = nodes.new(type='ShaderNodeMapping')
     mapping.location = (-1000, 0)
-    
+
     mat.node_tree.links.new(tex_coord.outputs["UV"], mapping.inputs["Vector"])
-    
+
     # ============================================================
     # BASE COLOR (Albedo)
     # ============================================================
@@ -752,7 +583,7 @@ def create_brick_material_pbr_textured(preset_name='BRICK_WORN_PBR'):
         tex_base.image.colorspace_settings.name = 'sRGB'
         mat.node_tree.links.new(mapping.outputs["Vector"], tex_base.inputs["Vector"])
         print(f"[BrickPBR]   ✓ Base Color: {os.path.basename(texture_files['basecolor'])}")
-    
+
     # ============================================================
     # ROUGHNESS
     # ============================================================
@@ -773,13 +604,13 @@ def create_brick_material_pbr_textured(preset_name='BRICK_WORN_PBR'):
         tex_gloss.image = bpy.data.images.load(texture_files['gloss'], check_existing=True)
         tex_gloss.image.colorspace_settings.name = 'Non-Color'
         mat.node_tree.links.new(mapping.outputs["Vector"], tex_gloss.inputs["Vector"])
-        
+
         invert = nodes.new(type='ShaderNodeInvert')
         invert.location = (-300, 200)
         mat.node_tree.links.new(tex_gloss.outputs["Color"], invert.inputs["Color"])
         mat.node_tree.links.new(invert.outputs["Color"], principled.inputs["Roughness"])
         print(f"[BrickPBR]   ✓ Gloss (inversé): {os.path.basename(texture_files['gloss'])}")
-    
+
     # ============================================================
     # NORMAL MAP
     # ============================================================
@@ -791,15 +622,15 @@ def create_brick_material_pbr_textured(preset_name='BRICK_WORN_PBR'):
         tex_normal.image = bpy.data.images.load(texture_files['normal'], check_existing=True)
         tex_normal.image.colorspace_settings.name = 'Non-Color'
         mat.node_tree.links.new(mapping.outputs["Vector"], tex_normal.inputs["Vector"])
-        
+
         normal_map_node = nodes.new(type='ShaderNodeNormalMap')
         normal_map_node.location = (-200, -100)
         normal_map_node.inputs["Strength"].default_value = 1.0
-        
+
         mat.node_tree.links.new(tex_normal.outputs["Color"], normal_map_node.inputs["Color"])
         mat.node_tree.links.new(normal_map_node.outputs["Normal"], principled.inputs["Normal"])
         print(f"[BrickPBR]   ✓ Normal: {os.path.basename(texture_files['normal'])}")
-    
+
     # ============================================================
     # BUMP MAP
     # ============================================================
@@ -810,23 +641,23 @@ def create_brick_material_pbr_textured(preset_name='BRICK_WORN_PBR'):
         tex_bump.image = bpy.data.images.load(texture_files['bump'], check_existing=True)
         tex_bump.image.colorspace_settings.name = 'Non-Color'
         mat.node_tree.links.new(mapping.outputs["Vector"], tex_bump.inputs["Vector"])
-        
+
         bump_node = nodes.new(type='ShaderNodeBump')
         bump_node.location = (-200, -400)
         bump_node.inputs["Strength"].default_value = 0.3
         bump_node.inputs["Distance"].default_value = 0.001
-        
+
         mat.node_tree.links.new(tex_bump.outputs["Color"], bump_node.inputs["Height"])
-        
+
         # Combiner avec Normal si présent
         if normal_map_node:
             mat.node_tree.links.new(normal_map_node.outputs["Normal"], bump_node.inputs["Normal"])
             mat.node_tree.links.new(bump_node.outputs["Normal"], principled.inputs["Normal"])
         else:
             mat.node_tree.links.new(bump_node.outputs["Normal"], principled.inputs["Normal"])
-        
+
         print(f"[BrickPBR]   ✓ Bump: {os.path.basename(texture_files['bump'])}")
-    
+
     # ============================================================
     # CAVITY (Ambient Occlusion)
     # ============================================================
@@ -837,14 +668,14 @@ def create_brick_material_pbr_textured(preset_name='BRICK_WORN_PBR'):
         tex_cavity.image = bpy.data.images.load(texture_files['cavity'], check_existing=True)
         tex_cavity.image.colorspace_settings.name = 'Non-Color'
         mat.node_tree.links.new(mapping.outputs["Vector"], tex_cavity.inputs["Vector"])
-        
+
         # Mixer avec Base Color
         mix_ao = nodes.new(type='ShaderNodeMix')
         mix_ao.location = (-300, 500)
         mix_ao.data_type = 'RGBA'
         mix_ao.blend_type = 'MULTIPLY'
         mix_ao.inputs[0].default_value = 0.5
-        
+
         mat.node_tree.links.new(tex_base.outputs["Color"], mix_ao.inputs[6])
         mat.node_tree.links.new(tex_cavity.outputs["Color"], mix_ao.inputs[7])
         mat.node_tree.links.new(mix_ao.outputs[2], principled.inputs["Base Color"])
@@ -852,7 +683,7 @@ def create_brick_material_pbr_textured(preset_name='BRICK_WORN_PBR'):
     elif 'basecolor' in texture_files:
         # Pas d'AO, juste la base color
         mat.node_tree.links.new(tex_base.outputs["Color"], principled.inputs["Base Color"])
-    
+
     # ============================================================
     # SPECULAR
     # ============================================================
@@ -865,7 +696,7 @@ def create_brick_material_pbr_textured(preset_name='BRICK_WORN_PBR'):
         mat.node_tree.links.new(mapping.outputs["Vector"], tex_spec.inputs["Vector"])
         mat.node_tree.links.new(tex_spec.outputs["Color"], principled.inputs["Specular IOR Level"])
         print(f"[BrickPBR]   ✓ Specular: {os.path.basename(texture_files['specular'])}")
-    
+
     # ============================================================
     # METALLIC
     # ============================================================
@@ -878,39 +709,37 @@ def create_brick_material_pbr_textured(preset_name='BRICK_WORN_PBR'):
         mat.node_tree.links.new(mapping.outputs["Vector"], tex_metal.inputs["Vector"])
         mat.node_tree.links.new(tex_metal.outputs["Color"], principled.inputs["Metallic"])
         print(f"[BrickPBR]   ✓ Metallic: {os.path.basename(texture_files['metallic'])}")
-    
+
     # ============================================================
     # OUTPUT
     # ============================================================
     output = nodes.new(type='ShaderNodeOutputMaterial')
     output.location = (600, 300)
-    
+
     mat.node_tree.links.new(principled.outputs["BSDF"], output.inputs["Surface"])
-    
+
     print(f"[BrickPBR] ✅ Matériau PBR créé: {mat_name}\n")
-    
+
     return mat
-
-
 
 
 def create_brick_material_preset(preset_type):
     """Crée un matériau brique selon le preset (UTILISE materials.presets)
-    
+
     ✅ CORRECTION: Utilise le nouveau système modulaire materials/presets/
     au lieu de code hardcodé.
-    
+
     Args:
         preset_type (str): ID du preset ('BRICK_RED', 'BRICK_ORANGE', etc.)
-        
+
     Returns:
         bpy.types.Material: Matériau créé ou récupéré du cache
     """
-    
+
     # Si c'est un preset PBR, utiliser la fonction PBR
     if preset_type.startswith('PBR_'):
         return create_brick_material_pbr_textured(preset_type)
-    
+
     # Sinon, utiliser le système de presets procéduraux
     try:
         material = material_presets.get_procedural_material(preset_type)
@@ -966,13 +795,6 @@ def create_mortar_material(color=None):
     mat.node_tree.links.new(principled.outputs["BSDF"], output.inputs["Surface"])
 
     return mat
-
-
-def apply_mortar_material_to_object(obj):
-    """Applique le matériau mortier à un objet (rétrocompatibilité)"""
-    mat = create_mortar_material()
-    obj.data.materials.clear()
-    obj.data.materials.append(mat)
 
 
 # ============================================================
@@ -1064,7 +886,7 @@ def create_single_brick_mesh(quality='MEDIUM'):
             MORTAR_THICKNESS + BRICK_HEIGHT/2
         ))
         bmesh.ops.translate(bm, verts=bm.verts, vec=center_offset)
-        
+
         # Marquer toutes les faces actuelles comme "brique" (material slot 0)
         brick_faces = list(bm.faces)
 
@@ -1160,7 +982,7 @@ def create_single_brick_mesh(quality='MEDIUM'):
                 )
                 vertex_count = len(bm.verts)
                 print(f"[BrickGeometry]   ✓ MEDIUM quality: {vertex_count} vertices (chanfreins {bevel_amount*1000:.1f}mm sur brique)")
-        
+
         elif quality == 'HIGH':
             # HIGH: Chanfreins + Subdivision + détails (seulement sur la brique)
 
@@ -1185,7 +1007,7 @@ def create_single_brick_mesh(quality='MEDIUM'):
                     profile=0.5,
                     affect='EDGES'
                 )
-            
+
             # ========== Étape 2 : Légères variations géométriques ==========
             # ✅ FIX: Ne déformer QUE les faces de la brique — déformer le
             # cadre de mortier cassait le pavage parfait entre instances
@@ -1198,18 +1020,18 @@ def create_single_brick_mesh(quality='MEDIUM'):
 
             vertex_count_final = len(bm.verts)
             print(f"[BrickGeometry]   ✓ HIGH quality: {vertex_count_final} vertices (chanfreins + variations)")
-        
+
         # ============================================================
         # ✅ UV MAPPING (Box Projection - Optimal pour briques)
         # ============================================================
         print(f"[BrickGeometry]   → Création UV mapping...")
-        
+
         # Créer UV layer
         uv_layer = bm.loops.layers.uv.verify()
-        
+
         # Box Projection manuelle pour chaque face
         uv_count = 0
-        
+
         # ✅ FIX: Normalisation SANS modulo — le "% 1.0" faisait retomber les
         # verts au bord exact (x = BRICK_LENGTH → u = 0.0 au lieu de 1.0),
         # écrasant les UV de chaque face en quads dégénérés (textures étalées)
@@ -1242,7 +1064,7 @@ def create_single_brick_mesh(quality='MEDIUM'):
 
                 loop[uv_layer].uv = (min(max(u, 0.0), 1.0), min(max(v, 0.0), 1.0))
                 uv_count += 1
-        
+
         print(f"[BrickGeometry]   ✓ UV mapping créé: {uv_count} loops (box projection)")
 
         # Recalculer les normales pour un rendu lisse
@@ -1286,22 +1108,34 @@ def create_single_brick_mesh(quality='MEDIUM'):
 
 
 def is_brick_in_opening(brick_x, brick_y, brick_z, brick_width, brick_height, openings):
-    """Vérifie si une brique est MAJORITAIREMENT dans une zone d'ouverture
+    """Vérifie si une brique est dans une zone d'ouverture OU dans la
+    bande réservée au LINTEAU au-dessus de l'ouverture
 
-    ✅ CORRECTION COMPLÈTE: Vérifie X/Y selon le type de mur
-    - Murs AVANT/ARRIÈRE (front/back): Vérifier X et Z
-    - Murs GAUCHE/DROIT (left/right): Vérifier Y et Z
+    ✅ FIX: L'exclusion s'étend maintenant au-dessus de l'ouverture sur la
+    hauteur du cours de soldats (~24cm + accroche à la grille) et sur la
+    largeur du linteau (± LINTEL_OVERHANG) — sans cela, les briques du mur
+    reprenaient immédiatement au-dessus de l'ouverture et s'interpénétraient
+    avec les soldats du linteau.
+
+    - Murs AVANT/ARRIÈRE (front/back): Vérifie X et Z
+    - Murs GAUCHE/DROIT (left/right): Vérifie Y et Z
     """
     if not openings:
         return False
 
-    # Centre de la brique
-    brick_center_x = brick_x + brick_width / 2
-    brick_center_y = brick_y + brick_width / 2  # AJOUTÉ!
+    # ✅ FIX: Centre calculé avec la CELLULE le long du mur (brique+joint)
+    cell_along = BRICK_LENGTH + MORTAR_GAP
+    brick_center_x = brick_x + cell_along / 2
+    brick_center_y = brick_y + cell_along / 2
     brick_center_z = brick_z + brick_height / 2
 
     # Marge de sécurité
     SAFETY_MARGIN = 0.02  # 2cm
+
+    # Bande du linteau au-dessus de l'ouverture:
+    # accroche grille (≤1 rangée) + hauteur du soldat (brique debout)
+    row_h = BRICK_HEIGHT + MORTAR_GAP
+    lintel_band = row_h + (BRICK_LENGTH + MORTAR_GAP)
 
     for opening in openings:
         opening_x = opening.get('x', 0)
@@ -1311,64 +1145,31 @@ def is_brick_in_opening(brick_x, brick_y, brick_z, brick_width, brick_height, op
         opening_height = opening.get('height', 0)
         opening_wall = opening.get('wall', 'front')
 
-        # Vérifier Z (commun à tous les murs)
-        opening_z_min = opening_z - SAFETY_MARGIN
-        opening_z_max = opening_z + opening_height + SAFETY_MARGIN
+        opening_top = opening_z + opening_height
 
-        if not (opening_z_min < brick_center_z < opening_z_max):
+        # Zone 1: l'OUVERTURE elle-même (largeur exacte)
+        in_opening_z = (opening_z - SAFETY_MARGIN) < brick_center_z < (opening_top + SAFETY_MARGIN)
+        # Zone 2: la BANDE DU LINTEAU (plus large de LINTEL_OVERHANG)
+        in_lintel_z = (opening_top - SAFETY_MARGIN) < brick_center_z < (opening_top + lintel_band + SAFETY_MARGIN)
+
+        if not (in_opening_z or in_lintel_z):
             continue  # Pas au bon niveau en hauteur
 
-        # ✅ FIX: Vérifier X OU Y selon le type de mur
-        if opening_wall in ['front', 'back']:
-            # Murs AVANT/ARRIÈRE: vérifier X
-            opening_x_min = opening_x - SAFETY_MARGIN
-            opening_x_max = opening_x + opening_width + SAFETY_MARGIN
+        # Étendue horizontale selon la zone
+        h_margin = SAFETY_MARGIN if in_opening_z and not in_lintel_z else LINTEL_OVERHANG + SAFETY_MARGIN
 
-            if opening_x_min < brick_center_x < opening_x_max:
+        if opening_wall in ['front', 'back']:
+            if (opening_x - h_margin) < brick_center_x < (opening_x + opening_width + h_margin):
                 return True
 
         elif opening_wall in ['left', 'right']:
-            # Murs GAUCHE/DROIT: vérifier Y
-            opening_y_min = opening_y - SAFETY_MARGIN
-            opening_y_max = opening_y + opening_width + SAFETY_MARGIN
-
-            if opening_y_min < brick_center_y < opening_y_max:
+            if (opening_y - h_margin) < brick_center_y < (opening_y + opening_width + h_margin):
                 return True
 
     return False
 
 
-
-
-def is_mortar_in_opening(mortar_x, mortar_y, mortar_z, mortar_width, mortar_height, openings):
-    """Vérifie si un joint de mortier est dans une ouverture (FONCTION AJOUTÉE)"""
-    if not openings:
-        return False
-    
-    mortar_center_x = mortar_x + mortar_width / 2
-    mortar_center_z = mortar_z + mortar_height / 2
-    
-    SAFETY_MARGIN = 0.05
-    
-    for opening in openings:
-        opening_x = opening.get("x", 0)
-        opening_z = opening.get("z", 0)
-        opening_width = opening.get("width", 0)
-        opening_height = opening.get("height", 0)
-        
-        opening_x_min = opening_x - SAFETY_MARGIN
-        opening_x_max = opening_x + opening_width + SAFETY_MARGIN
-        opening_z_min = opening_z - SAFETY_MARGIN
-        opening_z_max = opening_z + opening_height + SAFETY_MARGIN
-        
-        if (opening_x_min < mortar_center_x < opening_x_max and
-            opening_z_min < mortar_center_z < opening_z_max):
-            return True
-    
-    return False
-
-
-def calculate_lintel_positions(openings, wall_type, house_width, house_length, roof_type='GABLE', roof_pitch=35.0, base_height=3.0):
+def calculate_lintel_positions(openings, wall_type, house_width, house_length, roof_type='GABLE', roof_pitch=35.0, base_height=3.0, wall_top=None):
     """✅ NORMES: Linteaux en COURS DE SOLDATS (briques verticales)
 
     Un vrai linteau maçonné est un rang de briques debout ("soldier
@@ -1429,26 +1230,36 @@ def calculate_lintel_positions(openings, wall_type, house_width, house_length, r
         lintel_start = max(0, along_start - LINTEL_OVERHANG)
         lintel_end = min(wall_span, along_start + opening_width + LINTEL_OVERHANG)
 
-        # ✅ Clamp au sommet du mur (toits non-SHED): si le soldat ne tient
-        # pas sous le sommet, pas de linteau (ouverture proche du plafond)
-        if roof_type != 'SHED' and lintel_top > base_height + 0.001:
-            print(f"[BrickGeometry]   Linteau omis (dépasserait le mur: {lintel_top:.2f}m > {base_height:.2f}m)")
+        # ✅ FIX: Clamp au PLAFOND EFFECTIF du mur (le mur s'arrête sous la
+        # dalle du toit, pas à sa hauteur nominale) — sans wall_top, un
+        # linteau haut placé mordait dans la dalle des toits en pente
+        effective_top = wall_top if wall_top is not None else base_height
+        if roof_type != 'SHED' and lintel_top > effective_top + 0.001:
+            print(f"[BrickGeometry]   Linteau omis (dépasserait le mur: {lintel_top:.2f}m > {effective_top:.2f}m)")
             continue
 
         # Clamp dalle SHED pour les murs latéraux (hauteur constante par mur)
+        # (✅ elif: les deux tests sont mutuellement exclusifs)
         if roof_type == 'SHED' and wall_type == 'left':
             if lintel_top > base_height - ROOF_GAP:
                 continue
-        if roof_type == 'SHED' and wall_type == 'right':
+        elif roof_type == 'SHED' and wall_type == 'right':
             if lintel_top > base_height + roof_height_variation - ROOF_GAP:
                 continue
 
-        num_bricks = int((lintel_end - lintel_start) / cell_along) + 1
+        # ✅ FIX: CENTRER le rang de soldats sur l'ouverture — avec l'ancien
+        # départ fixe, l'appui gauche faisait 15cm et le droit 0-7cm (linteau
+        # visuellement décentré)
+        span = lintel_end - lintel_start
+        num_bricks = int(span / cell_along)
+        run_length = num_bricks * cell_along
+        opening_center = along_start + opening_width / 2
+        run_start = max(0.0, min(wall_span - run_length, opening_center - run_length / 2))
 
         for i in range(num_bricks):
-            coord = lintel_start + i * cell_along
-            if coord + cell_along > lintel_end + 0.001:
-                continue
+            coord = run_start + i * cell_along
+            if coord + cell_along > wall_span + 0.001:
+                break  # coordonnée croissante: rien de plus ne tiendra
 
             # Clamp dalle SHED par position pour les murs avant/arrière
             # (le toit monte avec x — vérifier au début du soldat, côté bas)
@@ -1573,12 +1384,12 @@ def calculate_brick_positions_for_wall(wall_length, wall_height, start_pos, dire
     return positions
 
 
-def calculate_brick_positions_for_wall_gable(wall_length, base_height, peak_height, start_pos, direction, openings=None, bonding_pattern='RUNNING'):
+def calculate_brick_positions_for_wall_gable(wall_length, base_height, peak_height, start_pos, direction, openings=None, bonding_pattern='RUNNING', roof_gap=None):
     """✅ NOUVEAU: Briques d'un mur PIGNON sous toit à 2 pans (GABLE)
 
     La ligne de toit forme un triangle: base_height aux deux extrémités,
     base_height + peak_height au centre du mur. Les briques remplissent le
-    pignon en restant sous la FACE INFÉRIEURE de la dalle du toit (ROOF_GAP).
+    pignon en restant sous la FACE INFÉRIEURE de la dalle du toit.
 
     Args:
         wall_length: Longueur du mur (le faîtage est à wall_length/2)
@@ -1588,10 +1399,15 @@ def calculate_brick_positions_for_wall_gable(wall_length, base_height, peak_heig
         direction: 'X' ou 'Y'
         openings: Liste des ouvertures
         bonding_pattern: 'RUNNING', 'STACK', 'FLEMISH', 'ENGLISH'
+        roof_gap: Marge sous la ligne de toit (pitch-aware — le toit GABLE
+            est épaissi par solidify, donc chute verticale = t/cos(pente))
 
     Returns:
         Liste de (position, rotation) pour chaque brique
     """
+    if roof_gap is None:
+        roof_gap = ROOF_GAP
+
     positions = []
     brick_spacing = BRICK_LENGTH
     cell = brick_spacing + MORTAR_GAP
@@ -1600,18 +1416,30 @@ def calculate_brick_positions_for_wall_gable(wall_length, base_height, peak_heig
 
     half = wall_length / 2.0
 
+    # Offset maximal des patterns (3/4 de cellule pour ENGLISH)
+    max_offset = cell * 3 / 4
+
     def roof_bottom_at(x):
         """Face inférieure de la dalle à la position x (triangle du pignon)"""
         if half <= 0:
-            return base_height - ROOF_GAP
+            return base_height - roof_gap
         ratio = 1.0 - abs(x - half) / half  # 0 aux égouts, 1 au faîtage
-        return base_height + peak_height * max(0.0, ratio) - ROOF_GAP
+        return base_height + peak_height * max(0.0, ratio) - roof_gap
 
     for col in range(num_bricks_width + 1):
         distance_base = col * cell
 
         if distance_base + cell > wall_length + 0.001:
             continue
+
+        # ✅ FIX ANTI-BRIQUES-FLOTTANTES: La limite dépendait de l'offset du
+        # pattern → non monotone en `row` → une rangée refusée pouvait être
+        # suivie d'une rangée acceptée AU-DESSUS DU VIDE. On calcule une
+        # limite CONSERVATRICE sur toute l'emprise possible de la colonne
+        # (offsets 0..3/4 de cellule) → monotone → break sûr.
+        # (roof_bottom_at est en /\ : le min sur un intervalle est à ses bornes)
+        col_limit = min(roof_bottom_at(distance_base),
+                        roof_bottom_at(min(distance_base + cell + max_offset, wall_length)))
 
         for row in range(max_possible_rows + 1):
             # Offset selon le pattern d'appareillage (identique aux autres murs)
@@ -1632,14 +1460,8 @@ def calculate_brick_positions_for_wall_gable(wall_length, base_height, peak_heig
             z = row * (BRICK_HEIGHT + MORTAR_GAP)
             brick_top = z + BRICK_HEIGHT + MORTAR_GAP
 
-            # ✅ Le toit est le plus BAS à l'extrémité de la brique la plus
-            # éloignée du faîtage — vérifier les DEUX bouts et garder le min
-            limit = min(roof_bottom_at(distance), roof_bottom_at(distance + cell))
-
-            if brick_top > limit:
-                # Sous le faîtage la rangée peut continuer plus haut pour les
-                # colonnes plus proches du centre → continue, pas break
-                continue
+            if brick_top > col_limit:
+                break  # Limite monotone par colonne → arrêt sûr
 
             pos, rot = _calculate_brick_transform(direction, distance, z, start_pos)
 
@@ -1688,6 +1510,13 @@ def calculate_brick_positions_for_wall_sloped(wall_length, base_height, roof_hei
         if distance_along_wall_base + brick_spacing + MORTAR_GAP > wall_length + 0.001:
             continue
 
+        # ✅ FIX ANTI-INCOHÉRENCE: Limite CONSERVATRICE calculée à la base de
+        # la colonne (offset 0 = position la plus basse du toit qui monte) —
+        # l'ancienne limite dépendait de l'offset du pattern → non monotone
+        # en `row` → le break coupait des rangées décalées qui tenaient encore
+        ratio0 = distance_along_wall_base / wall_length if wall_length > 0 else 0
+        col_limit = base_height + (roof_height * ratio0) - ROOF_GAP
+
         # Pour chaque rangée possible
         for row in range(max_possible_rows + 1):
             # ✅ NOUVEAU: Calculer l'offset selon le pattern d'appareillage
@@ -1716,20 +1545,13 @@ def calculate_brick_positions_for_wall_sloped(wall_length, base_height, roof_hei
             # Position Z de la brique (bas)
             z = row * (BRICK_HEIGHT + MORTAR_GAP)
 
-            # ✅ FIX DÉFINITIF: Le toit est une DALLE ÉPAISSE (ROOF_THICKNESS_PITCHED).
-            # Sa face INFÉRIEURE est plus basse que la ligne de toit visible.
-            # Les briques doivent rester SOUS cette face inférieure.
-            # On vérifie au DÉBUT de la brique (là où le toit est le plus bas,
-            # car il monte de gauche à droite).
-            ratio = distance_along_wall / wall_length if wall_length > 0 else 0
-            roof_bottom_at_brick_start = base_height + (roof_height * ratio) - ROOF_GAP
-
             # ✅ FIX: La brique maître inclut son mortier intégré → hauteur
             # réelle de la cellule = BRICK_HEIGHT + MORTAR_GAP
             brick_top = z + BRICK_HEIGHT + MORTAR_GAP
 
-            # Si le top de la brique atteint la face inférieure du toit, arrêter cette colonne
-            if brick_top > roof_bottom_at_brick_start:
+            # Le toit est une DALLE ÉPAISSE: rester sous sa face inférieure
+            # (limite monotone par colonne → break sûr)
+            if brick_top > col_limit:
                 break
 
             # ✅ REFACTOR: Utiliser fonction helper pour calcul position/rotation
@@ -1748,347 +1570,14 @@ def calculate_brick_positions_for_wall_sloped(wall_length, base_height, roof_hei
 # MORTIER 3D RÉALISTE
 # ============================================================
 
-def create_mortar_3d_joints(house_width, house_length, total_height, collection, openings=None):
-    """Crée des joints de mortier 3D réalistes au lieu de plans plats
-    
-    Args:
-        house_width (float): Largeur maison
-        house_length (float): Longueur maison
-        total_height (float): Hauteur totale
-        collection: Collection Blender
-        openings (list): Liste des ouvertures à éviter
-        
-    Returns:
-        list: Liste des objets mortier créés
-    """
-    
-    mortars = []
-    bm = bmesh.new()
-    
-    try:
-        # Calculer nombre de rangées et colonnes
-        num_rows = int(total_height / (BRICK_HEIGHT + MORTAR_GAP))
-        num_cols_width = int(house_width / (BRICK_LENGTH + MORTAR_GAP))
-        num_cols_length = int(house_length / (BRICK_LENGTH + MORTAR_GAP))
-        
-        print(f"[BrickGeometry]   Génération joints 3D: {num_rows} rangées")
-        
-        joint_count = 0
-        
-        # === JOINTS HORIZONTAUX (entre rangées) ===
-        for row in range(num_rows + 1):
-            z = row * (BRICK_HEIGHT + MORTAR_GAP) - MORTAR_GAP/2
-            
-            # Mur AVANT
-            # CORRIGÉ : Vérifier les ouvertures
-            if not is_mortar_in_opening(0, 0, z, house_width, MORTAR_GAP, openings):
-                _add_horizontal_joint(bm, 0, 0, z, house_width, BRICK_DEPTH, MORTAR_GAP)
-            joint_count += 1
-            
-            # Mur ARRIÈRE
-            if not is_mortar_in_opening(0, house_length, z, house_width, MORTAR_GAP, openings):
-                _add_horizontal_joint(bm, 0, house_length - BRICK_DEPTH, z, house_width, BRICK_DEPTH, MORTAR_GAP)
-            joint_count += 1
-            
-            # Mur GAUCHE
-            if not is_mortar_in_opening(0, 0, z, BRICK_DEPTH, MORTAR_GAP, openings):
-                _add_horizontal_joint(bm, 0, 0, z, BRICK_DEPTH, house_length, MORTAR_GAP)
-            joint_count += 1
-            
-            # Mur DROIT
-            if not is_mortar_in_opening(house_width, 0, z, BRICK_DEPTH, MORTAR_GAP, openings):
-                _add_horizontal_joint(bm, house_width - BRICK_DEPTH, 0, z, BRICK_DEPTH, house_length, MORTAR_GAP)
-            joint_count += 1
-        
-        # === JOINTS VERTICAUX (entre briques) ===
-        # Murs AVANT/ARRIÈRE
-        for row in range(num_rows):
-            for col in range(num_cols_width + 1):
-                offset = (BRICK_LENGTH + MORTAR_GAP) / 2 if row % 2 == 1 else 0
-                x = col * (BRICK_LENGTH + MORTAR_GAP) - MORTAR_GAP/2 + offset
-                z = row * (BRICK_HEIGHT + MORTAR_GAP)
-                
-                if 0 <= x <= house_width:
-                    # Mur AVANT
-                    # CORRIGÉ : Vérifier les ouvertures
-                    if not is_mortar_in_opening(0, 0, z, house_width, MORTAR_GAP, openings):
-                        _add_vertical_joint(bm, x, 0, z, MORTAR_GAP, BRICK_DEPTH, BRICK_HEIGHT)
-                    joint_count += 1
-                    
-                    # Mur ARRIÈRE
-                    if not is_mortar_in_opening(0, house_length, z, house_width, MORTAR_GAP, openings):
-                        _add_vertical_joint(bm, x, house_length - BRICK_DEPTH, z, MORTAR_GAP, BRICK_DEPTH, BRICK_HEIGHT)
-                    joint_count += 1
-        
-        # Murs GAUCHE/DROIT
-        for row in range(num_rows):
-            for col in range(num_cols_length + 1):
-                offset = (BRICK_LENGTH + MORTAR_GAP) / 2 if row % 2 == 1 else 0
-                y = col * (BRICK_LENGTH + MORTAR_GAP) - MORTAR_GAP/2 + offset
-                z = row * (BRICK_HEIGHT + MORTAR_GAP)
-                
-                if 0 <= y <= house_length:
-                    # Mur GAUCHE
-                    if not is_mortar_in_opening(0, 0, z, BRICK_DEPTH, MORTAR_GAP, openings):
-                        _add_vertical_joint(bm, 0, y, z, BRICK_DEPTH, MORTAR_GAP, BRICK_HEIGHT)
-                    joint_count += 1
-                    
-                    # Mur DROIT
-                    if not is_mortar_in_opening(house_width, 0, z, BRICK_DEPTH, MORTAR_GAP, openings):
-                        _add_vertical_joint(bm, house_width - BRICK_DEPTH, y, z, BRICK_DEPTH, MORTAR_GAP, BRICK_HEIGHT)
-                    joint_count += 1
-        
-        print(f"[BrickGeometry]   {joint_count} joints 3D générés")
-        
-        # Fusionner vertices proches pour optimiser
-        bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=0.001)
-        
-        # Recalculer normales
-        bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
-        
-        # Créer objet
-        mesh = bpy.data.meshes.new("Mortar_3D_Joints")
-        bm.to_mesh(mesh)
-        
-        mortar_obj = bpy.data.objects.new("Mortar_3D", mesh)
-        mortar_obj["house_part"] = "wall"
-        
-        # Appliquer matériau
-        apply_mortar_material_to_object(mortar_obj)
-        
-        collection.objects.link(mortar_obj)
-        mortars.append(mortar_obj)
-        
-        print(f"[BrickGeometry]   ✓ Mesh final: {len(mesh.vertices)} vertices, {len(mesh.polygons)} faces")
-        
-    finally:
-        bm.free()
-    
-    return mortars
-
-
-def _add_horizontal_joint(bm, x, y, z, width, depth, height):
-    """Ajoute un joint horizontal (entre rangées) au bmesh
-    
-    Args:
-        bm: BMesh
-        x, y, z: Position du coin
-        width, depth, height: Dimensions du joint
-    """
-    
-    # 8 vertices pour un cube
-    v1 = bm.verts.new((x, y, z))
-    v2 = bm.verts.new((x + width, y, z))
-    v3 = bm.verts.new((x + width, y + depth, z))
-    v4 = bm.verts.new((x, y + depth, z))
-    
-    v5 = bm.verts.new((x, y, z + height))
-    v6 = bm.verts.new((x + width, y, z + height))
-    v7 = bm.verts.new((x + width, y + depth, z + height))
-    v8 = bm.verts.new((x, y + depth, z + height))
-    
-    # 6 faces
-    bm.faces.new([v1, v2, v3, v4])
-    bm.faces.new([v5, v8, v7, v6])
-    bm.faces.new([v1, v5, v6, v2])
-    bm.faces.new([v2, v6, v7, v3])
-    bm.faces.new([v3, v7, v8, v4])
-    bm.faces.new([v4, v8, v5, v1])
-
-
-def _add_vertical_joint(bm, x, y, z, width, depth, height):
-    """Ajoute un joint vertical (entre briques) au bmesh
-    
-    Args:
-        bm: BMesh
-        x, y, z: Position du coin
-        width, depth, height: Dimensions du joint
-    """
-    
-    # Utilise la même logique que horizontal joint (c'est juste un cube)
-    _add_horizontal_joint(bm, x, y, z, width, depth, height)
-
 
 # ============================================================
 # GÉNÉRATION GÉOMÉTRIE COMPLÈTE (pour HIGH quality)
 # ============================================================
-
-def generate_brick_wall(width, height, depth=BRICK_DEPTH, quality='MEDIUM', openings=None):
-    """Génère UN mur en briques 3D avec toute la géométrie"""
-    
-    use_variations = (quality in ['MEDIUM', 'HIGH'])
-    
-    num_bricks_width = int(width / (BRICK_LENGTH + MORTAR_GAP))
-    num_bricks_height = int(height / (BRICK_HEIGHT + MORTAR_GAP))
-    
-    bricks_bm = bmesh.new()
-    brick_count = 0
-    
-    for row in range(num_bricks_height):
-        offset = (BRICK_LENGTH + MORTAR_GAP) / 2 if row % 2 == 1 else 0
-        
-        for col in range(num_bricks_width + 1):
-            x = col * (BRICK_LENGTH + MORTAR_GAP) + offset
-            y = 0
-            z = row * (BRICK_HEIGHT + MORTAR_GAP)
-            
-            if x + BRICK_LENGTH > width + 0.05:
-                continue
-            
-            # Vérifier si dans une ouverture
-            if is_brick_in_opening(x, y, z, BRICK_LENGTH, BRICK_HEIGHT, openings):
-                continue
-            
-            if use_variations:
-                x += random.uniform(-0.001, 0.001)
-                z += random.uniform(-0.0005, 0.0005)
-            
-            add_brick_to_bmesh(bricks_bm, x, y, z, BRICK_LENGTH, depth, BRICK_HEIGHT, use_variations)
-            brick_count += 1
-    
-    bricks_mesh = bpy.data.meshes.new("BrickWall_Mesh")
-    bricks_bm.to_mesh(bricks_mesh)
-    bricks_bm.free()
-    
-    bricks_obj = bpy.data.objects.new("BrickWall", bricks_mesh)
-    
-    mortar_obj = create_mortar_base(width, height, depth)
-    
-    if quality == 'HIGH':
-        add_brick_displacement(bricks_obj, strength=0.003)
-    
-    return bricks_obj, mortar_obj
-
-
-def add_brick_to_bmesh(bm, x, y, z, length, depth, height, use_variations=True):
-    """Ajoute une brique au bmesh"""
-    
-    if use_variations:
-        height_var = height + random.uniform(-0.001, 0.001)
-        length_var = length + random.uniform(-0.0008, 0.0008)
-    else:
-        height_var = height
-        length_var = length
-    
-    v1 = bm.verts.new((x, y, z))
-    v2 = bm.verts.new((x + length_var, y, z))
-    v3 = bm.verts.new((x + length_var, y + depth, z))
-    v4 = bm.verts.new((x, y + depth, z))
-    
-    v5 = bm.verts.new((x, y, z + height_var))
-    v6 = bm.verts.new((x + length_var, y, z + height_var))
-    v7 = bm.verts.new((x + length_var, y + depth, z + height_var))
-    v8 = bm.verts.new((x, y + depth, z + height_var))
-    
-    bm.faces.new([v1, v2, v3, v4])
-    bm.faces.new([v5, v8, v7, v6])
-    bm.faces.new([v1, v5, v6, v2])
-    bm.faces.new([v2, v6, v7, v3])
-    bm.faces.new([v3, v7, v8, v4])
-    bm.faces.new([v4, v8, v5, v1])
-
-
-def create_mortar_base(width, height, depth):
-    """Crée une couche de mortier plate"""
-    
-    bm = bmesh.new()
-    
-    w = width + 0.02
-    h = height + 0.02
-    d = depth
-    
-    v1 = bm.verts.new((0, 0, 0))
-    v2 = bm.verts.new((w, 0, 0))
-    v3 = bm.verts.new((w, d, 0))
-    v4 = bm.verts.new((0, d, 0))
-    
-    v5 = bm.verts.new((0, 0, h))
-    v6 = bm.verts.new((w, 0, h))
-    v7 = bm.verts.new((w, d, h))
-    v8 = bm.verts.new((0, d, h))
-    
-    bm.faces.new([v1, v2, v3, v4])
-    bm.faces.new([v5, v8, v7, v6])
-    bm.faces.new([v1, v5, v6, v2])
-    bm.faces.new([v2, v6, v7, v3])
-    bm.faces.new([v3, v7, v8, v4])
-    bm.faces.new([v4, v8, v5, v1])
-    
-    mesh = bpy.data.meshes.new("Mortar_Mesh")
-    bm.to_mesh(mesh)
-    bm.free()
-    
-    mortar_obj = bpy.data.objects.new("Mortar", mesh)
-    
-    return mortar_obj
-
-
-def add_brick_displacement(obj, strength=0.003):
-    """Ajoute un modificateur Displace pour relief"""
-
-    # ✅ FIX: Réutiliser la texture existante (avant: un nouveau datablock
-    # Brick_Displace_Tex.001/.002/... par mur et par régénération)
-    tex = bpy.data.textures.get("Brick_Displace_Tex")
-    if tex is None:
-        tex = bpy.data.textures.new("Brick_Displace_Tex", 'CLOUDS')
-        tex.noise_scale = 0.3
-        tex.noise_depth = 3
-        # Compat: noise_basis existe toujours sur CloudsTexture en 4.2,
-        # mais on le garde optionnel par prudence
-        if hasattr(tex, 'noise_basis'):
-            tex.noise_basis = 'BLENDER_ORIGINAL'
-
-    mod = obj.modifiers.new("BrickDisplace", 'DISPLACE')
-    mod.texture = tex
-    mod.strength = strength
-    mod.mid_level = 0.5
-    mod.direction = 'NORMAL'
 
 
 # ============================================================
 # STATS ET UTILITAIRES
 # ============================================================
 
-def calculate_brick_count(width, height):
-    """Calcule le nombre de briques pour un mur"""
-    num_width = int(width / (BRICK_LENGTH + MORTAR_GAP))
-    num_height = int(height / (BRICK_HEIGHT + MORTAR_GAP))
-    
-    total = 0
-    for row in range(num_height):
-        if row % 2 == 1:
-            total += num_width + 1
-        else:
-            total += num_width
-    
-    return total
 
-
-def get_brick_dimensions():
-    """Retourne les dimensions standards des briques"""
-    return {
-        'length': BRICK_LENGTH,
-        'height': BRICK_HEIGHT,
-        'depth': BRICK_DEPTH,
-        'mortar_gap': MORTAR_GAP
-    }
-
-
-def print_house_brick_stats(house_width, house_length, total_height):
-    """Affiche des statistiques sur la maison en briques"""
-    front_back = calculate_brick_count(house_width, total_height) * 2
-    left_right = calculate_brick_count(house_length, total_height) * 2
-    total = front_back + left_right
-    
-    dims = get_brick_dimensions()
-    
-    print("\n" + "="*60)
-    print("STATISTIQUES MAISON EN BRIQUES")
-    print("="*60)
-    print(f"Dimensions maison: {house_width:.2f}m x {house_length:.2f}m x {total_height:.2f}m")
-    print(f"Murs avant/arrière: ~{front_back} briques")
-    print(f"Murs gauche/droite: ~{left_right} briques")
-    print(f"TOTAL: ~{total} briques")
-    print(f"Dimensions brique: {dims['length']*100:.1f}cm x {dims['height']*100:.1f}cm x {dims['depth']*100:.1f}cm")
-    print(f"Épaisseur mortier: {dims['mortar_gap']*100:.1f}cm")
-    print("="*60 + "\n")

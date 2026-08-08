@@ -13,7 +13,7 @@ moteur crée:
 
   - 1 SEUL objet "nuage de points" (un vertex par brique, avec la
     rotation stockée en attribut)
-  - 1 modificateur Geometry Nodes de 5 nodes qui instancie la brique
+  - 1 modificateur Geometry Nodes de 6 nodes qui instancie la brique
     maître sur chaque point
 
 Résultat: même géométrie visuelle, mais UN objet au lieu de milliers,
@@ -25,8 +25,6 @@ seule la matérialisation change.
 """
 
 import bpy
-import math
-from mathutils import Vector
 
 from . import brick_geometry
 
@@ -36,18 +34,17 @@ ROT_ATTR = "brick_rot"
 
 
 def _build_instancer_node_group(brick_master):
-    """Construit (ou reconstruit) le node group d'instanciation.
+    """Construit le node group d'instanciation.
 
-    Arbre (5 nodes):
+    Arbre (6 nodes):
         Group Input ─▶ Mesh to Points ─▶ Instance on Points ─▶ Group Output
                            Rotation ◀── Named Attribute 'brick_rot'
                            Instance ◀── Object Info (brique maître)
-    """
-    # Reconstruire à chaque génération (la brique maître change)
-    existing = bpy.data.node_groups.get(NODE_GROUP_NAME)
-    if existing is not None:
-        bpy.data.node_groups.remove(existing)
 
+    ✅ FIX: Un groupe NEUF par génération (Blender suffixe .001 si besoin).
+    L'ancienne réutilisation par nom supprimait le groupe de la maison
+    précédente → son modificateur perdait son node_group (murs invisibles).
+    """
     ng = bpy.data.node_groups.new(NODE_GROUP_NAME, 'GeometryNodeTree')
 
     # Interface (API Blender 4.x)
@@ -114,12 +111,9 @@ def generate_walls_geonodes(
     print("[BrickGN] GÉNÉRATION MURS BRIQUES — MOTEUR GEOMETRY NODES")
     print("=" * 70)
 
-    # 1. Brique maître + matériaux (logique partagée)
-    brick_master = brick_geometry.create_brick_master(
-        collection, quality, brick_material_mode, brick_color,
-        brick_preset, custom_material, mortar_color)
-
-    # 2. Positions (logique partagée: murs adaptés au toit + linteaux)
+    # 1. Positions D'ABORD (logique partagée: murs adaptés au toit + linteaux)
+    # ✅ FIX: Calculées avant de créer le master — un early-return sur liste
+    # vide laissait un Brick_Master orphelin dans la collection
     brick_positions = brick_geometry.compute_all_brick_positions(
         house_width, house_length, total_height,
         openings=openings, roof_type=roof_type,
@@ -129,6 +123,15 @@ def generate_walls_geonodes(
         print("[BrickGN] ⚠️ Aucune position de brique calculée")
         real_wall_height, _ = brick_geometry.compute_real_wall_height(total_height)
         return [], real_wall_height
+
+    # 2. Brique maître + matériaux (logique partagée)
+    # ✅ FIX CRITIQUE: keep_evaluated=True — hide_viewport retirait le
+    # master du depsgraph et le node Object Info sortait une géométrie
+    # VIDE (murs GN invisibles!)
+    brick_master = brick_geometry.create_brick_master(
+        collection, quality, brick_material_mode, brick_color,
+        brick_preset, custom_material, mortar_color,
+        keep_evaluated=True)
 
     # 3. Nuage de points: 1 vertex par brique
     mesh = bpy.data.meshes.new("Brick_Walls_Points")
@@ -146,7 +149,7 @@ def generate_walls_geonodes(
     walls_obj["house_part"] = "wall"
     collection.objects.link(walls_obj)
 
-    # 4. Modificateur Geometry Nodes (5 nodes)
+    # 4. Modificateur Geometry Nodes (6 nodes)
     mod = walls_obj.modifiers.new("BrickInstancer", 'NODES')
     mod.node_group = _build_instancer_node_group(brick_master)
 

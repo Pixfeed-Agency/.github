@@ -187,7 +187,8 @@ class HouseAddonPreferences(AddonPreferences):
         # En-tête
         box = layout.box()
         row = box.row()
-        row.label(text="House Extension v1.0", icon='HOME')
+        from . import bl_info
+        row.label(text="House Extension v" + ".".join(str(v) for v in bl_info["version"]), icon='HOME')
         row = box.row()
         row.label(text="Par mvaertan")
         
@@ -293,7 +294,7 @@ class HouseAddonPreferences(AddonPreferences):
         box = layout.box()
         col = box.column(align=True)
         col.label(text="Support & Documentation", icon='QUESTION')
-        col.operator("wm.url_open", text="Documentation", icon='URL').url = "https://github.com/mvaertan/house"
+        col.operator("wm.url_open", text="Documentation", icon='URL').url = "https://github.com/mvaertan/house-generator"
         col.operator("wm.url_open", text="Signaler un bug", icon='URL').url = "https://github.com/mvaertan/house/issues"
 
 

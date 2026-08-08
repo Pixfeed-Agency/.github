@@ -9,12 +9,11 @@
 
 Architecture:
 - brick_geometry.py : Génération de la géométrie 3D des murs + matériaux
+  (logique de placement partagée: compute_all_brick_positions)
+- brick_geonodes.py : Moteur Geometry Nodes opt-in (1 objet au lieu de
+  milliers d'instances)
 - pbr_scanner.py : Scan automatique des textures PBR
 - presets/ : Matériaux procéduraux modulaires (1 fichier = 1 preset)
-
-✅ Note: brick.py a été supprimé — c'était un doublon périmé de
-brick_geometry.py, jamais appelé, avec des imports cassés
-(from .materials import brick) et des API Blender dépréciées.
 """
 
 from . import brick_geometry

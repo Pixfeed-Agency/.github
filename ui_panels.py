@@ -8,6 +8,22 @@
 import bpy
 from bpy.types import Panel
 
+from .materials.brick_geometry import BRICK_LENGTH, BRICK_HEIGHT, MORTAR_GAP
+
+# Surface d'une cellule brique+joint sur la façade (m²)
+BRICK_CELL_AREA = (BRICK_LENGTH + MORTAR_GAP) * (BRICK_HEIGHT + MORTAR_GAP)
+
+
+def _estimate_brick_count(props):
+    """✅ Estimation UNIQUE du nombre de briques (partagée entre panneaux)
+
+    Basée sur la cellule réelle brique+joint — l'ancienne formule (/0.014)
+    ignorait les joints de mortier et surestimait de ~28%.
+    """
+    perimeter = 2 * (props.house_width + props.house_length)
+    total_height = props.num_floors * props.floor_height
+    return int(perimeter * total_height / BRICK_CELL_AREA)
+
 
 class HOUSE_PT_main_panel(Panel):
     """Panneau principal du générateur de maison"""
@@ -57,15 +73,30 @@ class HOUSE_PT_main_panel(Panel):
     
     def draw_manual_mode(self, context, layout, props):
         """Interface pour le mode manuel"""
-        
+
         box = layout.box()
         box.label(text="Plan 2D", icon='IMAGE_DATA')
         box.prop(props, "plan_image_path", text="")
         box.prop(props, "plan_scale")
         box.prop(props, "plan_opacity")
-        
+
+        row = box.row(align=True)
+        row.operator("house.import_plan", text="Importer", icon='IMPORT')
+        row.operator("house.toggle_plan", text="Afficher/Masquer", icon='HIDE_OFF')
+
+        # ✅ FIX: Les outils de construction étaient implémentés et
+        # enregistrés mais AUCUN bouton ne les exposait — le mode manuel
+        # n'avait aucun moyen de créer un mur!
         layout.separator()
-        layout.operator("house.import_plan", text="Importer le plan", icon='IMPORT')
+        box = layout.box()
+        box.label(text="Construction", icon='TOOL_SETTINGS')
+        col = box.column(align=True)
+        col.operator("house.add_wall", text="Ajouter un mur (2 clics)", icon='MOD_BUILD')
+        row = col.row(align=True)
+        row.operator("house.add_door", text="Porte", icon='MESH_PLANE')
+        row.operator("house.add_window", text="Fenêtre", icon='MOD_LATTICE')
+
+        layout.separator()
         # ✅ FIX: 'house.generate_from_plan' n'existe pas (le panneau entier
         # plantait en mode MANUEL) — l'opérateur réel est finalize_manual
         layout.operator("house.finalize_manual", text="Finaliser la construction", icon='HOME')
@@ -93,6 +124,16 @@ class HOUSE_PT_roof_panel(Panel):
         col.prop(props, "roof_pitch", text="Pente")
         col.prop(props, "roof_overhang", text="Débord")
 
+        # ✅ UX: Avertir DANS l'UI quand la pente sera clampée à la plage
+        # normative du type de toit (avant: clamp silencieux, console only)
+        from .operators_auto import HOUSE_OT_generate_auto
+        lo, hi = HOUSE_OT_generate_auto.PITCH_RANGES.get(props.roof_type, (5.0, 60.0))
+        if not (lo <= props.roof_pitch <= hi):
+            row = layout.row()
+            row.alert = True
+            clamped = max(lo, min(hi, props.roof_pitch))
+            row.label(text=f"Pente ramenée à {clamped:.0f}° (plage {lo:.0f}-{hi:.0f}°)", icon='ERROR')
+
 
 class HOUSE_PT_windows_panel(Panel):
     """Panneau pour les paramètres des fenêtres"""
@@ -119,10 +160,13 @@ class HOUSE_PT_windows_panel(Panel):
         
         col = layout.column(align=True)
         col.prop(props, "window_width", text="Largeur")
-        col.prop(props, "window_height", text="Hauteur")
-        
+        # ✅ FIX: En mode AUTO, la hauteur des fenêtres est pilotée par le
+        # RATIO (window_height ne sert qu'au mode manuel — le slider
+        # "Hauteur" affiché ici ne faisait rien)
+        col.prop(props, "window_height_ratio", text="Hauteur (ratio étage)")
+
         layout.separator()
-        
+
         col = layout.column(align=True)
         col.prop(props, "num_windows_front", text="Façade")
         col.prop(props, "num_windows_side", text="Côtés")
@@ -147,6 +191,10 @@ class HOUSE_PT_doors_panel(Panel):
         
         col = layout.column(align=True)
         col.prop(props, "front_door_width", text="Largeur porte")
+        # ✅ FIX: door_type et door_quality étaient lus par le générateur
+        # mais jamais exposés — 4 styles et 3 qualités inaccessibles!
+        col.prop(props, "door_type", text="Type")
+        col.prop(props, "door_quality", text="Qualité")
 
 
 class HOUSE_PT_walls_panel(Panel):
@@ -181,12 +229,13 @@ class HOUSE_PT_walls_panel(Panel):
             if props.brick_use_geonodes:
                 box.label(text="1 objet, viewport fluide", icon='GEOMETRY_NODES')
             
-            total_height = props.num_floors * props.floor_height
-            brick_count_approx = int((props.house_width * 2 + props.house_length * 2) * total_height / 0.014)
-            
+            # ✅ FIX: Estimation basée sur la CELLULE réelle brique+joint
+            # (0.232×0.077m) — l'ancien /0.014 surestimait de ~28%
+            brick_count_approx = _estimate_brick_count(props)
+
             box.separator()
             info_box = box.box()
-            info_box.label(text=f"Briques: {brick_count_approx:,}", icon='INFO')
+            info_box.label(text=f"Briques: ~{brick_count_approx:,}", icon='INFO')
             
             if props.brick_3d_quality == 'HIGH':
                 info_box.label(text="Calcul intensif", icon='ERROR')
@@ -285,26 +334,28 @@ class HOUSE_PT_materials_panel(Panel):
             subbox.label(text="Appareillage:", icon='MESH_GRID')
             subbox.prop(props, "brick_bonding_pattern", text="")
 
-        # Si murs simples : afficher l'ancien système (inchangé)
+        # Si murs simples : couleur du mur
+        # ✅ FIX: L'ancienne section (wall_material_type / wall_brick_quality /
+        # wall_brick_color) n'était lue par AUCUN code générateur — 8 styles
+        # et 3 qualités qui ne faisaient rien, pendant que la propriété
+        # réellement utilisée (wall_material_color) n'était pas exposée!
         else:
-            col.label(text="Type de briques:", icon='MESH_CUBE')
-            col.prop(props, "wall_material_type", text="")
-            
-            col.separator()
-            col.label(text="Qualité matériau shader:", icon='SHADING_RENDERED')
-            col.prop(props, "wall_brick_quality", text="")
-            
-            if props.wall_material_type == 'BRICK_PAINTED':
-                col.separator()
-                col.label(text="Couleur personnalisée:")
-                col.prop(props, "wall_brick_color", text="")
-        
+            col.label(text="Couleur des murs:", icon='COLOR')
+            col.prop(props, "wall_material_color", text="")
+
         layout.separator()
-        
+
         box = layout.box()
         box.label(text="Toit", icon='MATERIAL')
         col = box.column(align=True)
-        col.prop(props, "roof_color", text="Couleur")
+        # ✅ FIX: Le swatch éditait roof_color, mais le générateur lit
+        # roof_material_color — la couleur du toit ne changeait jamais!
+        col.prop(props, "roof_material_color", text="Couleur")
+
+        box = layout.box()
+        box.label(text="Planchers", icon='MATERIAL')
+        col = box.column(align=True)
+        col.prop(props, "floor_material_color", text="Couleur")
 
 
 class HOUSE_PT_elements_panel(Panel):
@@ -362,12 +413,13 @@ class HOUSE_PT_advanced_panel(Panel):
         layout.use_property_decorate = False
         
         col = layout.column(align=True)
-        col.prop(props, "auto_lighting", text="Éclairage auto")
-        col.prop(props, "show_dimensions", text="Afficher dimensions")
-        col.prop(props, "show_grid", text="Afficher grille")
-        
+        # ✅ FIX: "(bientôt)" — fonctionnalité non implémentée (et défaut
+        # passé à False: elle levait un warning à CHAQUE génération)
+        col.prop(props, "auto_lighting", text="Éclairage auto (bientôt)")
+        # ✅ FIX: show_dimensions / show_grid retirés — lus par aucun code
+
         layout.separator()
-        
+
         col = layout.column(align=True)
         col.prop(props, "collection_name", text="Collection")
         col.prop(props, "random_seed", text="Seed aléatoire")
@@ -401,18 +453,21 @@ class HOUSE_PT_info_panel(Panel):
         col.label(text=f"Périmètre: {wall_perimeter:.1f} m")
         
         if props.wall_construction_type == 'BRICK_3D':
-            brick_count = int(wall_perimeter * total_height / 0.014)
+            # ✅ FIX: Formule partagée (l'ancienne surestimait de ~28%)
+            brick_count = _estimate_brick_count(props)
             col.separator()
-            col.label(text=f"Briques: {brick_count:,}")
-        
+            col.label(text=f"Briques: ~{brick_count:,}")
+
         layout.separator()
-        
+
         box = layout.box()
         box.label(text="À propos", icon='QUESTION')
         col = box.column(align=True)
-        col.label(text="House Generator v1.0")
+        # ✅ FIX: Version lue depuis bl_info (le "v1.0" en dur avait dérivé)
+        from . import bl_info
+        col.label(text="House Generator v" + ".".join(str(v) for v in bl_info["version"]))
         col.label(text="© 2025 mvaertan")
-        
+
         layout.separator()
         layout.operator("wm.url_open", text="Documentation", icon='URL').url = "https://github.com/mvaertan/house-generator"
 
