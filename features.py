@@ -12,6 +12,7 @@
 import bpy
 import bmesh
 import math
+import random
 from mathutils import Vector, Matrix, Euler
 
 
@@ -411,14 +412,61 @@ TILE_OVERLAP = 0.09
 
 
 def _create_tile_master(collection, color):
-    """Tuile mécanique simplifiée: plaque + bourrelet central"""
+    """✅ V2: Vraie tuile CANAL galbée (profil sinusoïdal, shading lisse)
+
+    Remplace les "2 boîtes" de la v1 (le look Super Nintendo). Grille
+    incurvée + jupe d'épaisseur + nez à l'égout, polygones lissés.
+    ~200 tris — négligeable puisque le mesh est PARTAGÉ par toutes les
+    instances GN.
+    """
+    w = TILE_W - 0.014       # largeur utile (léger jeu entre colonnes)
+    amp = 0.035              # hauteur du galbe
+    thick = 0.012            # épaisseur visible de la jupe
+    nx, ny = 12, 5           # résolution du profil / de la longueur
+
     bm = bmesh.new()
-    _add_box(bm, 0, 0, 0, TILE_W - 0.012, TILE_L, TILE_T)
-    # Bourrelet (galbe) longitudinal
-    _add_box(bm, (TILE_W - 0.012) / 2 - 0.035, 0, TILE_T,
-             (TILE_W - 0.012) / 2 + 0.035, TILE_L, TILE_T + 0.018)
-    mat = _simple_material("House_Tile", color, roughness=0.75)
+
+    def z_profile(u):
+        """Galbe en S doux: creux sur les bords, bombé au centre"""
+        return amp * (0.5 - 0.5 * math.cos(2 * math.pi * u)) + 0.35 * amp * math.sin(math.pi * u)
+
+    # Surface supérieure (grille galbée), avec léger relèvement du nez
+    top = []
+    for iy in range(ny + 1):
+        v = iy / ny
+        y = v * TILE_L
+        nose = 0.010 * (1.0 - v) ** 2  # nez relevé côté égout (y=0)
+        row = []
+        for ix in range(nx + 1):
+            u = ix / nx
+            row.append(bm.verts.new((u * w, y, z_profile(u) + nose)))
+        top.append(row)
+    for iy in range(ny):
+        for ix in range(nx):
+            bm.faces.new([top[iy][ix], top[iy][ix + 1],
+                          top[iy + 1][ix + 1], top[iy + 1][ix]])
+
+    # Jupe d'épaisseur sur le pourtour (bord tombant de `thick`)
+    def skirt(va, vb):
+        a2 = bm.verts.new((va.co.x, va.co.y, va.co.z - thick))
+        b2 = bm.verts.new((vb.co.x, vb.co.y, vb.co.z - thick))
+        bm.faces.new([va, vb, b2, a2])
+        return a2, b2
+
+    for iy in range(ny):   # côtés gauche/droit
+        skirt(top[iy][0], top[iy + 1][0])
+        skirt(top[iy + 1][nx], top[iy][nx])
+    for ix in range(nx):   # nez (égout) et queue (faîtage)
+        skirt(top[0][ix + 1], top[0][ix])
+        skirt(top[ny][ix], top[ny][ix + 1])
+
+    mat = _simple_material("House_Tile", color, roughness=0.65)
     obj = _new_mesh_obj("Tile_Master", bm, collection, "roof", mat)
+
+    # ✅ Shading LISSE (l'aspect facetté criait "low-poly")
+    for poly in obj.data.polygons:
+        poly.use_smooth = True
+
     obj.hide_render = True
     try:
         obj.hide_set(True)
@@ -433,6 +481,9 @@ def build_roof_tiles(props, collection, wall_height, effective_pitch, o_eave, o_
     Même architecture que les briques: positions+rotations calculées en
     Python, matérialisées par UN objet nuage de points + Instance on Points.
     """
+    # Seed déterministe: mêmes micro-variations à chaque régénération
+    random.seed(42)
+
     roof_type = props.roof_type
     if roof_type not in ('GABLE', 'SHED'):
         print(f"[House] Tuiles: non supporté pour {roof_type} (GABLE/SHED seulement pour l'instant)")
@@ -466,7 +517,14 @@ def build_roof_tiles(props, collection, wall_height, effective_pitch, o_eave, o_
             row_lift = normal * (iv * 0.004)
             for iu in range(n_u):
                 p = origin + dir_u * (iu * step_u) + dir_v * (iv * step_v) + row_lift
-                positions.append((p, rot))
+                # ✅ V2: Micro-variation par tuile (pose imparfaite réelle)
+                # — l'alignement parfait criait "généré par ordinateur"
+                j = math.radians(0.8)
+                r = Euler((rot.x + random.uniform(-j, j),
+                           rot.y + random.uniform(-j, j),
+                           rot.z + random.uniform(-j, j)), 'XYZ')
+                p = p + normal * random.uniform(0, 0.003)
+                positions.append((p, r))
             iv += 1
 
     if roof_type == 'SHED':
