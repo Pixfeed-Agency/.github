@@ -142,11 +142,30 @@ class WindowGenerator:
 
                 # ✅ FIX: Lier en DERNIER (voir ci-dessus)
                 collection.objects.link(window_obj)
+
+                # ✅ v1.7: vantail MOBILE articulé (coulissante/guillotine)
+                sash_obj = None
+                if window_type in ('SLIDING', 'DOUBLE_HUNG'):
+                    try:
+                        sash_obj = self._create_moving_sash(
+                            window_type, width, height, location, orientation)
+                        sash_obj["house_part"] = "window"
+                        frame_mat = window_obj.data.materials[0] \
+                            if window_obj.data.materials else None
+                        sash_obj.data.materials[0] = frame_mat
+                        sash_obj.data.materials[1] = self._get_or_make_glass_material()
+                        collection.objects.link(sash_obj)
+                    except Exception as e:
+                        print(f"[Windows] Vantail mobile échoué: {e}")
+                        sash_obj = None
+
+                out = [window_obj]
                 if glass_obj:
                     collection.objects.link(glass_obj)
-                    return [window_obj, glass_obj]
-
-                return [window_obj]
+                    out.append(glass_obj)
+                if sash_obj:
+                    out.append(sash_obj)
+                return out
 
         except Exception as e:
             print(f"[Windows] ERREUR création fenêtre {window_type}: {e}")
@@ -324,6 +343,77 @@ class WindowGenerator:
         finally:
             bm.free()
     
+    def _create_moving_sash(self, window_type, width, height, location, orientation):
+        """✅ v1.7: VANTAIL MOBILE — coulissant (moitié droite, glisse
+        latéralement) ou guillotine (moitié basse, monte). Objet séparé
+        avec vitre intégrée, piloté par la propriété 'ouverture'."""
+        fw = self.frame_width
+        sw = 0.045          # cadre du vantail
+        depth = 0.042
+        oy = 0.026          # devant le dormant (passe devant l'autre moitié)
+        hw, hh = width / 2, height / 2
+
+        if window_type == 'SLIDING':
+            x0, x1 = -0.008, hw - fw + 0.008
+            z0, z1 = -hh + fw, hh - fw
+        else:  # DOUBLE_HUNG: vantail BAS
+            x0, x1 = -hw + fw, hw - fw
+            z0, z1 = -hh + fw - 0.008, 0.008
+
+        bm = bmesh.new()
+        try:
+            def bar(cx, cz, sx, sz):
+                self._add_box(bm, center=Vector((cx, oy, cz)),
+                              size=(sx, depth, sz))
+            # traverses haut/bas ENTRE les montants (coupe droite)
+            bar((x0 + x1) / 2, z1 - sw / 2, (x1 - x0) - 2 * sw, sw)
+            bar((x0 + x1) / 2, z0 + sw / 2, (x1 - x0) - 2 * sw, sw)
+            bar(x0 + sw / 2, (z0 + z1) / 2, sw, z1 - z0)
+            bar(x1 - sw / 2, (z0 + z1) / 2, sw, z1 - z0)
+            n_frame_faces = len(bm.faces)
+            # vitre intégrée
+            self._add_box(bm, center=Vector(((x0 + x1) / 2, oy, (z0 + z1) / 2)),
+                          size=((x1 - x0) - 2 * sw + 0.004, 0.008,
+                                (z1 - z0) - 2 * sw + 0.004))
+
+            rotation_matrix = self._get_orientation_matrix(orientation)
+            bmesh.ops.transform(bm, matrix=rotation_matrix, verts=bm.verts)
+            bmesh.ops.translate(bm, verts=bm.verts, vec=location)
+            obj = self._bmesh_to_object(bm, f"Window{window_type}_Sash")
+        finally:
+            bm.free()
+
+        # slots matériaux: 0 = cadre, 1 = vitre (index stables, pas de bevel)
+        while len(obj.data.materials) < 2:
+            obj.data.materials.append(None)
+        for poly in obj.data.polygons:
+            poly.material_index = 0 if poly.index < n_frame_faces else 1
+
+        # driver 'ouverture' (0 = fermé, 1 = ouvert)
+        obj["ouverture"] = 0.0
+        try:
+            ui = obj.id_properties_ui("ouverture")
+            ui.update(min=0.0, max=1.0,
+                      description="0 = fermé, 1 = ouvert (coulisse)")
+        except Exception:
+            pass
+        if window_type == 'DOUBLE_HUNG':
+            axis, travel = 2, (height / 2 - fw - 0.01)
+        else:
+            axis = 0 if orientation in ('front', 'back') else 1
+            sign = {'front': -1, 'back': 1, 'left': -1, 'right': 1}[orientation]
+            travel = sign * (width / 2 - fw - 0.01)
+        fcu = obj.driver_add('location', axis)
+        drv = fcu.driver
+        drv.type = 'SCRIPTED'
+        var = drv.variables.new()
+        var.name = 'o'
+        var.type = 'SINGLE_PROP'
+        var.targets[0].id = obj
+        var.targets[0].data_path = '["ouverture"]'
+        drv.expression = f'o * {travel:.4f}'
+        return obj
+
     # ============================================================
     # FIXED WINDOW (Fenêtre fixe)
     # ============================================================

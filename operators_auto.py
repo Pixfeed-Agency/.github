@@ -910,6 +910,21 @@ class HOUSE_OT_generate_auto(Operator):
                     'type': 'window'
                 })
 
+        # ✅ v1.7: PORTE-FENÊTRE derrière le balcon (étage 1, façade avant)
+        if getattr(props, 'include_balcony', False) and props.num_floors > 1:
+            pf_w = min(1.5, max(1.1, getattr(props, 'balcony_width', 2.6) - 0.6))
+            pf_z = floor_height_actual + 0.02
+            pf_x = width / 2 - pf_w / 2
+            # supprimer les fenêtres avant de l'étage 1 qui chevauchent
+            openings = [o for o in openings
+                        if not (o['type'] == 'window' and o['wall'] == 'front'
+                                and o['z'] > floor_height_actual * 0.9
+                                and abs((o['x'] + o['width'] / 2) - width / 2)
+                                < pf_w / 2 + o['width'] / 2 + 0.3)]
+            openings.append({'x': pf_x, 'y': 0, 'z': pf_z, 'width': pf_w,
+                             'height': 2.05, 'depth': wall_depth,
+                             'wall': 'front', 'type': 'door'})
+
         # ✅ MULTI-VOLUMES: fenêtres masquées par l'aile supprimées +
         # ouverture de PASSAGE dans le mur mitoyen
         for wing in getattr(self, '_wings', []):
@@ -1686,6 +1701,10 @@ class HOUSE_OT_generate_auto(Operator):
                     continue
                 if self._covered_by_wing('front', x_pos):
                     continue
+                # ✅ v1.7: la porte-fenêtre du balcon remplace la fenêtre
+                if floor >= 1 and getattr(props, 'include_balcony', False) and \
+                        abs(x_pos - width / 2) < getattr(props, 'balcony_width', 2.6) / 2 + 0.4:
+                    continue
 
                 window_gen.generate_window(
                     window_type=props.window_type,
@@ -2050,13 +2069,28 @@ class HOUSE_OT_generate_auto(Operator):
         features.build_terrace(props, collection, self._plinth_visible(props))
 
     def _generate_balcony(self, context, props, collection):
-        """✅ Balcon au 1er étage avec rambarde"""
+        """✅ Balcon au 1er étage + PORTE-FENÊTRE française articulée"""
         from . import features
         if getattr(self, 'real_wall_height', None):
             fh = self.real_wall_height / props.num_floors
         else:
             fh = props.floor_height
         features.build_balcony(props, collection, fh)
+        # ✅ v1.7: porte-fenêtre FRENCH dans l'ouverture du balcon
+        try:
+            from .doors import DoorGenerator, DOOR_FRAME_DEPTH
+            wall_depth = self._get_wall_depth(props)
+            pf_w = min(1.5, max(1.1, getattr(props, 'balcony_width', 2.6) - 0.6))
+            gen = DoorGenerator(quality=props.door_quality)
+            gen.generate_door(
+                door_type='FRENCH', width=pf_w, height=2.05,
+                location=Vector((props.house_width / 2 - pf_w / 2,
+                                 (wall_depth - DOOR_FRAME_DEPTH) / 2,
+                                 fh + 0.02)),
+                orientation='front', collection=collection)
+            print("[House] ✓ Porte-fenêtre posée derrière le balcon")
+        except Exception as e:
+            print(f"[House] Porte-fenêtre du balcon échouée: {e}")
 
     def _generate_chimney(self, context, props, collection):
         """✅ Cheminée en brique traversant le toit"""
