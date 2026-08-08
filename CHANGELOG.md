@@ -1,5 +1,33 @@
 # Changelog — House Generator
 
+## v1.13.0 — Proxy viewport + régénération incrémentale (chantier n°5)
+
+Les tags posés par le pipeline (v1.11) portent leurs fruits: la "Mise à
+jour auto" ne reconstruit plus TOUTE la maison à chaque réglage.
+
+- **Régénération INCRÉMENTALE**: chaque objet est estampillé par
+  l'étape qui l'a créé (`house_step`); le callback de mise à jour
+  diffe les props contre le dernier build → domaines invalidés
+  (`PROP_TAGS`) → seules les étapes de ces domaines sont rejouées
+  (leurs objets supprimés/recréés, l'état inter-étapes est restauré
+  depuis `pipeline.LAST_STATE` au lieu d'être recalculé)
+- **Sûr par défaut**: toute propriété absente de la carte invalide
+  `all` (reconstruction complète); la carte ne liste que les
+  raccourcis prouvés — volets/fenêtres/porte (joinery), accessoires
+  de toiture (roof), environnement (env), terrasse, intérieurs
+- **Preuve d'équivalence** (`tests/invariants/test_incremental.py`,
+  5 tests): build(A) puis regen incrémentale vers B == build(B)
+  direct — mêmes objets, mêmes sommets, mêmes modificateurs; la
+  cheminée ajoutée apparaît, les tuiles retirées disparaissent
+- Mesures: maison briques GN + environnement — complet 0.31s,
+  volets 0.05s, toit 0.03s, intérieurs 0.02s (6-15×)
+- **Proxy viewport** (case à côté de "Mise à jour auto"): suspend les
+  instanciations GN lourdes (tuiles, ~50k touffes d'herbe) dans la
+  vue 3D seulement — le rendu F12 reste complet, la silhouette reste
+  lisible (dalles et sol visibles); ré-appliqué après chaque regen
+- `materials`/`photo_finish` sont toujours rejouées en incrémental
+  (peu coûteuses; la géométrie recréée doit être repeinte)
+
 ## v1.12.0 — Niveau de détail Brouillon / Normal / Photo (chantier n°4)
 
 Nouvelle propriété `detail_level` (panneau principal, "Détail") — trois

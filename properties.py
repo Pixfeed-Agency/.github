@@ -22,13 +22,85 @@ from bpy.props import (
 
 _regenerate_pending = False
 
+# ============================================================
+# ✅ v1.13 — RÉGÉNÉRATION INCRÉMENTALE (chantier qualité n°5)
+#
+# Quelle propriété invalide quel DOMAINE du pipeline (les `tags` des
+# étapes, voir pipeline.py). Toute propriété ABSENTE de cette carte
+# invalide 'all' (reconstruction complète) — le défaut est la
+# sécurité, la carte ne liste que les raccourcis PROUVÉS sûrs:
+# des réglages qui ne changent ni l'enveloppe, ni les trous des murs.
+# ============================================================
+
+PROP_TAGS = {
+    # Menuiseries et accessoires de façade (mêmes trous, autres objets)
+    'shutter_color': ('joinery',),
+    'include_shutters': ('joinery',),
+    'window_type': ('joinery',),
+    'door_type': ('joinery',),
+    # Accessoires de toiture
+    'include_gutters': ('roof',),
+    'include_chimney': ('roof',),
+    'roof_covering': ('roof',),
+    'include_roof_windows': ('roof',),
+    'num_roof_windows': ('roof',),
+    'roof_window_style': ('roof',),
+    # Environnement / éclairage
+    'include_environment': ('env',),
+    'auto_lighting': ('env',),
+    # Annexes
+    'include_terrace': ('structure',),
+    # Intérieurs (structure aussi: la trémie est percée dans les dalles)
+    'interior_wall_color': ('interior',),
+    'num_bedrooms': ('interior', 'structure'),
+}
+
+# Photographie des valeurs de props au dernier build — le callback
+# update de Blender ne dit PAS quelle propriété a changé; on diffe.
+_LAST_PROPS = {}
+_pending_tags = set()
+
+
+def _prop_value(props, name):
+    v = getattr(props, name)
+    try:
+        return tuple(v)          # vecteurs / couleurs
+    except TypeError:
+        return v
+
+
+def _iter_prop_names(props):
+    for p in props.bl_rna.properties:
+        if p.identifier not in ('rna_type', 'name') and not p.is_readonly:
+            yield p.identifier
+
+
+def update_snapshot(props):
+    """Appelé par l'opérateur après chaque build réussi."""
+    _LAST_PROPS.clear()
+    for n in _iter_prop_names(props):
+        _LAST_PROPS[n] = _prop_value(props, n)
+
+
+def _changed_tags(props):
+    """Diffe les props contre le dernier build → tags invalidés."""
+    if not _LAST_PROPS:
+        return {'all'}
+    tags = set()
+    for n in _iter_prop_names(props):
+        if _LAST_PROPS.get(n) != _prop_value(props, n):
+            tags.update(PROP_TAGS.get(n, ('all',)))
+    return tags or {'all'}
+
 
 def _deferred_regenerate():
     """Exécute la régénération hors du contexte restreint du callback update"""
     global _regenerate_pending
     _regenerate_pending = False
+    tags = ",".join(sorted(_pending_tags))
+    _pending_tags.clear()
     try:
-        bpy.ops.house.generate_auto()
+        bpy.ops.house.generate_auto(invalidate=tags)
     except Exception as e:
         print(f"[House] ⚠️ Mise à jour auto échouée: {e}")
     return None  # Ne pas répéter le timer
@@ -40,14 +112,30 @@ def regenerate_house(self, context):
     ✅ FIX: Implémenté (avant: stub 'pass' — la case 'Mise à jour auto'
     ne faisait rien). L'appel d'opérateur est différé via un timer car les
     callbacks update s'exécutent dans un contexte restreint.
+    ✅ v1.13: les props changées sont diffées contre le dernier build →
+    seuls les domaines touchés sont rejoués (voir PROP_TAGS).
     """
     global _regenerate_pending
     if not getattr(context.scene, 'house_auto_update', False):
         return
+    _pending_tags.update(_changed_tags(self))
     if _regenerate_pending:
         return  # Une régénération est déjà planifiée (anti-rafale)
     _regenerate_pending = True
     bpy.app.timers.register(_deferred_regenerate, first_interval=0.1)
+
+
+def _toggle_viewport_proxy(self, context):
+    """✅ v1.13: allègement viewport immédiat (aucune régénération)."""
+    try:
+        from . import operators_auto
+        props = context.scene.house_generator
+        coll = bpy.data.collections.get(props.collection_name or "House")
+        if coll is not None:
+            operators_auto.apply_viewport_proxy(
+                coll, context.scene.house_viewport_proxy)
+    except Exception as e:
+        print(f"[House] ⚠️ Proxy viewport: {e}")
 
 
 # ✅ FIX: Cache module-level pour les items d'EnumProperty dynamiques.
@@ -972,6 +1060,13 @@ def register():
         description="Régénérer automatiquement la maison quand les paramètres changent",
         default=False
     )
+    bpy.types.Scene.house_viewport_proxy = bpy.props.BoolProperty(
+        name="Proxy viewport",
+        description="Suspendre les instanciations lourdes (tuiles, herbe) "
+                    "dans la vue 3D — le rendu final reste complet",
+        default=False,
+        update=_toggle_viewport_proxy
+    )
     
     print("[House] Propriétés enregistrées")
     print("  ✓ Système matériaux briques 3 modes (COLOR/PRESET/CUSTOM)")
@@ -981,7 +1076,8 @@ def register():
 def unregister():
     """Désenregistrement des propriétés"""
     # ✅ FIX: Guards pour ne pas planter si register() a partiellement échoué
-    for attr in ("house_generator", "house_auto_update"):
+    for attr in ("house_generator", "house_auto_update",
+                 "house_viewport_proxy"):
         if hasattr(bpy.types.Scene, attr):
             delattr(bpy.types.Scene, attr)
 

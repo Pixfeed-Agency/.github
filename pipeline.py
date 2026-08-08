@@ -44,6 +44,58 @@ import time
 # Attributs présents AVANT la première étape (posés par le driver)
 SEEDS = ("props", "collection", "context")
 
+# ============================================================
+# ✅ v1.13 — RÉGÉNÉRATION INCRÉMENTALE (chantier qualité n°5)
+#
+# L'état inter-étapes du DERNIER build complet est conservé ici:
+# rejouer un sous-ensemble d'étapes se fait en restaurant cet état
+# (au lieu de reconstruire les murs juste pour ravoir
+# real_wall_height). Données Python pures uniquement — jamais de
+# référence à un objet Blender (elles ne survivent pas au undo).
+# ============================================================
+
+LAST_STATE = {}
+STATE_KEYS = ("real_wall_height", "_interior_layout", "style_config",
+              "_wings", "_garage_as_wing")
+
+# Étapes de finition toujours rejouées en incrémental: peu coûteuses,
+# et la géométrie recréée doit être repeinte (materials ne touche que
+# les objets SANS matériau) et rechanfreinée (photo_finish saute les
+# Bevel existants).
+ALWAYS_FINISH = ("materials", "photo_finish")
+
+
+def steps_for_tags(tags):
+    """Étapes à rejouer (dans l'ordre du pipeline) pour un ensemble de
+    tags invalidés. 'seed_style' est exclue: son travail (seed RNG +
+    style_config) est refait par le driver SANS les remises à zéro qui
+    écraseraient l'état restauré."""
+    tags = set(tags)
+    if "all" in tags:
+        return list(HOUSE_STEPS)
+    sel = []
+    for s in HOUSE_STEPS:
+        if s.name == "seed_style":
+            continue
+        if (set(s.tags) & tags) or s.name in ALWAYS_FINISH:
+            sel.append(s)
+    return sel
+
+
+def save_state(op):
+    """Photographie l'état inter-étapes après un build réussi."""
+    LAST_STATE.clear()
+    for k in STATE_KEYS:
+        if hasattr(op, k):
+            LAST_STATE[k] = getattr(op, k)
+
+
+def restore_state(op):
+    """Restaure l'état du dernier build sur une nouvelle instance
+    d'opérateur (les étapes rejouées écrasent ce qu'elles refont)."""
+    for k, v in LAST_STATE.items():
+        setattr(op, k, v)
+
 
 class Step:
     __slots__ = ("name", "run", "requires", "provides", "cond", "tags")
@@ -95,6 +147,13 @@ def run_pipeline(steps, op, context, props, collection):
         s.run(op, context, props, collection)
         dt = time.perf_counter() - t0
         timings.append((s.name, dt))
+        # ✅ v1.13: chaque objet appartient à l'étape qui l'a créé —
+        # les étapes précédentes ont déjà estampillé les leurs, donc
+        # tout objet vierge vient de CETTE étape. C'est la base de la
+        # suppression sélective en régénération incrémentale.
+        for _o in collection.objects:
+            if "house_step" not in _o.keys():
+                _o["house_step"] = s.name
         for pv in s.provides:
             if not hasattr(op, pv):
                 raise PipelineError(

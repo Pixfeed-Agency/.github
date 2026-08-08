@@ -70,6 +70,28 @@ DEFAULT_WALL_COLOR = (0.9, 0.9, 0.85)
 DEFAULT_ROOF_COLOR = (0.3, 0.2, 0.15)
 DEFAULT_FLOOR_COLOR = (0.7, 0.6, 0.5)
 
+# ✅ v1.13: PROXY VIEWPORT — les instanciations GN les plus lourdes
+# (milliers de tuiles, ~50k touffes d'herbe) sont suspendues DANS LA
+# VUE 3D seulement; le rendu F12 reste complet. La silhouette reste
+# lisible: les dalles de toit et le sol sont des objets séparés. Les
+# briques restent affichées (elles SONT les murs).
+PROXY_PREFIXES = ("Roof_Tiles", "Wing_Tiles", "Env_Grass")
+
+
+def apply_viewport_proxy(collection, enabled):
+    """(Dés)active l'allègement viewport sur les instanciateurs lourds."""
+    n = 0
+    for obj in collection.objects:
+        if not obj.name.startswith(PROXY_PREFIXES):
+            continue
+        for mod in obj.modifiers:
+            if mod.type == 'NODES':
+                mod.show_viewport = not enabled
+                n += 1
+    print(f"[House] Proxy viewport {'ON' if enabled else 'OFF'}: "
+          f"{n} instanciation(s) concernée(s)")
+    return n
+
 
 class HOUSE_OT_generate_auto(Operator):
     """Génère automatiquement une maison selon les paramètres"""
@@ -77,11 +99,55 @@ class HOUSE_OT_generate_auto(Operator):
     bl_label = "Générer la maison"
     bl_options = {'REGISTER', 'UNDO'}
 
+    # ✅ v1.13: tags de domaines invalidés ("joinery,roof", …) — vide
+    # ou "all" = reconstruction complète. Rempli par la mise à jour
+    # auto (properties.regenerate_house) qui diffe les props changées.
+    invalidate: bpy.props.StringProperty(
+        name="Domaines invalidés", default="",
+        options={'HIDDEN', 'SKIP_SAVE'})
+
+    def _try_incremental(self, context, props, pipeline):
+        """Prépare une régénération INCRÉMENTALE si possible.
+
+        Retourne (collection, steps) ou None si les conditions ne sont
+        pas réunies (pas d'état sauvegardé, collection absente, objets
+        non estampillés — vieux fichier) → reconstruction complète.
+        """
+        inval = {t for t in self.invalidate.split(",") if t}
+        if not inval or "all" in inval or not pipeline.LAST_STATE:
+            return None
+        collection = bpy.data.collections.get(
+            props.collection_name or "House")
+        if collection is None or not len(collection.objects):
+            return None
+        if any("house_step" not in o.keys() for o in collection.objects):
+            return None  # scène d'une version antérieure → full
+        steps = pipeline.steps_for_tags(inval)
+        replay = {s.name for s in steps}
+        for obj in list(collection.objects):
+            if obj.get("house_step") in replay:
+                mesh = obj.data if obj.type == 'MESH' else None
+                bpy.data.objects.remove(obj, do_unlink=True)
+                if mesh is not None and mesh.users == 0:
+                    bpy.data.meshes.remove(mesh)
+        pipeline.restore_state(self)
+        # La distribution intérieure dépend de props qui ont pu changer
+        if inval & {"interior", "structure"}:
+            self._interior_layout = None
+        # Travail de seed_style SANS ses remises à zéro destructrices
+        if props.random_seed > 0:
+            random.seed(props.random_seed)
+        self.style_config = self._apply_architectural_style(props)
+        print(f"[House] Régénération INCRÉMENTALE {sorted(inval)} → "
+              f"{[s.name for s in steps]}")
+        return collection, steps
+
     def execute(self, context):
         """✅ v1.11: la construction est un PIPELINE DÉCLARATIF
         (voir pipeline.py) — ordre et dépendances explicites, validés
         statiquement à l'import et contractuellement à l'exécution.
-        Ce corps n'est plus que le driver."""
+        Ce corps n'est plus que le driver. ✅ v1.13: si `invalidate`
+        cible des domaines précis, seules leurs étapes sont rejouées."""
         from . import pipeline
         props = context.scene.house_generator
 
@@ -89,10 +155,20 @@ class HOUSE_OT_generate_auto(Operator):
         if props.random_seed > 0:
             print(f"[House] Seed: {props.random_seed}")
 
-        house_collection = self._create_house_collection(context)
+        inc = self._try_incremental(context, props, pipeline)
+        if inc is not None:
+            house_collection, steps = inc
+        else:
+            house_collection = self._create_house_collection(context)
+            steps = pipeline.HOUSE_STEPS
         try:
-            pipeline.run_pipeline(pipeline.HOUSE_STEPS, self, context,
+            pipeline.run_pipeline(steps, self, context,
                                   props, house_collection)
+            pipeline.save_state(self)
+            from . import properties as _props_mod
+            _props_mod.update_snapshot(props)
+            if getattr(context.scene, 'house_viewport_proxy', False):
+                apply_viewport_proxy(house_collection, True)
             print(f"[House] Terminé! Style: {props.architectural_style}, "
                   f"Fenêtres: {props.window_type}")
             self.report({'INFO'},

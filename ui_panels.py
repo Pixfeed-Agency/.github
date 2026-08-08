@@ -78,6 +78,7 @@ class HOUSE_PT_main_panel(Panel):
         layout.separator()
         row = layout.row()
         row.prop(context.scene, "house_auto_update", text="Mise à jour auto")
+        row.prop(context.scene, "house_viewport_proxy", text="Proxy viewport")
         layout.prop(props, "include_environment", text="Environnement (terrain, ciel, caméra)", toggle=True)
 
         # ✅ ASSETS: menuiseries réutilisables via l'Asset Browser

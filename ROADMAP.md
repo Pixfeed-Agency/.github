@@ -107,7 +107,8 @@ CHANGELOG). Restent les limites listées après la liste historique.*
 4. ✅ v1.12.0 — Niveau de détail BROUILLON/NORMAL/PHOTO (NORMAL
    inchangé au pixel près; PHOTO = appuis débordants + doublis +
    volets entrouverts + chanfreins; BROUILLON = régénération rapide)
-5. Proxy viewport + régénération incrémentale (rejouer les seules
-   étapes du tag invalidé — la base est posée par le pipeline)
+5. ✅ v1.13.0 — Proxy viewport + régénération incrémentale (diff de
+   props → tags → étapes rejouées; preuve d'équivalence par tests;
+   complet 0.31s → volets 0.05s / toit 0.03s / intérieurs 0.02s)
 6. Mode PROGRAMME ("3 chambres, SdB, garage" → House résout le plan)
 7. Slots d'assets (menuiseries haute qualité importables)
