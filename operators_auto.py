@@ -1812,7 +1812,8 @@ class HOUSE_OT_generate_auto(Operator):
             [L / (ns + 1) * (i + 1) for i in range(ns)],
             wing_frames=getattr(self, '_wings', []),
             top_ceiling_z=wall_h - cap, slab_top=FLOOR_THICKNESS,
-            layout=self._get_interior_layout(props, style_config))
+            layout=self._get_interior_layout(props, style_config),
+            ceiling_profile=self._cathedral_profile(props, wall_h))
 
         # ✅ v1.5: escalier (si ≥ 2 étages) + portes intérieures
         il = self._get_interior_layout(props, style_config)
@@ -1827,6 +1828,27 @@ class HOUSE_OT_generate_auto(Operator):
             self._calculate_openings_for_brick_walls(props),
             fha, wall_h - cap, FLOOR_THICKNESS,
             wing_frames=getattr(self, '_wings', []))
+
+    def _cathedral_profile(self, props, wall_h):
+        """✅ v1.7: profil (x, z_sous-face) du toit pour le plafond
+        CATHÉDRALE du dernier étage (monopente et mansarde uniquement —
+        le GABLE garde ses combles perdus plafonnés plat)."""
+        W = props.house_width
+        eff = self._effective_pitch(props.roof_type, props.roof_pitch)
+        if props.roof_type == 'SHED':
+            slope = math.tan(math.radians(eff))
+            rt = ROOF_THICKNESS_PITCHED
+            return [(0.0, wall_h - rt), (W, wall_h + slope * W - rt)]
+        if props.roof_type == 'GAMBREL':
+            brisis = math.tan(math.radians(68.0))
+            bd = (W / 2) * 0.25
+            bh = bd * brisis
+            rh = bh + (W / 2 - bd) * math.tan(math.radians(eff))
+            rt = ROOF_THICKNESS_PITCHED
+            return [(0.0, wall_h - rt), (bd, wall_h + bh - rt),
+                    (W / 2, wall_h + rh - rt), (W - bd, wall_h + bh - rt),
+                    (W, wall_h - rt)]
+        return None
 
     def _generate_foundation(self, context, props, collection):
         """Génère les fondations visuelles (socle béton/pierre)
@@ -2007,18 +2029,31 @@ class HOUSE_OT_generate_auto(Operator):
         h, _pitch, peak, *_ = self._roof_metrics(props)
         features.build_chimney(props, collection, h, peak)
 
+    def _eave_exclusions(self):
+        """✅ v1.7: intervalles d'égout couverts par les ailes en noue
+        (les gouttières/chevrons/fascias y sont interrompus)."""
+        ex = {}
+        for wing in getattr(self, '_wings', []):
+            if not wing.get('valley'):
+                continue
+            a0, a1 = wing['span']
+            ex.setdefault(wing['attached_wall'], []).append((a0 - 0.05, a1 + 0.05))
+        return ex
+
     def _generate_gutters(self, context, props, collection):
         """✅ Gouttières le long des égouts + descentes"""
         from . import features
         _h, _pitch, _peak, eave_l, eave_r, o_eave, o_rake = self._roof_metrics(props)
-        features.build_gutters(props, collection, eave_l, eave_r, o_eave, o_rake)
+        features.build_gutters(props, collection, eave_l, eave_r, o_eave, o_rake,
+                               eave_exclusions=self._eave_exclusions())
 
     def _generate_roof_details(self, context, props, collection):
         """✅ Charpente apparente + rives (la 'façon de faire les toits' V2)"""
         from . import features
         h, pitch, _peak, _el, _er, o_eave, o_rake = self._roof_metrics(props)
         features.build_roof_carpentry(props, collection, h, pitch, o_eave, o_rake,
-                                      tile_color=tuple(props.tile_color)[:3])
+                                      tile_color=tuple(props.tile_color)[:3],
+                                      eave_exclusions=self._eave_exclusions())
         # ✅ v1.5: fenêtres de toit (velux) — tuiles exclues par calepinage partagé
         if getattr(props, 'include_roof_windows', False):
             features.build_roof_windows(props, collection, h, pitch, o_eave, o_rake)

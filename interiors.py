@@ -118,19 +118,42 @@ def interior_layout(props, wall_depth, floor_height_actual, door_center_x,
         # volée collée au mur DROIT, montée vers +x (départ côté gauche)
         x1 = W - t - 0.25
         x0 = x1 - run
-        if x0 < t + 0.4:
-            print("[House] Escalier: maison trop étroite pour une volée "
-                  f"droite ({run:.1f}m) — ignoré")
-        else:
+        if x0 >= t + 0.4:
             # le passage du refend ne doit pas déboucher SUR l'escalier
             if x0 - 0.7 < door_pass < x1 + 0.7:
                 door_pass = _avoid(max(t + 0.7, x0 - 1.0), [], 0,
                                    t + 0.7, W - t - 0.7)
                 if x0 - 0.7 < door_pass < x1 + 0.7:
                     door_pass = t + 0.75
-            stair = {'x0': x0, 'x1': x1, 'y0': y0, 'y1': y1,
-                     'n': n, 'going': going, 'run': run}
+            stair = {'kind': 'straight', 'x0': x0, 'x1': x1, 'y0': y0,
+                     'y1': y1, 'n': n, 'going': going, 'run': run}
             tremie = (x0 + run * 0.35, y0 - 0.02, x1 + 0.15, y1 + 0.02)
+        else:
+            # ✅ v1.7: VOLÉE EN L (quart tournant à palier) pour les
+            # maisons étroites: montée A le long du refend vers +x,
+            # palier d'angle, montée B le long du mur droit vers l'avant
+            going = 0.24
+            landing = 1.0
+            xA1 = W - t - landing
+            xA0 = t + 0.35
+            availA = xA1 - xA0
+            n_tot = max(12, int(math.ceil(floor_height_actual / 0.185)))
+            nA = max(3, min(n_tot - 4, int(availA / going)))
+            nB = n_tot - nA - 1   # le palier compte pour une hauteur
+            runB = nB * going
+            yB_end = y0 - runB
+            if nB < 3 or yB_end < t + 0.4:
+                print("[House] Escalier: ni volée droite ni quart tournant "
+                      "ne rentrent — ignoré")
+            else:
+                xA0 = xA1 - nA * going
+                if xA0 - 0.7 < door_pass < W:
+                    door_pass = max(t + 0.7, xA0 - 1.0)
+                stair = {'kind': 'L', 'xA0': xA0, 'xA1': xA1,
+                         'y0': y0, 'y1': y1, 'landing': landing,
+                         'nA': nA, 'nB': nB, 'going': going,
+                         'n': n_tot, 'yB_end': yB_end}
+                tremie = (xA1 - 0.35, yB_end - 0.05, W - t, y1 + 0.02)
 
     return {'y_refend': y_refend, 'door_pass': door_pass,
             'x_split': x_split, 'stair': stair, 'tremie': tremie}
@@ -146,9 +169,11 @@ def build_staircase(props, collection, layout, floor_height_actual,
     if not stair:
         return []
     wood_style = style_name in ('TRADITIONAL', 'MEDITERRANEAN')
-    x0, x1 = stair['x0'], stair['x1']
+    kind = stair.get('kind', 'straight')
     y0, y1 = stair['y0'], stair['y1']
     n, going = stair['n'], stair['going']
+    if kind == 'straight':
+        x0, x1 = stair['x0'], stair['x1']
 
     if wood_style:
         step_mat = _parquet()
@@ -166,6 +191,107 @@ def build_staircase(props, collection, layout, floor_height_actual,
     bm_struct = bmesh.new()
     bm_rail = bmesh.new()
     objs = []
+
+    def guard_rail(px0, py0, px1, py1, z, along):
+        """Garde-corps de trémie: poteaux + lisse + main courante."""
+        length_r = (px1 - px0) if along == 'X' else (py1 - py0)
+        n_posts = max(2, int(length_r / 0.8) + 1)
+        for k in range(n_posts):
+            f = k / (n_posts - 1)
+            px = px0 + (px1 - px0) * f
+            py = py0 + (py1 - py0) * f
+            _add_box(bm_rail, px - 0.02, py - 0.02, z, px + 0.02, py + 0.02,
+                     z + 0.92)
+        if along == 'X':
+            _add_box(bm_rail, px0, py0 - 0.025, z + 0.87, px1, py0 + 0.025,
+                     z + 0.92)
+            _add_box(bm_rail, px0, py0 - 0.015, z + 0.44, px1, py0 + 0.015,
+                     z + 0.48)
+        else:
+            _add_box(bm_rail, px0 - 0.025, py0, z + 0.87, px0 + 0.025, py1,
+                     z + 0.92)
+            _add_box(bm_rail, px0 - 0.015, py0, z + 0.44, px0 + 0.015, py1,
+                     z + 0.48)
+
+    if kind == 'L':
+        xA0, xA1 = stair['xA0'], stair['xA1']
+        nA, nB = stair['nA'], stair['nB']
+        landing = stair['landing']
+        yB_end = stair['yB_end']
+        W = props.house_width
+        for floor in range(props.num_floors - 1):
+            z_base = slab_top + floor * floor_height_actual
+            rise = floor_height_actual / (nA + nB + 1)
+            # volée A (monte vers +x, dans la bande du refend)
+            for i in range(nA):
+                sx0 = xA0 + i * going
+                sz1 = z_base + (i + 1) * rise
+                if wood_style:
+                    _add_box(bm_steps, sx0 - 0.03, y0 + 0.02, sz1 - 0.035,
+                             sx0 + going + 0.005, y1 - 0.02, sz1)
+                    _add_box(bm_struct, sx0 + going - 0.02, y0 + 0.04,
+                             sz1 - rise, sx0 + going, y1 - 0.04, sz1 - 0.035)
+                else:
+                    _add_box(bm_steps, sx0, y0 + 0.02, z_base,
+                             sx0 + going + 0.003, y1 - 0.02, sz1)
+            # palier d'angle
+            z_pal = z_base + (nA + 1) * rise
+            _add_box(bm_steps, xA1, y0 + 0.02, z_pal - 0.05,
+                     W - 0.132, y1 - 0.02, z_pal)
+            # volée B (monte vers -y le long du mur droit)
+            for j in range(nB):
+                sy1 = y0 - j * going
+                sy0 = sy1 - going
+                sz1 = z_pal + (j + 1) * rise
+                if wood_style:
+                    _add_box(bm_steps, xA1 + 0.02, sy0 - 0.005, sz1 - 0.035,
+                             W - 0.132, sy1 + 0.03, sz1)
+                    _add_box(bm_struct, xA1 + 0.04, sy0, sz1 - rise,
+                             W - 0.152, sy0 + 0.02, sz1 - 0.035)
+                else:
+                    _add_box(bm_steps, xA1 + 0.02, sy0, z_pal,
+                             W - 0.132, sy1 + 0.003, sz1)
+            # garde-corps: bord extérieur de A + palier + B
+            post_r = 0.03 if wood_style else 0.014
+            for i in range(0, nA + 1, 2):
+                px = xA0 + i * going
+                pz0 = z_base + i * rise
+                _add_box(bm_rail, px - post_r, y0 - 0.01, pz0,
+                         px + post_r, y0 + 0.05, pz0 + 0.90)
+            for i in range(nA):
+                px = xA0 + i * going
+                pz = z_base + (i + 1) * rise + 0.88
+                _add_box(bm_rail, px - 0.005, y0 - 0.005, pz - 0.045,
+                         px + going + 0.005, y0 + 0.055, pz)
+            # poteau d'angle du palier
+            _add_box(bm_rail, xA1 - 0.03, y0 - 0.03, z_pal,
+                     xA1 + 0.03, y0 + 0.03, z_pal + 0.92)
+            for j in range(0, nB + 1, 2):
+                py = y0 - j * going
+                pz0 = z_pal + j * rise
+                _add_box(bm_rail, xA1 - 0.01, py - post_r, pz0,
+                         xA1 + 0.05, py + post_r, pz0 + 0.90)
+            # ✅ GARDE-CORPS DE TRÉMIE à l'étage d'arrivée
+            z_arr = slab_top + (floor + 1) * floor_height_actual + 0.016
+            tr = layout.get('tremie')
+            if tr:
+                hx0, hy0, hx1, hy1 = tr
+                guard_rail(hx0, hy0, hx0, y1, z_arr, 'Y')      # bord gauche
+                guard_rail(hx0, hy0, min(hx1, W - 0.132 - 1.0), hy0, z_arr, 'X')
+        objs2 = []
+        objs2.append(_new_mesh_obj("Stair_Steps", bm_steps, collection,
+                                   "interior", step_mat))
+        if len(bm_struct.verts):
+            objs2.append(_new_mesh_obj("Stair_Structure", bm_struct, collection,
+                                       "interior", struct_mat))
+        else:
+            bm_struct.free()
+        objs2.append(_new_mesh_obj("Stair_Rail", bm_rail, collection,
+                                   "interior", rail_mat))
+        print(f"[House] ✓ Escalier QUART TOURNANT "
+              f"{'bois' if wood_style else 'béton/métal'}: {nA}+{nB} marches "
+              f"+ palier + garde-corps de trémie")
+        return objs2
 
     for floor in range(props.num_floors - 1):
         z_base = slab_top + floor * floor_height_actual
@@ -203,6 +329,13 @@ def build_staircase(props, collection, layout, floor_height_actual,
             pz = z_base + (i + 1) * rise + 0.88
             _add_box(bm_rail, px - 0.005, y0 - 0.005, pz - 0.045,
                      px + going + 0.005, y0 + 0.055, pz)
+        # ✅ v1.7: GARDE-CORPS DE TRÉMIE à l'arrivée (bords ouverts)
+        z_arr = slab_top + (floor + 1) * floor_height_actual + 0.016
+        tr = layout.get('tremie')
+        if tr:
+            hx0, hy0, hx1, hy1 = tr
+            guard_rail(hx0, hy0, hx1, hy0, z_arr, 'X')   # long côté séjour
+            guard_rail(hx0, hy0, hx0, hy1, z_arr, 'Y')   # petit côté gauche
 
     objs.append(_new_mesh_obj("Stair_Steps", bm_steps, collection,
                               "interior", step_mat))
@@ -358,7 +491,8 @@ def build_wall_liners(props, collection, wall_depth, openings,
 def build_interiors(props, collection, wall_depth, floor_height_actual,
                     door_center_x, window_xs_front, window_xs_back,
                     window_ys_side, wing_frames=None, passage=None,
-                    top_ceiling_z=None, slab_top=0.2, layout=None):
+                    top_ceiling_z=None, slab_top=0.2, layout=None,
+                    ceiling_profile=None):
     """Plafonds, cloisons et sols du volume principal (+ aile).
 
     Args:
@@ -411,6 +545,24 @@ def build_interiors(props, collection, wall_depth, floor_height_actual,
         if tremie is not None and floor < props.num_floors - 1:
             slab_with_hole(bm_c, t, t, z_top - CEILING_T, W - t, L - t, z_top,
                            tremie)
+        elif ceiling_profile and floor == props.num_floors - 1:
+            # ✅ v1.7: PLAFOND CATHÉDRALE (rampant) au dernier étage —
+            # bande suivant la sous-face du toit (monopente / mansarde),
+            # au lieu du plafond plat qui gâchait le volume
+            pts = [(max(t, min(W - t, x)), z - 0.05) for (x, z) in ceiling_profile]
+            for i in range(len(pts) - 1):
+                (xa, za), (xb, zb) = pts[i], pts[i + 1]
+                if xb - xa < 0.01:
+                    continue
+                va = [bm_c.verts.new(v) for v in
+                      ((xa, t, za), (xb, t, zb), (xb, L - t, zb), (xa, L - t, za))]
+                vb = [bm_c.verts.new((v.co.x, v.co.y, v.co.z - CEILING_T))
+                      for v in va]
+                bm_c.faces.new(va)
+                bm_c.faces.new(list(reversed(vb)))
+                for k in range(4):
+                    m = (k + 1) % 4
+                    bm_c.faces.new([va[k], vb[k], vb[m], va[m]])
         else:
             _add_box(bm_c, t, t, z_top - CEILING_T, W - t, L - t, z_top)
         # ✅ Le parquet se pose SUR la dalle de l'opérateur (épaisseur

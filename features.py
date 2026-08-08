@@ -263,7 +263,25 @@ def build_chimney(props, collection, wall_height, roof_peak_z):
 # GOUTTIÈRES + DESCENTES
 # ============================================================
 
-def build_gutters(props, collection, eave_z_left, eave_z_right, o_eave, o_rake):
+def _split_interval(t0, t1, exclusions):
+    """Découpe [t0,t1] en segments hors des intervalles d'exclusion."""
+    segs = [(t0, t1)]
+    for (e0, e1) in (exclusions or []):
+        out = []
+        for (s0, s1) in segs:
+            if e1 <= s0 or e0 >= s1:
+                out.append((s0, s1))
+                continue
+            if e0 > s0 + 0.05:
+                out.append((s0, e0))
+            if e1 < s1 - 0.05:
+                out.append((e1, s1))
+        segs = out
+    return segs
+
+
+def build_gutters(props, collection, eave_z_left, eave_z_right, o_eave, o_rake,
+                  eave_exclusions=None):
     """Gouttières le long des égouts + descentes aux angles.
 
     Gère GABLE (2 égouts), SHED (égout bas + haut), HIP (4), GAMBREL (2).
@@ -272,6 +290,7 @@ def build_gutters(props, collection, eave_z_left, eave_z_right, o_eave, o_rake):
     width = props.house_width
     length = props.house_length
     roof_type = props.roof_type
+    ex = eave_exclusions or {}
 
     if roof_type == 'FLAT':
         return []  # L'acrotère draine vers l'intérieur
@@ -312,18 +331,22 @@ def build_gutters(props, collection, eave_z_left, eave_z_right, o_eave, o_rake):
         gutter_run((-o_eave, y0, eave_z_left - r), (-o_eave, y1, eave_z_left - r))
         downspout(-down_r - 0.01, 0.35, eave_z_left - r)
     elif roof_type == 'GAMBREL' or (roof_type == 'GABLE' and ridge_along_y):
-        # Égouts sur les côtés X (gauche/droit)
+        # Égouts sur les côtés X (gauche/droit) — ✅ v1.7: segments
+        # DÉCOUPÉS autour des ailes (plus de tronçon caché dans le comble)
         y0, y1 = -o_rake, length + o_rake
-        gutter_run((-o_eave, y0, eave_z_left - r), (-o_eave, y1, eave_z_left - r))
-        gutter_run((width + o_eave, y0, eave_z_right - r), (width + o_eave, y1, eave_z_right - r))
-        # ✅ FIX: Descentes CONTRE le mur (avant: au bord du débord, flottantes)
+        for (s0, s1) in _split_interval(y0, y1, ex.get('left')):
+            gutter_run((-o_eave, s0, eave_z_left - r), (-o_eave, s1, eave_z_left - r))
+        for (s0, s1) in _split_interval(y0, y1, ex.get('right')):
+            gutter_run((width + o_eave, s0, eave_z_right - r), (width + o_eave, s1, eave_z_right - r))
         downspout(-down_r - 0.01, 0.35, eave_z_left - r)
         downspout(width + down_r + 0.01, length - 0.35, eave_z_right - r)
     elif roof_type == 'GABLE':
         # Faîtage en X → égouts sur les côtés Y (avant/arrière)
         x0, x1 = -o_rake, width + o_rake
-        gutter_run((x0, -o_eave, eave_z_left - r), (x1, -o_eave, eave_z_left - r))
-        gutter_run((x0, length + o_eave, eave_z_right - r), (x1, length + o_eave, eave_z_right - r))
+        for (s0, s1) in _split_interval(x0, x1, ex.get('front')):
+            gutter_run((s0, -o_eave, eave_z_left - r), (s1, -o_eave, eave_z_left - r))
+        for (s0, s1) in _split_interval(x0, x1, ex.get('back')):
+            gutter_run((s0, length + o_eave, eave_z_right - r), (s1, length + o_eave, eave_z_right - r))
         downspout(0.35, -down_r - 0.01, eave_z_left - r)
         downspout(width - 0.35, length + down_r + 0.01, eave_z_right - r)
 
@@ -1356,7 +1379,8 @@ def _carpentry_other_roofs(props, collection, wall_height, effective_pitch,
 
 
 def build_roof_carpentry(props, collection, wall_height, effective_pitch,
-                         o_eave, o_rake, tile_color=(0.34, 0.115, 0.062)):
+                         o_eave, o_rake, tile_color=(0.34, 0.115, 0.062),
+                         eave_exclusions=None):
     """La 'façon de faire les toits' V2: chevrons apparents sous les
     débords, planches de rive (fascia), bargeboards et couvertines —
     ce qu'on voit d'une vraie toiture en levant les yeux.
@@ -1420,18 +1444,27 @@ def build_roof_carpentry(props, collection, wall_height, effective_pitch,
                             matrix=Matrix.Translation(center) @ rot)
 
     spacing = 0.6
+    ex = eave_exclusions or {}
+
+    def excluded(wall, coord):
+        return any(e0 <= coord <= e1 for (e0, e1) in ex.get(wall, []))
+
     if ridge_along_y:
         n = max(2, int((length + 2 * o_rake) / spacing))
         for i in range(n + 1):
             y = -o_rake + 0.06 + i * (length + 2 * o_rake - 0.12) / n
-            gable_rafter(-1, y, axis='Y')
-            gable_rafter(+1, y, axis='Y')
+            if not excluded('left', y):
+                gable_rafter(-1, y, axis='Y')
+            if not excluded('right', y):
+                gable_rafter(+1, y, axis='Y')
     else:
         n = max(2, int((width + 2 * o_rake) / spacing))
         for i in range(n + 1):
             x = -o_rake + 0.06 + i * (width + 2 * o_rake - 0.12) / n
-            gable_rafter(-1, x, axis='X')
-            gable_rafter(+1, x, axis='X')
+            if not excluded('front', x):
+                gable_rafter(-1, x, axis='X')
+            if not excluded('back', x):
+                gable_rafter(+1, x, axis='X')
 
     if len(bm.verts):
         objs.append(_new_mesh_obj("Roof_Rafters", bm, collection, "roof", wood))
@@ -1443,16 +1476,20 @@ def build_roof_carpentry(props, collection, wall_height, effective_pitch,
     fh, ft = 0.18, 0.022
     if ridge_along_y:
         y0, y1 = -o_rake, length + o_rake
-        _add_box(bm, -o_eave - ft, y0, z_eave - rt - fh + 0.06,
-                 -o_eave, y1, z_eave - rt + 0.06)
-        _add_box(bm, width + o_eave, y0, z_eave - rt - fh + 0.06,
-                 width + o_eave + ft, y1, z_eave - rt + 0.06)
+        for (s0, s1) in _split_interval(y0, y1, ex.get('left')):
+            _add_box(bm, -o_eave - ft, s0, z_eave - rt - fh + 0.06,
+                     -o_eave, s1, z_eave - rt + 0.06)
+        for (s0, s1) in _split_interval(y0, y1, ex.get('right')):
+            _add_box(bm, width + o_eave, s0, z_eave - rt - fh + 0.06,
+                     width + o_eave + ft, s1, z_eave - rt + 0.06)
     else:
         x0, x1 = -o_rake, width + o_rake
-        _add_box(bm, x0, -o_eave - ft, z_eave - rt - fh + 0.06,
-                 x1, -o_eave, z_eave - rt + 0.06)
-        _add_box(bm, x0, length + o_eave, z_eave - rt - fh + 0.06,
-                 x1, length + o_eave + ft, z_eave - rt + 0.06)
+        for (s0, s1) in _split_interval(x0, x1, ex.get('front')):
+            _add_box(bm, s0, -o_eave - ft, z_eave - rt - fh + 0.06,
+                     s1, -o_eave, z_eave - rt + 0.06)
+        for (s0, s1) in _split_interval(x0, x1, ex.get('back')):
+            _add_box(bm, s0, length + o_eave, z_eave - rt - fh + 0.06,
+                     s1, length + o_eave + ft, z_eave - rt + 0.06)
     objs.append(_new_mesh_obj("Roof_Fascia", bm, collection, "roof", fascia_mat))
 
     # --- PLANCHES DE RIVE DE PIGNON (bargeboards) le long des rampants ---
