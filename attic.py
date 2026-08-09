@@ -153,6 +153,30 @@ def build(props, collection, wall_top, pitch_deg, wall_depth,
         side_profile(L, -1)
         _add_box(bm, t, max(t, d_ceil), zf + CEIL_H,
                  W - t, min(L - t, L - d_ceil), zf + CEIL_H + 0.05)
+    # --- DOUBLAGE DES PIGNONS (plâtre): sans lui, l'intérieur des
+    # combles montre le dos brut de la maçonnerie (rendu brun) ---
+    def gable_liner(at, sign):
+        """Pentagone plâtré au nu intérieur du pignon: sol → jambettes
+        → rampants → plafond."""
+        if ridge_along_y:
+            pts = [(d_knee, zf), (W - d_knee, zf),
+                   (W - d_knee, zf + KNEE_H), (W - d_ceil, zf + CEIL_H),
+                   (d_ceil, zf + CEIL_H), (d_knee, zf + KNEE_H)]
+            v = [bm.verts.new((x, at + sign * 0.02, z)) for (x, z) in pts]
+        else:
+            pts = [(d_knee, zf), (L - d_knee, zf),
+                   (L - d_knee, zf + KNEE_H), (L - d_ceil, zf + CEIL_H),
+                   (d_ceil, zf + CEIL_H), (d_knee, zf + KNEE_H)]
+            v = [bm.verts.new((at + sign * 0.02, y, z)) for (y, z) in pts]
+        bm.faces.new(v)
+
+    if ridge_along_y:
+        gable_liner(t, +1)
+        gable_liner(L - t, -1)
+    else:
+        gable_liner(t, +1)
+        gable_liner(W - t, -1)
+
     _new_mesh_obj("Attic_KneeWalls_Ceiling", bm, collection, "wall",
                   plaster)
     _new_mesh_obj("Attic_Rampants", bmr, collection, "wall", plaster)

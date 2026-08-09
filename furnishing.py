@@ -45,7 +45,12 @@ def _cells(props, layout, W, t):
     xs = [t] + list(layout.get('x_splits', [])) + [W - t]
     n = len(xs) - 1
     roles = ['chambre'] * n
-    if getattr(props, 'programme_active', False):
+    rooms = layout.get('rooms')
+    if rooms:
+        # ✅ v1.27: rôles NOMMÉS du tableau de pièces
+        for i in range(min(n, len(rooms))):
+            roles[i] = rooms[i]['role']
+    elif getattr(props, 'programme_active', False):
         nb = int(getattr(props, 'prog_bedrooms', 2))
         nsdb = int(getattr(props, 'prog_bathrooms', 1))
         for i in range(n):

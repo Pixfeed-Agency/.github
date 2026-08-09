@@ -86,6 +86,7 @@ PROP_TAGS = {
     'wall_finish': ('walls',),
     # tableau d'ouvertures: change les trous → tout
     'use_openings_table': ('all',),
+    'use_rooms_table': ('interior', 'structure'),
     'ridge_height_target': ('all',),
     'attic_habitable': ('all',),
     'attic_trusses': ('interior',),
@@ -252,6 +253,24 @@ class HouseOpeningItem(PropertyGroup):
                        update=regenerate_house)
     floor: IntProperty(name="Étage", default=0, min=0, max=4,
                        update=regenerate_house)
+
+
+class HouseRoomItem(PropertyGroup):
+    """✅ v1.27 TABLEAU DE PIÈCES: une ligne = une pièce du brief
+    (nom, type, surface cible en m²) — la bande arrière se dimensionne
+    et se découpe pour approcher ces surfaces."""
+    name: StringProperty(name="Nom", default="Chambre",
+                         update=regenerate_house)
+    room_type: EnumProperty(
+        name="Type",
+        items=[('CHAMBRE', "Chambre", ""),
+               ('BUREAU', "Bureau", "Aménagé comme une chambre"),
+               ('SDB', "Salle de bains", "Vasque + douche"),
+               ('WC', "WC", "")],
+        default='CHAMBRE', update=regenerate_house)
+    surface: FloatProperty(name="Surface", description="Surface cible "
+                           "au sol (m²)", default=11.0, min=1.0,
+                           max=60.0, update=regenerate_house)
 
 
 class HouseGeneratorProperties(PropertyGroup):
@@ -889,6 +908,16 @@ class HouseGeneratorProperties(PropertyGroup):
     openings_table: bpy.props.CollectionProperty(type=HouseOpeningItem)
     openings_table_index: IntProperty(default=0)
 
+    # ✅ v1.27 TABLEAU DE PIÈCES (prime sur le mode programme)
+    use_rooms_table: BoolProperty(
+        name="Tableau de pièces",
+        description="Les pièces du tableau (nom, type, surface m²) "
+                    "dimensionnent la bande arrière et ses cloisons, "
+                    "et pilotent l'aménagement (SdB, WC…)",
+        default=False, update=regenerate_house)
+    rooms_table: bpy.props.CollectionProperty(type=HouseRoomItem)
+    rooms_table_index: IntProperty(default=0)
+
     # ✅ TERRAIN & IMPLANTATION (parcelle, nord, soleil, pente)
     terrain_mode: EnumProperty(
         name="Terrain",
@@ -1400,6 +1429,7 @@ class HouseGeneratorProperties(PropertyGroup):
 # Classes à enregistrer
 classes = (
     HouseOpeningItem,
+    HouseRoomItem,
     HouseGeneratorProperties,
 )
 

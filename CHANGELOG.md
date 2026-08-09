@@ -1,5 +1,32 @@
 # Changelog — House Generator
 
+## v1.27.0 — TABLEAU DE PIÈCES + corrections géométrie (5/5 du brief)
+
+Le dernier chantier du brief (le plan par les surfaces) et les défauts
+de proportions relevés sur les rendus.
+
+- **Tableau de pièces** (`use_rooms_table`): chaque ligne = une pièce
+  du brief (nom, type chambre/bureau/SdB/WC, surface cible m²). La
+  bande arrière se DIMENSIONNE pour loger la somme (le refend recule/
+  avance), les cloisons découpent des largeurs proportionnelles, les
+  rôles pilotent l'aménagement (sanitaires dans la pièce déclarée SdB)
+  et chaque pièce reçoit sa fenêtre (S4). Bilan des surfaces réelles
+  affiché à la génération. Prime sur le mode programme
+- **Conflit de cotes VISIBLE**: quand le faîtage cible impose une autre
+  pente que le slider, le panneau Toit l'affiche ("Faîtage 7,80 m →
+  pente 52,5°, le slider 45° est ignoré") au lieu de choisir en
+  silence — et signale un faîtage inatteignable (>60°)
+- **Le pignon est un MUR**: objet séparé au nu de la façade, épaisseur
+  du mur, finition des façades (pierre, enduit…) — le triangle greige
+  "matériau toit" au milieu d'une façade en pierre criait généré.
+  (Référence walls_stucco rebasée: pignon désormais enduit)
+- **Doublage plâtre des pignons dans les combles** (le dos brun de la
+  maçonnerie n'apparaît plus dans les rendus intérieurs)
+- **Preset LONGÈRE modernisé**: pierre vue + encadrements de taille +
+  tuiles plates + combles aménagés + débord court 0,30 m (les vraies
+  longères ne débordent pas de 0,50)
+- 81 invariants, banc fast 10/10
+
 ## v1.26.0 — VOLUMÉTRIE: faîtage cible + combles aménagés (4/5 du brief)
 
 Les deux cotes de coupe d'un vrai brief (faîtage ET pente) et le

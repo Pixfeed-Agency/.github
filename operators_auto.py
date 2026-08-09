@@ -1073,8 +1073,15 @@ class HOUSE_OT_generate_auto(Operator):
         if roof_type == 'FLAT':
             roof = self._create_flat_roof(width, length, total_height, roof_overhang, collection)
         elif roof_type == 'GABLE':
+            # ✅ v1.27: le pignon est un MUR, pas un morceau de toit —
+            # objet séparé taggé 'wall' qui suit la finition des façades
+            # (pierre, enduit…). Le triangle greige "matériau toit" au
+            # milieu d'une façade en pierre criait généré.
+            if closed_gable:
+                self._build_gable_pignons(props, collection, width, length,
+                                          total_height, roof_pitch)
             roof = self._create_gable_roof(width, length, total_height, roof_pitch, roof_overhang, collection,
-                                           closed_gable=closed_gable)
+                                           closed_gable=False)
         elif roof_type == 'HIP':
             roof = self._create_hip_roof(width, length, total_height, roof_pitch, roof_overhang, collection)
         elif roof_type == 'SHED':
@@ -1183,6 +1190,51 @@ class HOUSE_OT_generate_auto(Operator):
         l'épaisseur brute — sinon les murs percent la dalle dès 32°.
         """
         return thickness / max(0.2, math.cos(math.radians(pitch_deg)))
+
+    def _build_gable_pignons(self, props, collection, width, length, h,
+                             pitch):
+        """Pignons MAÇONNÉS du toit GABLE (murs SIMPLE): prismes
+        triangulaires au NU DE LA FAÇADE, épaisseur du mur, part 'wall'
+        → ils reçoivent la finition des murs (pierre/enduit) comme sur
+        une vraie construction. Avant v1.27 le toit fermait les pignons
+        avec SON matériau."""
+        t = self._get_wall_depth(props)
+        pitch_rad = math.radians(pitch)
+        ridge_along_y = length >= width
+        bm = bmesh.new()
+
+        def prism(tri, n0, n1, axis):
+            """Triangle extrudé de n0 à n1 le long de `axis`."""
+            lo, hi = [], []
+            for (a, z) in tri:
+                if axis == 'y':
+                    lo.append(bm.verts.new((a, n0, z)))
+                    hi.append(bm.verts.new((a, n1, z)))
+                else:
+                    lo.append(bm.verts.new((n0, a, z)))
+                    hi.append(bm.verts.new((n1, a, z)))
+            bm.faces.new(lo)
+            bm.faces.new(list(reversed(hi)))
+            for k in range(3):
+                k2 = (k + 1) % 3
+                bm.faces.new([lo[k], lo[k2], hi[k2], hi[k]])
+
+        if ridge_along_y:
+            rh = (width / 2) * math.tan(pitch_rad)
+            tri = ((0.0, h), (width, h), (width / 2, h + rh))
+            prism(tri, 0.0, t, 'y')
+            prism(tri, length - t, length, 'y')
+        else:
+            rh = (length / 2) * math.tan(pitch_rad)
+            tri = ((0.0, h), (length, h), (length / 2, h + rh))
+            prism(tri, 0.0, t, 'x')
+            prism(tri, width - t, width, 'x')
+        bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+        obj, _mesh = self._create_mesh_from_bmesh("Gable_Pignons", bm)
+        bm.free()
+        obj["house_part"] = "wall"
+        collection.objects.link(obj)
+        return obj
 
     def _create_gable_roof(self, width, length, height, pitch, overhang, collection,
                            closed_gable=True):
@@ -2405,11 +2457,16 @@ class HOUSE_OT_export_assets(bpy.types.Operator):
 
 HOUSE_PRESETS = {
     # ✅ v1.8: silhouettes régionales — jeux de réglages COMPLETS
+    # ✅ v1.27: longère PIERRE du brief type — pierre vue + encadrements
+    # de taille + tuiles plates + combles aménagés + débord court (les
+    # vraies longères ont 0,25-0,35 m de débord, pas 0,50)
     'LONGERE': dict(
-        house_width=16.0, house_length=6.5, num_floors=1, floor_height=2.6,
+        house_width=7.2, house_length=16.0, num_floors=1, floor_height=2.9,
         architectural_style='TRADITIONAL', roof_type='GABLE', roof_pitch=45.0,
-        roof_overhang=0.35, roof_covering='TILES',
-        wall_construction_type='BRICK_3D', brick_preset_type='BRICK_BROWN',
+        roof_overhang=0.30, roof_covering='TILES', roof_finish='PLATE',
+        wall_construction_type='SIMPLE', wall_finish='PIERRE',
+        include_stone_surrounds=True, attic_habitable=True,
+        attic_trusses=True, ridge_height_target=0.0,
         include_roof_windows=True, roof_window_style='LUCARNE',
         num_roof_windows=3, include_gutters=True, include_chimney=True,
         include_shutters=True, window_type='CASEMENT', num_windows_front=4,
@@ -2497,6 +2554,33 @@ class HOUSE_OT_opening_remove(bpy.types.Operator):
             props.openings_table.remove(i)
             props.openings_table_index = min(
                 i, len(props.openings_table) - 1)
+        return {'FINISHED'}
+
+
+class HOUSE_OT_room_add(bpy.types.Operator):
+    """Ajoute une pièce au tableau de pièces"""
+    bl_idname = "house.room_add"
+    bl_label = "Ajouter une pièce"
+
+    def execute(self, context):
+        props = context.scene.house_generator
+        it = props.rooms_table.add()
+        it.name = f"Chambre {len(props.rooms_table)}"
+        props.rooms_table_index = len(props.rooms_table) - 1
+        return {'FINISHED'}
+
+
+class HOUSE_OT_room_remove(bpy.types.Operator):
+    """Retire la pièce sélectionnée du tableau"""
+    bl_idname = "house.room_remove"
+    bl_label = "Retirer la pièce"
+
+    def execute(self, context):
+        props = context.scene.house_generator
+        i = props.rooms_table_index
+        if 0 <= i < len(props.rooms_table):
+            props.rooms_table.remove(i)
+            props.rooms_table_index = min(i, len(props.rooms_table) - 1)
         return {'FINISHED'}
 
 
@@ -2606,6 +2690,8 @@ classes = (
     HOUSE_OT_camera_interior,
     HOUSE_OT_opening_add,
     HOUSE_OT_opening_remove,
+    HOUSE_OT_room_add,
+    HOUSE_OT_room_remove,
 )
 
 

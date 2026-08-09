@@ -35,6 +35,15 @@ class HOUSE_UL_openings(bpy.types.UIList):
                        f"@{item.pos:.1f}m ét.{item.floor}")
 
 
+class HOUSE_UL_rooms(bpy.types.UIList):
+    """Liste du tableau de pièces"""
+    def draw_item(self, context, layout, data, item, icon, active_data,
+                  active_propname):
+        row = layout.row(align=True)
+        row.label(text=f"{item.name} ({item.room_type.title()}) "
+                       f"{item.surface:.1f} m²")
+
+
 class HOUSE_PT_main_panel(Panel):
     """Panneau principal du générateur de maison"""
     bl_label = "House Generator"
@@ -144,6 +153,31 @@ class HOUSE_PT_main_panel(Panel):
                 row.prop(it, "sill", text="Allège")
                 col2.prop(it, "floor", text="Étage")
 
+        # ✅ v1.27 TABLEAU DE PIÈCES (surfaces du brief)
+        box = layout.box()
+        box.prop(props, "use_rooms_table",
+                 text="Tableau de pièces (surfaces m²)", toggle=True)
+        if props.use_rooms_table:
+            row = box.row()
+            row.template_list("HOUSE_UL_rooms", "",
+                              props, "rooms_table",
+                              props, "rooms_table_index", rows=4)
+            col = row.column(align=True)
+            col.operator("house.room_add", text="", icon='ADD')
+            col.operator("house.room_remove", text="", icon='REMOVE')
+            if 0 <= props.rooms_table_index < len(props.rooms_table):
+                it = props.rooms_table[props.rooms_table_index]
+                col2 = box.column(align=True)
+                col2.prop(it, "name", text="Nom")
+                row = col2.row(align=True)
+                row.prop(it, "room_type", text="")
+                row.prop(it, "surface", text="m²")
+            if len(props.rooms_table) >= 2:
+                total = sum(r.surface for r in props.rooms_table)
+                box.label(text=f"Bande arrière: {total:.1f} m² "
+                               f"({len(props.rooms_table)} pièces)",
+                          icon='INFO')
+
         # ✅ TERRAIN & IMPLANTATION
         box = layout.box()
         box.label(text="Terrain & implantation", icon='WORLD_DATA')
@@ -233,6 +267,32 @@ class HOUSE_PT_roof_panel(Panel):
         col.prop(props, "roof_type", text="Type")
         col.prop(props, "roof_pitch", text="Pente")
         col.prop(props, "ridge_height_target", text="Faîtage cible (0=pente)")
+        # ✅ v1.27: CONFLIT DE COTES visible — quand le faîtage cible
+        # impose une autre pente que le slider, on le DIT au lieu de
+        # choisir en silence (le réflexe "le toit semble trop grand"
+        # vient toujours d'un brief incohérent)
+        if props.ridge_height_target > 0.1 \
+                and props.roof_type in ('GABLE', 'HIP', 'SKELETON'):
+            import math as _m
+            wall_top = props.num_floors * props.floor_height
+            half = min(props.house_width, props.house_length) / 2
+            if props.ridge_height_target > wall_top + 0.2 and half > 0.5:
+                derived = _m.degrees(_m.atan(
+                    (props.ridge_height_target - wall_top) / half))
+                eff = max(10.0, min(60.0, derived))
+                if abs(eff - props.roof_pitch) > 1.0:
+                    box_w = col.box()
+                    box_w.label(
+                        text=f"Faîtage {props.ridge_height_target:.2f} m "
+                             f"→ pente {eff:.1f}°",
+                        icon='INFO')
+                    box_w.label(
+                        text=f"(le slider {props.roof_pitch:.0f}° est "
+                             f"ignoré)")
+                if abs(eff - derived) > 0.5:
+                    col.label(text=f"Faîtage inatteignable (>60°): "
+                                   f"réel {wall_top + half * _m.tan(_m.radians(eff)):.2f} m",
+                              icon='ERROR')
         col.prop(props, "roof_overhang", text="Débord")
         if props.roof_type == 'GABLE':
             col.prop(props, "attic_habitable", text="Combles aménagés")
@@ -655,6 +715,7 @@ class HOUSE_PT_info_panel(Panel):
 
 classes = (
     HOUSE_UL_openings,
+    HOUSE_UL_rooms,
     HOUSE_PT_main_panel,
     HOUSE_PT_roof_panel,
     HOUSE_PT_windows_panel,

@@ -108,11 +108,21 @@ def interior_layout(props, wall_depth, floor_height_actual, door_center_x,
     t = wall_depth
     y_refend = _avoid(L * 0.55, window_ys_side, 0.75, L * 0.35, L * 0.7)
     door_pass = _avoid(door_center_x, [], 0, t + 0.7, W - t - 0.7)
+    # ✅ v1.27: TABLEAU DE PIÈCES — les surfaces demandées dimensionnent
+    # la bande arrière (le refend recule/avance) ET les largeurs de
+    # cellules. Prime sur le programme.
+    from . import rooms as rooms_mod
+    room_rows = rooms_mod.spec(props)
+    prog_cells = None
+    if room_rows:
+        prog_cells = [r['surface'] for r in room_rows]
+        depth = rooms_mod.band_depth(room_rows, W - 2 * t)
+        y_refend = _avoid(max(L * 0.35, min(L * 0.7, L - t - depth)),
+                          window_ys_side, 0.75, L * 0.35, L * 0.7)
     # ✅ v1.14: MODE PROGRAMME — le solveur (programme.py) a résolu les
     # largeurs des cellules de la bande arrière (chambres, SdB, WC):
     # elles priment sur le découpage uniforme.
-    prog_cells = None
-    if getattr(props, 'programme_active', False):
+    if room_rows is None and getattr(props, 'programme_active', False):
         try:
             prog_cells = [float(v) for v in
                           getattr(props, 'programme_cells', '').split(',')
@@ -195,9 +205,21 @@ def interior_layout(props, wall_depth, floor_height_actual, door_center_x,
                          'n': n_tot, 'yB_end': yB_end, 'rise': rise}
                 tremie = (xA1 - 0.35, yB_end - 0.05, W - t, y1 + 0.02)
 
+    # bilan des surfaces RÉELLEMENT obtenues (après nudge des cloisons)
+    if room_rows:
+        depth_real = (L - t) - y_refend
+        xs = [t] + list(x_splits) + [W - t]
+        for r, i in zip(room_rows, range(len(xs) - 1)):
+            got = (xs[i + 1] - xs[i]) * depth_real
+            r['achieved'] = got
+        bilan = ", ".join(f"{r['name']} {r['achieved']:.1f}m² "
+                          f"(cible {r['surface']:.1f})"
+                          for r in room_rows)
+        print(f"[House] ✓ Tableau de pièces: {bilan}")
+
     return {'y_refend': y_refend, 'door_pass': door_pass,
             'x_split': x_split, 'x_splits': x_splits, 'n_rooms': n_rooms,
-            'stair': stair, 'tremie': tremie}
+            'rooms': room_rows, 'stair': stair, 'tremie': tremie}
 
 
 def build_staircase(props, collection, layout, floor_height_actual,

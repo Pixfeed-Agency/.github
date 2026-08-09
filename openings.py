@@ -41,13 +41,19 @@ def _back_positions(op, props, width, num_windows_back):
     Uniforme (historique), ou UNE PAR PIÈCE quand le programme pilote
     la distribution (même échelle que interior_layout: les largeurs de
     cellules sont normalisées sur la largeur intérieure)."""
-    if getattr(props, 'programme_active', False):
-        try:
-            cells = [float(v) for v in
-                     getattr(props, 'programme_cells', '').split(',')
-                     if v.strip()]
-        except ValueError:
-            cells = []
+    from . import rooms
+    rt = rooms.spec(props)
+    if rt or getattr(props, 'programme_active', False):
+        if rt:
+            # ✅ v1.27: une fenêtre AU CENTRE DE CHAQUE PIÈCE du tableau
+            cells = [r['surface'] for r in rt]
+        else:
+            try:
+                cells = [float(v) for v in
+                         getattr(props, 'programme_cells', '').split(',')
+                         if v.strip()]
+            except ValueError:
+                cells = []
         if len(cells) >= 2:
             t = op._get_wall_depth(props)
             inner = width - 2 * t
