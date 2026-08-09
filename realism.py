@@ -50,22 +50,39 @@ SLOT_SIZE = {'pierre': 2.5, 'enduit': 3.0, 'sol': 2.0, 'tuiles': 1.6}
 
 
 def _scan_set(folder):
-    """{map_type: chemin} d'un sous-dossier de textures."""
+    """{map_type: chemin} d'un sous-dossier de textures.
+    Tolère UN niveau de sous-dossier (les zips Poly Haven/ambientCG
+    s'extraient souvent dans `pierre/old_stone_wall_8k/…`)."""
     try:
         files = sorted(os.listdir(folder))
     except OSError:
         return {}
     out = {}
-    for f in files:
-        low = f.lower()
+
+    def try_file(path, fname):
+        low = fname.lower()
         if not low.endswith(IMG_EXT):
-            continue
+            return
         for mtype, pats in MAP_PATTERNS.items():
             if mtype in out:
                 continue
             if any(p in low for p in pats):
-                out[mtype] = os.path.join(folder, f)
+                out[mtype] = path
                 break
+
+    for f in files:
+        try_file(os.path.join(folder, f), f)
+    if 'color' not in out:
+        for f in files:
+            sub = os.path.join(folder, f)
+            if os.path.isdir(sub):
+                try:
+                    for g in sorted(os.listdir(sub)):
+                        try_file(os.path.join(sub, g), g)
+                except OSError:
+                    continue
+                if 'color' in out:
+                    break
     return out
 
 
