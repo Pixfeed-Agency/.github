@@ -81,6 +81,26 @@ class WindowGenerator:
             print(f"[Windows] Dimensions invalides: {width}x{height}")
             return []
         
+        # ✅ v1.15: SLOT D'ASSET (optionnel, chantier n°7) — l'objet de
+        # l'utilisateur remplace la fenêtre procédurale, mis à l'échelle
+        # de l'ouverture. Slot vide ou défaillant → procédural (repli).
+        try:
+            from . import slots
+            _p = bpy.context.scene.house_generator
+            _asset = slots.slot_object(_p, 'window_asset')
+        except Exception:
+            _asset = None
+        if _asset is not None:
+            try:
+                obj = slots.place_asset(
+                    _asset, "Window_Asset", width, height, location,
+                    self._get_orientation_matrix(orientation),
+                    collection, part="window")
+                if obj is not None:
+                    return [obj]
+            except Exception as e:
+                print(f"[Windows] Slot asset échoué ({e}) → procédural")
+
         # ✅ FIX: Normaliser les types inconnus AVANT tout — la vitre était
         # créée avec le type original inconnu → objet mesh VIDE lié à la scène
         known_types = ('CASEMENT', 'SLIDING', 'FIXED', 'DOUBLE_HUNG', 'ARCHED', 'PICTURE')

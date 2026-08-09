@@ -496,8 +496,8 @@ def build_wing_simple_walls(frame, props, collection, openings_local):
     bmesh.ops.transform(bm, verts=bm.verts, matrix=frame['M'])
     try:
         from . import look
-        mat = look.stucco_material("House_Stucco",
-                                   tuple(props.wall_material_color)[:3])
+        mat = look.wall_material(tuple(props.wall_material_color)[:3],
+                                 getattr(props, 'wall_finish', 'AUTO'))
     except Exception:
         mat = _simple_material("House_Wall",
                                tuple(props.wall_material_color)[:3],

@@ -226,6 +226,13 @@ def configs():
                                        detail_level='PHOTO'),
                   ((13, -10.5, 6.5), (4, 2.5, 2.0), 32),
                   expect=("Window_Sill_Photo",)))
+    # --- Finitions procédurales (chantier n°7) ---
+    C.append(_cfg("finitions_ardoise", dict(BASE,
+                                            wall_construction_type='SIMPLE',
+                                            wall_material_color=(0.72, 0.70, 0.64),
+                                            wall_finish='CREPI_GROS',
+                                            roof_finish='ARDOISE'),
+                  ((13, -10.5, 6.5), (4, 2.5, 2.0), 32)))
     # --- Mode programme (chemin solve_programme complet) ---
     C.append(_cfg("programme_3ch", dict(wall_construction_type='SIMPLE',
                                         wall_material_color=(0.55, 0.455, 0.325),

@@ -37,7 +37,10 @@ from mathutils import Vector  # noqa: E402
 import importlib  # noqa: E402
 
 House = importlib.import_module(os.path.basename(REPO))
-House.register()
+try:
+    House.register()
+except ValueError:
+    pass  # déjà enregistré par un autre module de tests (même session)
 
 
 # ============================================================

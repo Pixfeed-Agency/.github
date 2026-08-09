@@ -2135,12 +2135,14 @@ class HOUSE_OT_generate_auto(Operator):
             if part_type == "wall":
                 # Murs simples uniquement (pas les briques qui ont déjà leur matériau)
                 if props.wall_construction_type == 'SIMPLE' and len(obj.data.materials) == 0:
-                    # ✅ v1.9.1: ENDUIT TALOCHÉ réel au lieu de l'aplat lisse
+                    # ✅ v1.9.1: ENDUIT TALOCHÉ réel au lieu de l'aplat
+                    # lisse; ✅ v1.15: finition au CHOIX (wall_finish)
                     try:
                         from . import look
                         obj.data.materials.append(
-                            look.stucco_material("House_Stucco",
-                                                 tuple(wall_color)[:3]))
+                            look.wall_material(
+                                tuple(wall_color)[:3],
+                                getattr(props, 'wall_finish', 'AUTO')))
                     except Exception:
                         obj.data.materials.append(wall_mat)
             elif part_type == "roof":

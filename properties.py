@@ -62,6 +62,13 @@ PROP_TAGS = {
     'prog_wc_separate': ('none',),
     'prog_garage': ('none',),
     'prog_surface': ('none',),
+    # Slots d'assets et finitions (v1.15)
+    'window_asset': ('joinery',),
+    'door_asset': ('joinery',),
+    'shutter_asset': ('joinery',),
+    'tile_asset': ('roof',),
+    'wall_finish': ('walls',),
+    'roof_finish': ('roof',),
 }
 
 # Photographie des valeurs de props au dernier build — le callback
@@ -72,6 +79,11 @@ _pending_tags = set()
 
 def _prop_value(props, name):
     v = getattr(props, name)
+    if isinstance(v, bpy.types.ID):
+        try:
+            return ("ID", v.name)     # pointeurs d'assets (v1.15)
+        except ReferenceError:
+            return ("ID", None)
     try:
         return tuple(v)          # vecteurs / couleurs
     except TypeError:
@@ -678,6 +690,76 @@ class HouseGeneratorProperties(PropertyGroup):
         description="Largeurs des cellules de la bande arrière "
                     "(m, séparées par des virgules) — posé par le solveur",
         default="",
+        update=regenerate_house
+    )
+
+    # ============================================================
+    # ✅ v1.15 — SLOTS D'ASSETS (chantier n°7): optionnels, JAMAIS
+    # obligatoires. Slot vide → menuiserie PROCÉDURALE habituelle.
+    # ============================================================
+    window_asset: bpy.props.PointerProperty(
+        name="Asset fenêtre",
+        description="Objet à instancier à la place des fenêtres "
+                    "procédurales (mis à l'échelle de chaque ouverture); "
+                    "vide = fenêtres procédurales",
+        type=bpy.types.Object,
+        poll=lambda self, obj: obj.type == 'MESH'
+        and "house_step" not in obj.keys(),
+        update=regenerate_house
+    )
+    door_asset: bpy.props.PointerProperty(
+        name="Asset porte",
+        description="Objet à instancier à la place des portes "
+                    "procédurales; vide = portes procédurales",
+        type=bpy.types.Object,
+        poll=lambda self, obj: obj.type == 'MESH'
+        and "house_step" not in obj.keys(),
+        update=regenerate_house
+    )
+    shutter_asset: bpy.props.PointerProperty(
+        name="Asset volet",
+        description="Objet utilisé pour chaque battant de volet "
+                    "(articulation 'fermeture' conservée); "
+                    "vide = volets procéduraux",
+        type=bpy.types.Object,
+        poll=lambda self, obj: obj.type == 'MESH'
+        and "house_step" not in obj.keys(),
+        update=regenerate_house
+    )
+    tile_asset: bpy.props.PointerProperty(
+        name="Asset tuile",
+        description="Mesh utilisé comme tuile maître (instancié sur "
+                    "toute la couverture); vide = tuile canal procédurale",
+        type=bpy.types.Object,
+        poll=lambda self, obj: obj.type == 'MESH'
+        and "house_step" not in obj.keys(),
+        update=regenerate_house
+    )
+
+    # ✅ v1.15 — FINITIONS PROCÉDURALES au choix (en plus de la couleur
+    # unie et des textures PBR)
+    wall_finish: EnumProperty(
+        name="Finition murale",
+        description="Matière procédurale des murs enduits",
+        items=[
+            ('AUTO', "Auto (taloché)", "Enduit taloché fin (défaut)"),
+            ('CREPI_FIN', "Crépi fin", "Enduit taloché, grain serré"),
+            ('CREPI_GROS', "Crépi projeté", "Gros grain projeté, relief net"),
+            ('LISSE', "Peinture lisse", "Peinture mate unie (sans grain)"),
+        ],
+        default='AUTO',
+        update=regenerate_house
+    )
+    roof_finish: EnumProperty(
+        name="Finition de couverture",
+        description="Matière procédurale des tuiles",
+        items=[
+            ('AUTO', "Auto (terre cuite)", "Tuile terre cuite (défaut)"),
+            ('TERRE_CUITE', "Terre cuite", "Variation de cuisson par tuile"),
+            ('ARDOISE', "Ardoise", "Gris bleuté satiné, feuilletage"),
+            ('BETON', "Béton", "Tuile béton grise mate"),
+        ],
+        default='AUTO',
         update=regenerate_house
     )
 

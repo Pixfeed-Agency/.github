@@ -101,9 +101,18 @@ def chimney_brick_material(mortar_color=(0.72, 0.69, 0.64)):
     return mat
 
 
-def tile_material(base_color=(0.34, 0.115, 0.062)):
-    """Terre cuite: variation de cuisson PAR TUILE + moucheté + bump grain"""
-    mat = _new_mat("House_Tile")
+def tile_material(base_color=(0.34, 0.115, 0.062), finish='AUTO'):
+    """Matière de couverture PROCÉDURALE, au choix (chantier n°7):
+    - AUTO / TERRE_CUITE: variation de cuisson par tuile + moucheté
+    - ARDOISE: gris bleuté schisteux, reflets satinés par tuile
+    - BETON: tuile béton grise mate, teinte terne homogène
+    Le nom du matériau encode la finition (re-résolu à chaque build)."""
+    if finish == 'ARDOISE':
+        base_color = (0.070, 0.082, 0.098)
+    elif finish == 'BETON':
+        base_color = (0.30, 0.29, 0.27)
+    suffix = "" if finish in ('AUTO', 'TERRE_CUITE') else f"_{finish.title()}"
+    mat = _new_mat("House_Tile" + suffix)
     nodes, links, bsdf = _basic(mat)
 
     # Variation de teinte par tuile (four de cuisson)
@@ -156,18 +165,23 @@ def tile_material(base_color=(0.34, 0.115, 0.062)):
     links.new(w_map.outputs['Result'], mix_w.inputs[7])
     links.new(mix_w.outputs[2], bsdf.inputs['Base Color'])
 
-    # Rugosité vivante (mate mais irrégulière)
+    # Rugosité vivante (mate mais irrégulière) — l'ardoise est satinée
     r_ramp = nodes.new('ShaderNodeMapRange')
     r_ramp.location = (-420, -60)
-    r_ramp.inputs['To Min'].default_value = 0.55
-    r_ramp.inputs['To Max'].default_value = 0.85
+    if finish == 'ARDOISE':
+        r_ramp.inputs['To Min'].default_value = 0.30
+        r_ramp.inputs['To Max'].default_value = 0.55
+    else:
+        r_ramp.inputs['To Min'].default_value = 0.55
+        r_ramp.inputs['To Max'].default_value = 0.85
     links.new(noise.outputs['Fac'], r_ramp.inputs['Value'])
     links.new(r_ramp.outputs['Result'], bsdf.inputs['Roughness'])
 
-    # Grain de terre cuite (bump fin)
+    # Grain de surface (bump fin; feuilletage plus marqué en ardoise)
     bump_noise = nodes.new('ShaderNodeTexNoise')
     bump_noise.location = (-700, -260)
-    bump_noise.inputs['Scale'].default_value = 180.0
+    bump_noise.inputs['Scale'].default_value = \
+        90.0 if finish == 'ARDOISE' else 180.0
     bump_noise.inputs['Detail'].default_value = 4.0
     bump = nodes.new('ShaderNodeBump')
     bump.location = (-420, -260)
@@ -399,10 +413,27 @@ def zinc_material():
     return mat
 
 
-def stucco_material(name="House_Stucco", base=(0.475, 0.40, 0.30)):
+def wall_material(base, finish='AUTO'):
+    """✅ v1.15: finition murale PROCÉDURALE au choix (chantier n°7):
+    AUTO/CREPI_FIN = enduit taloché actuel, CREPI_GROS = crépi projeté
+    à gros grain, LISSE = peinture mate unie. Point d'entrée unique
+    pour les murs SIMPLE (maison + ailes + _apply_materials)."""
+    if finish == 'LISSE':
+        mat = _new_mat("House_Wall_Lisse")
+        nodes, links, bsdf = _basic(mat)
+        bsdf.inputs['Base Color'].default_value = (*base[:3], 1)
+        bsdf.inputs['Roughness'].default_value = 0.9
+        return mat
+    grain = 'GROS' if finish == 'CREPI_GROS' else 'FIN'
+    return stucco_material("House_Stucco", base, grain=grain)
+
+
+def stucco_material(name="House_Stucco", base=(0.475, 0.40, 0.30),
+                    grain='FIN'):
     """✅ v1.9.1: ENDUIT TALOCHÉ (crépi) — le matériau des pavillons
     français. Grain fin serré + nuages de teinte à l'échelle du mur +
-    micro-salissure au pied. L'aplat lisse faisait maquette."""
+    micro-salissure au pied. L'aplat lisse faisait maquette.
+    ✅ v1.15: grain='GROS' = crépi projeté (relief net, ombré)."""
     mat = _new_mat(name)
     nodes, links, bsdf = _basic(mat)
     r, g, b = base[:3]
@@ -445,16 +476,24 @@ def stucco_material(name="House_Stucco", base=(0.475, 0.40, 0.30)):
 
     bsdf.inputs['Roughness'].default_value = 0.93
 
-    # grain taloché fin (bump serré)
-    grain = nodes.new('ShaderNodeTexNoise')
-    grain.location = (-660, -180)
-    grain.inputs['Scale'].default_value = 320.0
-    grain.inputs['Detail'].default_value = 3.0
+    # grain taloché fin (bump serré) / crépi projeté (gros grain)
+    gnoise = nodes.new('ShaderNodeTexNoise')
+    gnoise.location = (-660, -180)
+    if grain == 'GROS':
+        gnoise.inputs['Scale'].default_value = 95.0
+        gnoise.inputs['Detail'].default_value = 5.0
+    else:
+        gnoise.inputs['Scale'].default_value = 320.0
+        gnoise.inputs['Detail'].default_value = 3.0
     bump = nodes.new('ShaderNodeBump')
     bump.location = (-440, -180)
-    bump.inputs['Strength'].default_value = 0.35
-    bump.inputs['Distance'].default_value = 0.0016
-    links.new(grain.outputs['Fac'], bump.inputs['Height'])
+    if grain == 'GROS':
+        bump.inputs['Strength'].default_value = 0.85
+        bump.inputs['Distance'].default_value = 0.005
+    else:
+        bump.inputs['Strength'].default_value = 0.35
+        bump.inputs['Distance'].default_value = 0.0016
+    links.new(gnoise.outputs['Fac'], bump.inputs['Height'])
     links.new(bump.outputs['Normal'], bsdf.inputs['Normal'])
     return mat
 

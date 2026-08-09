@@ -1,5 +1,34 @@
 # Changelog — House Generator
 
+## v1.15.0 — Slots d'assets + finitions procédurales (chantier n°7)
+
+Des SLOTS optionnels — jamais obligatoires: le procédural reste le
+socle, l'asset est un habillage AU CHOIX. Slot vide ou défaillant →
+House construit sa version procédurale comme toujours.
+
+- **4 slots d'assets** (panneau "Assets & finitions"):
+  - `window_asset`: l'objet remplace chaque fenêtre, mis à l'échelle
+    exacte de l'ouverture (bbox), orienté par mur
+  - `door_asset`: idem pour les portes (ancre = coin bas)
+  - `shutter_asset`: chaque battant devient une copie normalisée
+    (charnière à l'origine) — l'articulation `fermeture` et le
+    micro-désordre PHOTO sont CONSERVÉS
+  - `tile_asset`: le mesh devient la tuile maître, normalisé au
+    calepin (TILE_W × TILE_L) et instancié sur toute la couverture
+    (maison, ailes, toitons) — ses matériaux sont conservés
+- **Garde-fous**: un objet généré par House est refusé (il serait
+  détruit à la régénération — poll UI + re-vérification au build);
+  asset plat/vide → repli procédural loggé, jamais de crash
+- **Finitions procédurales au choix** (en plus de la couleur unie et
+  des textures PBR existantes):
+  - murs: AUTO/taloché fin, CRÉPI PROJETÉ gros grain, PEINTURE LISSE
+  - couverture: AUTO/terre cuite, ARDOISE (satinée, feuilletage),
+    BÉTON (gris mat) — `look.wall_material` / `tile_material(finish)`
+- **Tests** (`test_assets.py`, 5): slots remplis → assets à l'échelle
+  (bbox vérifiée), slots vides → procédural, objet House refusé,
+  matières réellement changées (nœuds inspectés), repli sur asset plat
+- Banc visuel: +1 config `finitions_ardoise` (28 au total)
+
 ## v1.14.0 — Mode PROGRAMME (chantier n°6)
 
 "3 chambres, salle de bain, WC, garage" → House résout. L'utilisateur

@@ -74,6 +74,31 @@ class DoorGenerator:
 
         print(f"[Doors] Génération porte {door_type}: {width}x{height}m à {location}")
 
+        # ✅ v1.15: SLOT D'ASSET (optionnel, chantier n°7) — l'objet de
+        # l'utilisateur remplace la porte procédurale, mis à l'échelle
+        # de l'ouverture (ancre = coin bas, convention des portes).
+        # Slot vide ou défaillant → porte procédurale (repli).
+        try:
+            from . import slots
+            _p = bpy.context.scene.house_generator
+            _asset = slots.slot_object(_p, 'door_asset')
+        except Exception:
+            _asset = None
+        if _asset is not None:
+            try:
+                rot = {'front': Matrix.Identity(4),
+                       'back': Matrix.Rotation(math.radians(180), 4, 'Z'),
+                       'left': Matrix.Rotation(math.radians(90), 4, 'Z'),
+                       'right': Matrix.Rotation(math.radians(-90), 4, 'Z'),
+                       }.get(orientation, Matrix.Identity(4))
+                obj = slots.place_asset(
+                    _asset, "Door_Asset", width, height, location, rot,
+                    collection, part="door", anchor='corner')
+                if obj is not None:
+                    return [obj]
+            except Exception as e:
+                print(f"[Doors] Slot asset échoué ({e}) → procédural")
+
         # ✅ FIX: try/except comme les fenêtres — une erreur bmesh ne doit
         # pas interrompre toute la génération de la maison
         try:

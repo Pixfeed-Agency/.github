@@ -575,7 +575,37 @@ def _create_tile_master(collection, color):
     incurvée + jupe d'épaisseur + nez à l'égout, polygones lissés.
     ~200 tris — négligeable puisque le mesh est PARTAGÉ par toutes les
     instances GN.
+
+    ✅ v1.15: SLOT tile_asset (optionnel) — le mesh de l'utilisateur,
+    normalisé au calepin (TILE_W × TILE_L, coin à l'origine), remplace
+    la tuile procédurale; ses matériaux sont conservés. Slot vide ou
+    défaillant → tuile canal procédurale, finition roof_finish.
     """
+    sprops = getattr(bpy.context.scene, 'house_generator', None)
+    finish = getattr(sprops, 'roof_finish', 'AUTO') if sprops else 'AUTO'
+    if sprops is not None:
+        try:
+            from . import slots, look
+            asset = slots.slot_object(sprops, 'tile_asset')
+            if asset is not None:
+                me = slots.normalized_mesh_copy(asset, TILE_W - 0.014,
+                                                TILE_L)
+                if me is not None:
+                    obj = bpy.data.objects.new("Tile_Master", me)
+                    obj["house_part"] = "roof"
+                    collection.objects.link(obj)
+                    if not me.materials:
+                        me.materials.append(look.tile_material(color, finish))
+                    obj.hide_render = True
+                    try:
+                        obj.hide_set(True)
+                    except RuntimeError:
+                        pass
+                    print(f"[House] ✓ Tuile maître: asset "
+                          f"'{asset.name}' (normalisé au calepin)")
+                    return obj
+        except Exception as e:
+            print(f"[House] Slot tuile échoué ({e}) → tuile procédurale")
     w = TILE_W - 0.014       # largeur utile (léger jeu entre colonnes)
     amp = 0.035              # hauteur du galbe
     thick = 0.012            # épaisseur visible de la jupe
@@ -619,9 +649,10 @@ def _create_tile_master(collection, color):
 
     # ✅ v1.9.1: le matériau V2 par tuile (look.tile_material) n'était
     # PAS branché — le master utilisait un aplat orange uniforme!
+    # ✅ v1.15: finition au choix (terre cuite / ardoise / béton)
     try:
         from . import look
-        mat = look.tile_material(color)
+        mat = look.tile_material(color, finish)
     except Exception:
         mat = _simple_material("House_Tile", color, roughness=0.65)
     obj = _new_mesh_obj("Tile_Master", bm, collection, "roof", mat)
@@ -1534,6 +1565,31 @@ def build_shutters(props, collection, window_specs):
             return spec['width'] / 2 - 0.02
         return min(spec['width'] / 2 - 0.02, max(0.10, best / 2 - 0.015))
 
+    # ✅ v1.15: SLOT D'ASSET volet (optionnel) — chaque battant devient
+    # une copie normalisée de l'asset (charnière à l'origine, mêmes
+    # drivers). Slot vide ou défaillant → volet à lames procédural.
+    try:
+        from . import slots as _slots
+        s_asset = _slots.slot_object(props, 'shutter_asset')
+    except Exception:
+        s_asset = None
+
+    def _leaf_orient(wall, side, t):
+        """Oriente le mesh normalisé (X=largeur, Y=épaisseur, Z=hauteur,
+        coin à l'origine-charnière) selon le mur et le côté."""
+        mirror_x = Matrix.Diagonal((-1, 1, 1, 1))
+        mirror_y = Matrix.Diagonal((1, -1, 1, 1))
+        rz90 = Matrix.Rotation(math.radians(90), 4, 'Z')
+        if wall == 'front':
+            m = (mirror_x if side < 0 else Matrix.Identity(4))
+            return Matrix.Translation((0, -t, 0)) @ m
+        if wall == 'back':
+            return mirror_x if side < 0 else Matrix.Identity(4)
+        if wall == 'left':
+            return (mirror_y if side < 0 else Matrix.Identity(4)) @ rz90
+        m = (mirror_y if side < 0 else Matrix.Identity(4)) @ rz90
+        return Matrix.Translation((t, 0, 0)) @ m
+
     for idx, spec in enumerate(window_specs):
         hgt = spec['height']
         z0 = spec['z_center'] - hgt / 2
@@ -1541,43 +1597,68 @@ def build_shutters(props, collection, window_specs):
 
         for side in (-1, 1):
             w_leaf = _leaf_room(spec, side)
-            bm = bmesh.new()
-            # Battant construit OUVERT, à plat contre le mur, charnière à
-            # l'origine (bord côté fenêtre)
-            # ✅ v1.9.1: volet à LAMES (4 planches + 2 barres) au lieu
-            # d'une plaque pleine (Brouillon: plaque simple)
-            n_pl = 1 if detail_level(props) == 'DRAFT' else 4
             if wall in ('front', 'back'):
-                y0 = -t if wall == 'front' else 0.0
-                x_out = side * w_leaf
-                a0, a1 = min(0, x_out), max(0, x_out)
-                pw = (a1 - a0) / n_pl
-                for k in range(n_pl):
-                    _add_box(bm, a0 + k * pw + 0.003, y0, 0,
-                             a0 + (k + 1) * pw - 0.003, y0 + t, hgt)
-                yb = y0 - 0.014 if wall == 'front' else y0 + t
-                for zb in (hgt * 0.18, hgt * 0.74):
-                    _add_box(bm, a0 + 0.015, min(yb, yb + 0.014), zb,
-                             a1 - 0.015, max(yb, yb + 0.014), zb + hgt * 0.09)
                 hinge = Vector((spec['x'] + side * (spec['width'] / 2 + 0.02),
                                 spec['y'], z0))
             else:
-                x0 = -t if wall == 'left' else 0.0
-                y_out = side * w_leaf
-                a0, a1 = min(0, y_out), max(0, y_out)
-                pw = (a1 - a0) / n_pl
-                for k in range(n_pl):
-                    _add_box(bm, x0, a0 + k * pw + 0.003, 0,
-                             x0 + t, a0 + (k + 1) * pw - 0.003, hgt)
-                xb = x0 - 0.014 if wall == 'left' else x0 + t
-                for zb in (hgt * 0.18, hgt * 0.74):
-                    _add_box(bm, min(xb, xb + 0.014), a0 + 0.015, zb,
-                             max(xb, xb + 0.014), a1 - 0.015, zb + hgt * 0.09)
                 hinge = Vector((spec['x'],
-                                spec['y'] + side * (spec['width'] / 2 + 0.02), z0))
+                                spec['y'] + side * (spec['width'] / 2 + 0.02),
+                                z0))
 
-            obj = _new_mesh_obj(f"Shutter_{idx}_{'L' if side < 0 else 'R'}",
-                                bm, collection, "shutter", mat)
+            leaf_name = f"Shutter_{idx}_{'L' if side < 0 else 'R'}"
+            obj = None
+            if s_asset is not None:
+                try:
+                    me = _slots.normalized_mesh_copy(s_asset, w_leaf, t, hgt)
+                    if me is not None:
+                        M = _leaf_orient(wall, side, t)
+                        me.transform(M)
+                        if M.determinant() < 0:
+                            me.flip_normals()
+                        if not me.materials:
+                            me.materials.append(mat)
+                        obj = bpy.data.objects.new(leaf_name, me)
+                        obj["house_part"] = "shutter"
+                        collection.objects.link(obj)
+                except Exception as e:
+                    print(f"[House] Slot volet échoué ({e}) → procédural")
+                    obj = None
+
+            if obj is None:
+                bm = bmesh.new()
+                # Battant construit OUVERT, à plat contre le mur,
+                # charnière à l'origine (bord côté fenêtre)
+                # ✅ v1.9.1: volet à LAMES (4 planches + 2 barres) au
+                # lieu d'une plaque pleine (Brouillon: plaque simple)
+                n_pl = 1 if detail_level(props) == 'DRAFT' else 4
+                if wall in ('front', 'back'):
+                    y0 = -t if wall == 'front' else 0.0
+                    x_out = side * w_leaf
+                    a0, a1 = min(0, x_out), max(0, x_out)
+                    pw = (a1 - a0) / n_pl
+                    for k in range(n_pl):
+                        _add_box(bm, a0 + k * pw + 0.003, y0, 0,
+                                 a0 + (k + 1) * pw - 0.003, y0 + t, hgt)
+                    yb = y0 - 0.014 if wall == 'front' else y0 + t
+                    for zb in (hgt * 0.18, hgt * 0.74):
+                        _add_box(bm, a0 + 0.015, min(yb, yb + 0.014), zb,
+                                 a1 - 0.015, max(yb, yb + 0.014),
+                                 zb + hgt * 0.09)
+                else:
+                    x0 = -t if wall == 'left' else 0.0
+                    y_out = side * w_leaf
+                    a0, a1 = min(0, y_out), max(0, y_out)
+                    pw = (a1 - a0) / n_pl
+                    for k in range(n_pl):
+                        _add_box(bm, x0, a0 + k * pw + 0.003, 0,
+                                 x0 + t, a0 + (k + 1) * pw - 0.003, hgt)
+                    xb = x0 - 0.014 if wall == 'left' else x0 + t
+                    for zb in (hgt * 0.18, hgt * 0.74):
+                        _add_box(bm, min(xb, xb + 0.014), a0 + 0.015, zb,
+                                 max(xb, xb + 0.014), a1 - 0.015,
+                                 zb + hgt * 0.09)
+                obj = _new_mesh_obj(leaf_name, bm, collection,
+                                    "shutter", mat)
             obj.location = hinge
 
             # ✅ Driver 'fermeture': 0 = ouvert (à plat), 1 = fermé (sur la fenêtre)

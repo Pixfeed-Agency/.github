@@ -113,4 +113,7 @@ CHANGELOG). Restent les limites listées après la liste historique.*
 6. ✅ v1.14.0 — Mode PROGRAMME plain-pied (solveur pur + cellules de
    distribution réelles + rapport m²; reste: étage, couloir, pièces
    d'eau équipées)
-7. Slots d'assets (menuiseries haute qualité importables)
+7. ✅ v1.15.0 — Slots d'assets OPTIONNELS (fenêtre/porte/volet/tuile,
+   repli procédural intégral) + finitions procédurales au choix
+   (crépi fin/projeté/lisse; terre cuite/ardoise/béton); reste:
+   slot brique, PBR displacement, slots par pièce (cuisine/SdB)

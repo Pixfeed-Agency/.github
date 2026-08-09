@@ -86,6 +86,17 @@ class HOUSE_PT_main_panel(Panel):
                       icon='CHECKMARK')
             box.prop(props, "programme_active", text="Désactiver",
                      toggle=True, invert_checkbox=True)
+
+        # ✅ v1.15: slots d'assets (optionnels) + finitions procédurales
+        box = layout.box()
+        box.label(text="Assets & finitions", icon='ASSET_MANAGER')
+        box.label(text="Slots optionnels (vide = procédural):")
+        box.prop(props, "window_asset", text="Fenêtre")
+        box.prop(props, "door_asset", text="Porte")
+        box.prop(props, "shutter_asset", text="Volet")
+        box.prop(props, "tile_asset", text="Tuile")
+        box.prop(props, "wall_finish", text="Murs")
+        box.prop(props, "roof_finish", text="Toit")
         
         layout.separator()
         row = layout.row()
