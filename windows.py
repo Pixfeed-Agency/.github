@@ -11,10 +11,12 @@ from mathutils import Vector, Matrix
 import math
 
 # Constantes - Normes européennes pour fenêtres réalistes
-FRAME_DEPTH = 0.07          # 70mm - Profondeur du dormant (standard EN)
-GLASS_THICKNESS = 0.02      # 20mm - Double vitrage simplifié
-GLASS_INSET = 0.005         # 5mm - Retrait du verre (réduit)
-SILL_DEPTH = 0.04           # 40mm - Débord de l'appui
+# ✅ S8: valeurs canoniques dans norms.py (source unique documentée)
+from .norms import (FENETRE_DORMANT_PROF as FRAME_DEPTH,
+                    FENETRE_VITRAGE_EP as GLASS_THICKNESS,
+                    FENETRE_VERRE_RETRAIT as GLASS_INSET,
+                    FENETRE_APPUI_INT as SILL_DEPTH)
+from . import norms
 
 
 class WindowGenerator:
@@ -743,29 +745,31 @@ class WindowGenerator:
         fw = frame_w
         d = depth
 
-        # ✅ FIX Z-FIGHTING: assemblage à COUPE DROITE — les traverses
-        # haut/bas s'arrêtent ENTRE les jambages (avant: 4 boîtes se
-        # superposaient aux coins → faces coplanaires → carrés noirs/blancs
-        # scintillants à chaque coin de fenêtre dans les rendus)
-        # HAUT
-        self._add_box(bm,
-            center=offset + Vector((0, offset_y, hh - fw/2)),
-            size=(width - 2 * fw, d, fw))
+        # ✅ S7: ANNEAU PRISMATIQUE — un seul volume manifold (16
+        # sommets, 16 faces) au lieu de 4 boîtes about-jointées dont la
+        # fusion créait des arêtes en T (>2 faces). Surfaces visibles
+        # STRICTEMENT identiques; les joints internes disparaissent.
+        # (l'historique: 4 boîtes superposées → z-fighting v1.2, coupe
+        # droite v1.3, anneau propre S7)
+        y0 = offset_y - d / 2
+        y1 = offset_y + d / 2
 
-        # BAS
-        self._add_box(bm,
-            center=offset + Vector((0, offset_y, -hh + fw/2)),
-            size=(width - 2 * fw, d, fw))
+        def ring(y):
+            outer = [bm.verts.new(offset + Vector((x, y, z)))
+                     for x, z in ((-hw, -hh), (hw, -hh), (hw, hh), (-hw, hh))]
+            inner = [bm.verts.new(offset + Vector((x, y, z)))
+                     for x, z in ((-hw + fw, -hh + fw), (hw - fw, -hh + fw),
+                                  (hw - fw, hh - fw), (-hw + fw, hh - fw))]
+            return outer, inner
 
-        # GAUCHE
-        self._add_box(bm,
-            center=offset + Vector((-hw + fw/2, offset_y, 0)),
-            size=(fw, d, height))
-
-        # DROITE
-        self._add_box(bm,
-            center=offset + Vector((hw - fw/2, offset_y, 0)),
-            size=(fw, d, height))
+        o0, i0 = ring(y0)
+        o1, i1 = ring(y1)
+        for k in range(4):
+            k2 = (k + 1) % 4
+            bm.faces.new([o0[k], o0[k2], o1[k2], o1[k]])   # bord extérieur
+            bm.faces.new([i1[k], i1[k2], i0[k2], i0[k]])   # bord intérieur
+            bm.faces.new([o0[k2], o0[k], i0[k], i0[k2]])   # face avant
+            bm.faces.new([o1[k], o1[k2], i1[k2], i1[k]])   # face arrière
 
     def _add_rectangular_frame_partial(self, bm, width, height, frame_w, depth, offset=Vector((0,0,0)), top_open=False):
         """Ajoute un cadre rectangulaire partiel (pour fenêtre cintrée)
@@ -1278,12 +1282,17 @@ class WindowGenerator:
         # Nettoyer et finaliser
         bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=0.0001)
         bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
-        
+
         # Créer le mesh
         mesh = bpy.data.meshes.new(name)
         bm.to_mesh(mesh)
         mesh.update()
-        
+        try:
+            from .features import box_uv
+            box_uv(mesh)          # ✅ S7: UVs systématiques
+        except Exception:
+            pass
+
         # Créer l'objet
         obj = bpy.data.objects.new(name, mesh)
         return obj

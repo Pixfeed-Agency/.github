@@ -17,16 +17,16 @@ import random
 from .windows import WindowGenerator
 from .doors import DoorGenerator
 
-# Constantes - Dimensions et épaisseurs
-WALL_THICKNESS = 0.25
-FLOOR_THICKNESS = 0.2
-FOUNDATION_THICKNESS = 0.3
-ROOF_THICKNESS_FLAT = 0.3
-ROOF_THICKNESS_PITCHED = 0.15
+# ✅ S8: dimensions canoniques dans norms.py (source unique documentée)
+from .norms import (MUR_EP_BASE as WALL_THICKNESS,
+                    DALLE_EP as FLOOR_THICKNESS,
+                    FONDATION_EP as FOUNDATION_THICKNESS,
+                    TOIT_DALLE_TERRASSE_EP as ROOF_THICKNESS_FLAT,
+                    TOIT_DALLE_RAMPANT_EP as ROOF_THICKNESS_PITCHED,
+                    PORTE_ENTREE_H as DOOR_HEIGHT)
 
 # Constantes - Ouvertures
 OPENING_OFFSET = 0.02
-DOOR_HEIGHT = 2.1
 DOOR_DEPTH_EXTRA = 0.1
 WINDOW_WIDTH = 1.2
 WINDOW_DEPTH_EXTRA = 0.1
@@ -318,17 +318,10 @@ class HOUSE_OT_generate_auto(Operator):
 
     @staticmethod
     def _window_vertical(floor_z, floor_height, height_ratio):
-        """✅ Géométrie verticale UNIQUE d'une fenêtre (hauteur, z bas, z centre)
-
-        Partagée par les ouvertures (briques = bas, murs simples = centre)
-        et par les objets fenêtres visuels — le décalage d'une demi-hauteur
-        entre le trou et la fenêtre venait de conventions différentes ici.
-        La fenêtre est clampée pour ne pas dépasser le plafond de l'étage.
-        """
-        window_height = floor_height * height_ratio
-        sill_ratio = min(WINDOW_HEIGHT_DEFAULT, max(0.05, 1.0 - height_ratio - 0.05))
-        z_bottom = floor_z + floor_height * sill_ratio
-        return window_height, z_bottom, z_bottom + window_height / 2
+        """✅ S3: délègue au MODÈLE DE NIVEAUX (levels.py) — la formule
+        canonique (hauteur, allège, centre) vit là-bas."""
+        from . import levels
+        return levels.window_vertical(floor_z, floor_height, height_ratio)
 
     def _create_house_collection(self, context):
         """Crée une collection pour la maison"""
@@ -372,6 +365,8 @@ class HOUSE_OT_generate_auto(Operator):
 
             bm.to_mesh(mesh)
             mesh.update()
+            from .features import box_uv
+            box_uv(mesh)          # ✅ S7: UVs systématiques
 
         finally:
             bm.free()
@@ -391,6 +386,8 @@ class HOUSE_OT_generate_auto(Operator):
 
             bm.to_mesh(mesh)
             mesh.update()
+            from .features import box_uv
+            box_uv(mesh)          # ✅ S7: UVs systématiques
 
         except Exception as e:
             print(f"[House] Erreur mesh {name}: {e}")
@@ -947,14 +944,38 @@ class HOUSE_OT_generate_auto(Operator):
                 hx0, hy0, hx1, hy1 = tremie
                 hx0, hx1 = max(x0, hx0), min(x1, hx1)
                 hy0, hy1 = max(y0, hy0), min(y1, hy1)
-                boxes = []
-                if hx0 > x0: boxes.append((x0, y0, hx0, y1))
-                if hx1 < x1: boxes.append((hx1, y0, x1, y1))
-                if hy0 > y0: boxes.append((hx0, y0, hx1, hy0))
-                if hy1 < y1: boxes.append((hx0, hy1, hx1, y1))
-                from .features import _add_box as _fbox
-                for (bx0, by0, bx1, by1) in boxes:
-                    _fbox(bm, bx0, by0, z0, bx1, by1, z1)
+                if hx0 > x0 and hx1 < x1 and hy0 > y0 and hy1 < y1:
+                    # ✅ S7: dalle trouée = ANNEAU manifold — l'assemblage
+                    # de 4 boîtes fusionnées créait des arêtes en T
+                    # (>2 faces). Surfaces identiques, joints internes
+                    # disparus.
+                    def _ring(z):
+                        o = [bm.verts.new(v) for v in
+                             ((x0, y0, z), (x1, y0, z),
+                              (x1, y1, z), (x0, y1, z))]
+                        i = [bm.verts.new(v) for v in
+                             ((hx0, hy0, z), (hx1, hy0, z),
+                              (hx1, hy1, z), (hx0, hy1, z))]
+                        return o, i
+                    ob_, ib_ = _ring(z0)
+                    ot_, it_ = _ring(z1)
+                    for k in range(4):
+                        k2 = (k + 1) % 4
+                        bm.faces.new([ot_[k], ot_[k2], it_[k2], it_[k]])
+                        bm.faces.new([ib_[k], ib_[k2], ob_[k2], ob_[k]])
+                        bm.faces.new([ob_[k], ob_[k2], ot_[k2], ot_[k]])
+                        bm.faces.new([it_[k], it_[k2], ib_[k2], ib_[k]])
+                else:
+                    # trémie tangente au bord (cas limite): boîtes
+                    # séparées, coques closes indépendantes
+                    boxes = []
+                    if hx0 > x0: boxes.append((x0, y0, hx0, y1))
+                    if hx1 < x1: boxes.append((hx1, y0, x1, y1))
+                    if hy0 > y0: boxes.append((hx0, y0, hx1, hy0))
+                    if hy1 < y1: boxes.append((hx0, hy1, hx1, y1))
+                    from .features import _add_box as _fbox
+                    for (bx0, by0, bx1, by1) in boxes:
+                        _fbox(bm, bx0, by0, z0, bx1, by1, z1)
                 floor, mesh = self._create_mesh_from_bmesh(floor_name, bm)
                 bm.free()
             else:
@@ -1088,14 +1109,10 @@ class HOUSE_OT_generate_auto(Operator):
 
     @staticmethod
     def _plinth_visible(props):
-        """✅ Hauteur VISIBLE du soubassement au-dessus du sol.
-
-        Source UNIQUE partagée entre les fondations, le seuil et la porte
-        (la porte doit poser SUR le socle, pas être enterrée derrière).
-        """
-        if props.foundation_height <= 0:
-            return 0.0
-        return min(0.2, props.foundation_height * 0.4)
+        """✅ S3: délègue au MODÈLE DE NIVEAUX (levels.py) — la formule
+        canonique vit là-bas, avec toutes les autres altitudes."""
+        from . import levels
+        return levels.plinth_visible(props)
 
     @staticmethod
     def slab_vertical_drop(pitch_deg, thickness=ROOF_THICKNESS_PITCHED):
@@ -1830,7 +1847,9 @@ class HOUSE_OT_generate_auto(Operator):
             [W / (nb + 1) * (i + 1) for i in range(nb)],
             [L / (ns + 1) * (i + 1) for i in range(ns)],
             wing_frames=getattr(self, '_wings', []),
-            top_ceiling_z=wall_h - cap, slab_top=FLOOR_THICKNESS,
+            top_ceiling_z=wall_h - cap,
+            slab_top=self.levels.slab_top(0) if getattr(self, 'levels', None)
+            else FLOOR_THICKNESS,
             layout=self._get_interior_layout(props, style_config),
             ceiling_profile=self._cathedral_profile(props, wall_h))
 
@@ -1949,6 +1968,8 @@ class HOUSE_OT_generate_auto(Operator):
             foundation_mesh = bpy.data.meshes.new("Foundation_Mesh")
             bm.to_mesh(foundation_mesh)
             foundation_mesh.update()
+            from .features import box_uv
+            box_uv(foundation_mesh)   # ✅ S7: UVs systématiques
 
         finally:
             bm.free()

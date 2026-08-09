@@ -56,7 +56,7 @@ SEEDS = ("props", "collection", "context")
 
 LAST_STATE = {}
 STATE_KEYS = ("real_wall_height", "_interior_layout", "style_config",
-              "_wings", "_garage_as_wing")
+              "_wings", "_garage_as_wing", "levels")
 
 # Étapes de finition toujours rejouées en incrémental: peu coûteuses,
 # et la géométrie recréée doit être repeinte (materials ne touche que
@@ -217,6 +217,10 @@ def _st_foundation(op, context, props, collection):
 
 def _st_walls(op, context, props, collection):
     op.walls = op._generate_walls(context, props, collection)
+    # ✅ S3: le MODÈLE DE NIVEAUX est figé dès que l'arase réelle est
+    # connue — toutes les étapes aval lisent leurs altitudes ici
+    from . import levels
+    op.levels = levels.Levels(props, op.real_wall_height)
 
 
 def _st_floors(op, context, props, collection):
@@ -322,7 +326,7 @@ HOUSE_STEPS = [
          tags=("structure",)),
     Step("walls", _st_walls,
          requires=("_wings", "style_config"),
-         provides=("walls", "real_wall_height"),
+         provides=("walls", "real_wall_height", "levels"),
          tags=("walls",)),
     Step("floors", _st_floors,
          requires=("real_wall_height", "_wings"),

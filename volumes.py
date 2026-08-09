@@ -50,9 +50,11 @@ from .features import (
     TILE_W, TILE_L, TILE_OVERLAP,
 )
 
-ROOF_T = 0.15          # épaisseur de dalle (= ROOF_THICKNESS_PITCHED)
-NOUE_WIDTH = 0.24      # largeur de la bande de noue (zinc)
-PASSAGE_HEIGHT = 2.05  # hauteur du passage vers l'aile
+# ✅ S8: valeurs canoniques dans norms.py (source unique documentée)
+from .norms import (TOIT_DALLE_RAMPANT_EP as ROOF_T,
+                    ZINC_NOUE_LARGEUR as NOUE_WIDTH,
+                    PASSAGE_AILE_H as PASSAGE_HEIGHT)
+from . import norms
 
 
 # ============================================================
@@ -577,7 +579,7 @@ def build_wing_roof(props, collection, frame, o_eave, o_rake, tile_color,
     objs.append(_new_mesh_obj("Wing_Roof", bm, collection, "roof", slab_mat))
 
     # --- TUILES (mêmes pas que la couverture principale, coupes de noue) ---
-    random.seed(4242)
+    random.seed(norms.derive_seed(props, 'aile_' + str(frame.get('side'))))  # ✅ S6
     lift = 0.02
     step_v = TILE_L - TILE_OVERLAP
     positions = []
@@ -590,7 +592,7 @@ def build_wing_roof(props, collection, frame, o_eave, o_rake, tile_color,
         if normal.z < 0:
             normal = -normal
         # ✅ Inclinaison de pose physique (voir features.cover_slope)
-        delta = math.atan2(0.014, step_v)
+        delta = math.atan2(norms.TUILE_NEZ_H, step_v)
         base_rot = (Matrix.Rotation(-delta, 3, dir_u) @ rot.to_matrix()).to_euler()
         iv = 0
         while iv * step_v + TILE_L <= len_v + 0.03 + 1e-6:
@@ -693,7 +695,7 @@ def build_wing_roof(props, collection, frame, o_eave, o_rake, tile_color,
     ridge_y1 = (d + w / 2 - 0.10) if valley else d
     ridge_len = ridge_y1 + o_rake
     seg = bmesh.ops.create_cone(bm, cap_ends=True, segments=10,
-                                radius1=0.11, radius2=0.11, depth=ridge_len)
+                                radius1=norms.FAITIERE_RAYON_AILE, radius2=norms.FAITIERE_RAYON_AILE, depth=ridge_len)
     bmesh.ops.transform(bm, verts=seg['verts'],
                         matrix=Matrix.Translation(Vector((
                             w / 2, (-o_rake + ridge_y1) / 2, ridge_z + 0.03))) @
@@ -724,7 +726,7 @@ def build_wing_roof(props, collection, frame, o_eave, o_rake, tile_color,
 
     # --- PLANCHES DE RIVE le long des égouts de l'aile ---
     bm = bmesh.new()
-    fh, ft = 0.18, 0.022
+    fh, ft = norms.FASCIA_H, norms.FASCIA_EP
     y_f0, y_f1 = -o_rake, (d - o_eave if valley else d)
     _add_box(bm, -o_eave - ft, y_f0, z_eave - ROOF_T - fh + 0.06,
              -o_eave, y_f1, z_eave - ROOF_T + 0.06)
@@ -736,7 +738,7 @@ def build_wing_roof(props, collection, frame, o_eave, o_rake, tile_color,
 
     # --- PLANCHES DE RIVE DE PIGNON (ferment le jeu briques/rampant) ---
     bm = bmesh.new()
-    bb_h, bb_t = 0.28, 0.025
+    bb_h, bb_t = norms.RIVE_PLANCHE_H, norms.RIVE_PLANCHE_EP
     for x0 in (-o_eave, w + o_eave):
         p0 = Vector((x0, -o_rake, z_eave))
         p1 = Vector((w / 2, -o_rake, ridge_z))
@@ -774,7 +776,7 @@ def build_wing_roof(props, collection, frame, o_eave, o_rake, tile_color,
         zinc = _simple_material("House_Gutter", (0.75, 0.76, 0.78),
                                 roughness=0.35, metallic=0.8)
         bm = bmesh.new()
-        g_r = 0.07
+        g_r = norms.GOUTTIERE_RAYON
         g_len = y_f1 - y_f0
         for x_g in (-o_eave - 0.02, w + o_eave + 0.02):
             seg = bmesh.ops.create_cone(bm, cap_ends=True, segments=12,
@@ -787,7 +789,7 @@ def build_wing_roof(props, collection, frame, o_eave, o_rake, tile_color,
         for x_g in (-o_eave - 0.02, w + o_eave + 0.02):
             down_z = z_eave - ROOF_T
             seg = bmesh.ops.create_cone(bm, cap_ends=True, segments=10,
-                                        radius1=0.04, radius2=0.04, depth=down_z)
+                                        radius1=norms.DESCENTE_RAYON, radius2=norms.DESCENTE_RAYON, depth=down_z)
             bmesh.ops.transform(bm, verts=seg['verts'],
                                 matrix=Matrix.Translation(Vector((x_g, -o_rake + 0.10,
                                                                   down_z / 2))))

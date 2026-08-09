@@ -25,6 +25,33 @@ def detail_level(props):
     return getattr(props, 'detail_level', 'NORMAL')
 
 
+def box_uv(mesh, scale=1.0):
+    """✅ S7: UV par PROJECTION BOÎTE — 1 unité UV = 1 mètre.
+
+    Chaque face est projetée sur le plan dominant de sa normale (les
+    coordonnées locales servent d'UV). Systématique sur tous les meshes
+    House: les matières procédurales n'en dépendent pas, mais toute
+    texture IMAGE sérieuse (PBR) le paiera sinon."""
+    if not mesh.polygons:
+        return
+    uv = mesh.uv_layers.get("UVMap") or mesh.uv_layers.new(name="UVMap")
+    data = uv.data
+    verts = mesh.vertices
+    loops = mesh.loops
+    for poly in mesh.polygons:
+        n = poly.normal
+        ax, ay, az = abs(n.x), abs(n.y), abs(n.z)
+        for li in range(poly.loop_start, poly.loop_start + poly.loop_total):
+            co = verts[loops[li].vertex_index].co
+            if az >= ax and az >= ay:
+                u, v = co.x, co.y
+            elif ax >= ay:
+                u, v = co.y, co.z
+            else:
+                u, v = co.x, co.z
+            data[li].uv = (u * scale, v * scale)
+
+
 def _new_mesh_obj(name, bm, collection, part, material=None):
     """bmesh → objet lié à la collection, avec tag house_part"""
     bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
@@ -32,6 +59,7 @@ def _new_mesh_obj(name, bm, collection, part, material=None):
     bm.to_mesh(mesh)
     mesh.update()
     bm.free()
+    box_uv(mesh)          # ✅ S7: UVs systématiques
     obj = bpy.data.objects.new(name, mesh)
     obj["house_part"] = part
     collection.objects.link(obj)
@@ -562,10 +590,12 @@ def build_balcony(props, collection, floor_height_actual):
 # TUILES (COUVERTURE) — via nuage de points + Geometry Nodes
 # ============================================================
 
-TILE_W = 0.30      # largeur d'une tuile (le long du faîtage)
-TILE_L = 0.36      # longueur (le long de la pente)
-TILE_T = 0.022     # épaisseur
-TILE_OVERLAP = 0.09
+# ✅ S8: valeurs canoniques dans norms.py (source unique documentée)
+from .norms import (TUILE_LARGEUR as TILE_W,
+                    TUILE_LONGUEUR as TILE_L,
+                    TUILE_EP as TILE_T,
+                    TUILE_RECOUVREMENT as TILE_OVERLAP)
+from . import norms
 
 
 def _tile_accessory_material(color):
@@ -682,8 +712,8 @@ def _create_tile_master(collection, color):
     return obj
 
 
-ROOF_WIN_W = 0.78   # largeur fenêtre de toit (standard 78×118)
-ROOF_WIN_L = 1.18   # longueur le long de la pente
+ROOF_WIN_W = norms.VELUX_L   # fenêtre de toit standard 78×118
+ROOF_WIN_L = norms.VELUX_H
 
 
 def roof_window_layout(props, wall_height, effective_pitch, o_eave, o_rake):
@@ -921,9 +951,9 @@ def build_roof_dormers(props, collection, wall_height, effective_pitch,
                                   roughness=0.5)
     objs = []
     positions = []
-    random.seed(777)
+    random.seed(norms.derive_seed(props, 'lucarnes'))  # ✅ S6
     step_v = TILE_L - TILE_OVERLAP
-    delta = math.atan2(0.014, step_v)
+    delta = math.atan2(norms.TUILE_NEZ_H, step_v)
 
     try:
         from .windows import WindowGenerator
@@ -1149,8 +1179,9 @@ def build_roof_tiles(props, collection, wall_height, effective_pitch, o_eave, o_
     Même architecture que les briques: positions+rotations calculées en
     Python, matérialisées par UN objet nuage de points + Instance on Points.
     """
-    # Seed déterministe: mêmes micro-variations à chaque régénération
-    random.seed(42)
+    # ✅ S6: graine DÉRIVÉE — reproductible pour cette maison, mais
+    # deux maisons de random_seed différents ne sont plus jumelles
+    random.seed(norms.derive_seed(props, 'tuiles'))
 
     roof_type = props.roof_type
     if roof_type not in ('GABLE', 'SHED', 'HIP', 'GAMBREL'):
@@ -1185,7 +1216,7 @@ def build_roof_tiles(props, collection, wall_height, effective_pitch, o_eave, o_
             normal = -normal
         # Inclinaison de pose: tourne autour de l'axe TRANSVERSAL (dir_u),
         # sens qui SOULÈVE le nez (extrémité -v) de ~1.4cm
-        delta = math.atan2(0.014, step_v)
+        delta = math.atan2(norms.TUILE_NEZ_H, step_v)
         tilt = Matrix.Rotation(-delta, 3, dir_u)
         rot_m = tilt @ rot.to_matrix()
         base_rot = rot_m.to_euler()
@@ -1193,8 +1224,8 @@ def build_roof_tiles(props, collection, wall_height, effective_pitch, o_eave, o_
         # de pose réelle: la 1re rangée repose sur un rang de doublage)
         if detail_level(props) == 'PHOTO':
             for iu in range(n_u):
-                pd = origin + dir_u * (iu * step_u) - dir_v * (step_v * 0.45) \
-                    + normal * 0.004
+                pd = origin + dir_u * (iu * step_u) - dir_v * (step_v * norms.DOUBLIS_DECALAGE) \
+                    + normal * norms.DOUBLIS_SURELEVATION
                 if keep is not None and not keep(pd, pd + dir_u * TILE_W):
                     continue
                 jd = math.radians(0.8)
@@ -1475,14 +1506,14 @@ def build_roof_tiles(props, collection, wall_height, effective_pitch, o_eave, o_
         if ridge_along_y:
             ridge_len = length + 2 * o_rake
             seg = bmesh.ops.create_cone(bm, cap_ends=True, segments=10,
-                                        radius1=0.11, radius2=0.11, depth=ridge_len)
+                                        radius1=norms.FAITIERE_RAYON, radius2=norms.FAITIERE_RAYON, depth=ridge_len)
             bmesh.ops.transform(bm, verts=seg['verts'],
                                 matrix=Matrix.Translation(Vector((width / 2, length / 2, peak_h + 0.03))) @
                                 Matrix.Rotation(math.radians(90), 4, 'X'))
         else:
             ridge_len = width + 2 * o_rake
             seg = bmesh.ops.create_cone(bm, cap_ends=True, segments=10,
-                                        radius1=0.11, radius2=0.11, depth=ridge_len)
+                                        radius1=norms.FAITIERE_RAYON, radius2=norms.FAITIERE_RAYON, depth=ridge_len)
             bmesh.ops.transform(bm, verts=seg['verts'],
                                 matrix=Matrix.Translation(Vector((width / 2, length / 2, peak_h + 0.03))) @
                                 Matrix.Rotation(math.radians(90), 4, 'Y'))
@@ -1747,7 +1778,7 @@ def _carpentry_other_roofs(props, collection, wall_height, effective_pitch,
     objs = []
     fascia_mat = _simple_material("House_Fascia", (0.92, 0.92, 0.90), roughness=0.5)
     wood = _simple_material("House_Rafter", (0.36, 0.25, 0.15), roughness=0.7)
-    fh, ft = 0.18, 0.022
+    fh, ft = norms.FASCIA_H, norms.FASCIA_EP
 
     if props.roof_type == 'SHED':
         z_low = h - o_eave * slope
@@ -1997,7 +2028,7 @@ def build_roof_carpentry(props, collection, wall_height, effective_pitch,
 
     # --- PLANCHE DE RIVE (fascia) le long des égouts ---
     bm = bmesh.new()
-    fh, ft = 0.18, 0.022
+    fh, ft = norms.FASCIA_H, norms.FASCIA_EP
     if ridge_along_y:
         y0, y1 = -o_rake, length + o_rake
         for (s0, s1) in _split_interval(y0, y1, ex.get('left')):
@@ -2020,7 +2051,7 @@ def build_roof_carpentry(props, collection, wall_height, effective_pitch,
     # Elles ferment visuellement le jeu entre le rampant de la dalle et la
     # diagonale des briques coupées du pignon (détail de construction réel).
     bm = bmesh.new()
-    bb_h, bb_t = 0.28, 0.025
+    bb_h, bb_t = norms.RIVE_PLANCHE_H, norms.RIVE_PLANCHE_EP
 
     def rake_board(p0, p1, y_out, sign_y):
         """Planche suivant le rampant de p0 (égout) à p1 (faîtage), plaquée
@@ -2227,6 +2258,10 @@ def apply_photo_finish(props, collection):
         mod.segments = 2
         mod.limit_method = 'ANGLE'
         mod.angle_limit = math.radians(50)
+        # ✅ S7: normales PONDÉRÉES après le Bevel — les grandes faces
+        # dictent la normale, les chanfreins restent nets sans artefact
+        wn = obj.modifiers.new("PhotoWeightedNormal", 'WEIGHTED_NORMAL')
+        wn.keep_sharp = True
         touched += 1
     print(f"[House] ✓ Finition PHOTO: arêtes adoucies sur {touched} objets")
     return []
@@ -2317,7 +2352,8 @@ def build_environment(props, collection, garage_front=None, door_x=None):
     for wgf in ((),):
         pass
     if not draft:
-        objs += _scatter_grass(collection, cx, cy - 2.0, 20.0, exclude)
+        objs += _scatter_grass(collection, cx, cy - 2.0, 20.0, exclude,
+                               seed=norms.derive_seed(props, 'herbe'))
 
     # --- HAIE périphérique (parcelle) ---
     hedge = _simple_material("Env_Hedge", (0.05, 0.11, 0.035), roughness=0.95)

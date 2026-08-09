@@ -34,10 +34,12 @@ from mathutils import Vector, Matrix
 
 from .features import _add_box, _new_mesh_obj, _simple_material
 
-PARTITION_T = 0.08     # épaisseur cloison (placo)
-DOORWAY_W = 0.93       # passage de porte standard
-DOORWAY_H = 2.04
-CEILING_T = 0.06
+# ✅ S8: valeurs canoniques dans norms.py (source unique documentée)
+from .norms import (CLOISON_EP as PARTITION_T,
+                    PASSAGE_PORTE_L as DOORWAY_W,
+                    PASSAGE_PORTE_H as DOORWAY_H,
+                    PLAFOND_EP as CEILING_T)
+from . import norms
 
 
 def _plaster():
@@ -142,8 +144,9 @@ def interior_layout(props, wall_depth, floor_height_actual, door_center_x,
 
     stair = tremie = None
     if props.num_floors >= 2:
-        going = 0.25
-        n = max(12, int(math.ceil(floor_height_actual / 0.185)))
+        going = norms.ESCALIER_GIRON
+        n = max(norms.ESCALIER_N_MIN,
+                int(math.ceil(floor_height_actual / norms.ESCALIER_HAUTEUR_MAX)))
         run = n * going
         y1 = y_refend - PARTITION_T / 2 - 0.06
         y0 = y1 - 1.0
@@ -164,12 +167,14 @@ def interior_layout(props, wall_depth, floor_height_actual, door_center_x,
             # ✅ v1.7: VOLÉE EN L (quart tournant à palier) pour les
             # maisons étroites: montée A le long du refend vers +x,
             # palier d'angle, montée B le long du mur droit vers l'avant
-            going = 0.24
-            landing = 1.0
+            going = norms.ESCALIER_GIRON_QT
+            landing = norms.ESCALIER_PALIER
             xA1 = W - t - landing
             xA0 = t + 0.35
             availA = xA1 - xA0
-            n_tot = max(12, int(math.ceil(floor_height_actual / 0.185)))
+            n_tot = max(norms.ESCALIER_N_MIN,
+                        int(math.ceil(floor_height_actual
+                                      / norms.ESCALIER_HAUTEUR_MAX)))
             nA = max(3, min(n_tot - 4, int(availA / going)))
             nB = n_tot - nA - 1   # le palier compte pour une hauteur
             runB = nB * going

@@ -1,5 +1,38 @@
 # Changelog — House Generator
 
+## v1.16.0 — Fondations du moteur: normes, niveaux, graines, maillage
+## (chantiers structurels S8 + S3 + S6 + S7)
+
+Première tranche de la refonte "outil d'architecture" (S1-S8): les
+quatre chantiers de FONDATION, sous les deux filets.
+
+- **S8 — `norms.py`**: les dimensions du bâtiment sont des constantes
+  NOMMÉES et SOURCÉES (Blondel pour l'escalier, DTU 20.1 appuis,
+  DTU 40.2x couverture, passages 0.93×2.04…) — plus de nombres magiques
+  éparpillés; prouvé au pixel près (28/28 MAE=0.00 avant rebase)
+- **S3 — `levels.py`**: MODÈLE DE NIVEAUX unique (soubassement, dalles,
+  allèges, arase, égout, faîtage). L'objet `Levels` est construit par
+  l'étape walls (arase réelle briques) et exposé au pipeline; formules
+  canoniques `plinth_visible`/`window_vertical` migrées, opérateur en
+  simple délégation
+- **S6 — graines DÉRIVÉES** (`norms.derive_seed`, FNV-1a stable):
+  tuiles, lucarnes, ailes, herbe dérivent leur graine de random_seed +
+  leur nom. Reproductible à l'identique (prouvé au bit près sur les
+  rotations de tuiles) mais deux maisons de graines différentes ne
+  sont PLUS JUMELLES (avant: mêmes seeds 42/4242/777 pour tout le
+  monde). Références du banc rebasées (micro-jitters, MAE ≤ 1.0)
+- **S7 — maillage PROPRE**:
+  - dormants de fenêtres = ANNEAUX prismatiques manifold (16 sommets)
+    au lieu de 4 boîtes fusionnées → plus AUCUNE arête en T (>2 faces)
+  - dalles trouées (trémie) = anneaux manifold également
+  - **UVs systématiques** (projection boîte, 1 UV = 1 m) sur tous les
+    créateurs de mesh — prêt pour les textures image PBR
+  - PHOTO: normales PONDÉRÉES après le Bevel (keep_sharp)
+- **Tests**: +5 (graines: stabilité/reproductibilité/non-jumelles;
+  maillage: manifold + UVs) → **53 invariants**
+- Prochaines tranches: S4 (spec d'ouverture unifiée), S1 (plan 2D
+  extrudé), S2 (squelette droit), S5 (tuiles coupées)
+
 ## v1.15.1 — Conformité des accessoires de couverture
 
 - Les FAÎTIÈRES, tuiles de rive et arêtiers suivent désormais la

@@ -11,10 +11,11 @@ from mathutils import Vector, Matrix, Euler
 import math
 
 # Constantes pour portes réalistes
-DOOR_FRAME_DEPTH = 0.10         # 10cm - Profondeur du dormant
-DOOR_THICKNESS = 0.04           # 4cm - Épaisseur d'une porte standard
-DOOR_FRAME_WIDTH = 0.06         # 6cm - Largeur du cadre
-DOOR_HANDLE_HEIGHT = 1.05       # 1.05m - Hauteur de la poignée
+# ✅ S8: valeurs canoniques dans norms.py (source unique documentée)
+from .norms import (PORTE_DORMANT_PROF as DOOR_FRAME_DEPTH,
+                    PORTE_EP as DOOR_THICKNESS,
+                    PORTE_CADRE_L as DOOR_FRAME_WIDTH,
+                    PORTE_POIGNEE_H as DOOR_HANDLE_HEIGHT)
 
 
 class DoorGenerator:
@@ -270,6 +271,8 @@ class DoorGenerator:
             mesh = bpy.data.meshes.new("Door_Glass_Mesh")
             bm.to_mesh(mesh)
             mesh.update()
+            from .features import box_uv
+            box_uv(mesh)          # ✅ S7: UVs systématiques
             bm.free()
             glass = bpy.data.objects.new("Door_Glass", mesh)
             glass["house_part"] = "glass"
@@ -347,6 +350,8 @@ class DoorGenerator:
             mesh = bpy.data.meshes.new("Door_Frame_Mesh")
             bm.to_mesh(mesh)
             mesh.update()
+            from .features import box_uv
+            box_uv(mesh)          # ✅ S7: UVs systématiques
 
         finally:
             bm.free()
@@ -423,6 +428,8 @@ class DoorGenerator:
             mesh = bpy.data.meshes.new("Door_Panel_Mesh")
             bm.to_mesh(mesh)
             mesh.update()
+            from .features import box_uv
+            box_uv(mesh)          # ✅ S7: UVs systématiques
 
         finally:
             bm.free()
@@ -456,6 +463,8 @@ class DoorGenerator:
             mesh = bpy.data.meshes.new("Door_Mullion_Mesh")
             bm.to_mesh(mesh)
             mesh.update()
+            from .features import box_uv
+            box_uv(mesh)          # ✅ S7: UVs systématiques
 
         finally:
             bm.free()
