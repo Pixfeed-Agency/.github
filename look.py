@@ -231,7 +231,33 @@ def tile_material(base_color=(0.34, 0.115, 0.062), finish='AUTO'):
     # Nuance intermédiaire orangée
     e = ramp.color_ramp.elements.new(0.5)
     e.color = (min(1, r * 1.05), g * 0.95, b * 0.85, 1)
-    links.new(rand, ramp.inputs['Fac'])
+    if _photo():
+        # ✅ v1.28.1: variation GROUPÉE PAR LOTS — l'aléa indépendant
+        # par tuile faisait un damier de bruit blanc ("neige TV"),
+        # LE marqueur procédural n°1 du toit. Sur un vrai toit les
+        # teintes viennent par plaques (lots de cuisson posés
+        # ensemble): 55% aléa tuile + 45% nappe spatiale.
+        info_p = nodes.new('ShaderNodeObjectInfo')
+        info_p.location = (-1150, 480)
+        patch = nodes.new('ShaderNodeTexNoise')
+        patch.location = (-960, 480)
+        patch.inputs['Scale'].default_value = 0.30
+        patch.inputs['Detail'].default_value = 2.0
+        links.new(info_p.outputs['Location'], patch.inputs['Vector'])
+        m1 = nodes.new('ShaderNodeMath')
+        m1.operation = 'MULTIPLY'
+        m1.location = (-780, 400)
+        links.new(rand, m1.inputs[0])
+        m1.inputs[1].default_value = 0.55
+        m2 = nodes.new('ShaderNodeMath')
+        m2.operation = 'MULTIPLY_ADD'
+        m2.location = (-620, 400)
+        links.new(patch.outputs['Fac'], m2.inputs[0])
+        m2.inputs[1].default_value = 0.45
+        links.new(m1.outputs['Value'], m2.inputs[2])
+        links.new(m2.outputs['Value'], ramp.inputs['Fac'])
+    else:
+        links.new(rand, ramp.inputs['Fac'])
 
     # Moucheté de surface (dépôts, cuisson inégale)
     noise = nodes.new('ShaderNodeTexNoise')
@@ -569,7 +595,7 @@ def stone_material(name="House_Pierre", base=(0.72, 0.66, 0.55),
     # assises pas tirées au laser: micro-ondulation du calepin
     warp = nodes.new('ShaderNodeTexNoise')
     warp.location = (-750, -40)
-    warp.inputs['Scale'].default_value = 0.35
+    warp.inputs['Scale'].default_value = 0.6
     warp.inputs['Detail'].default_value = 2.0
     wsub = nodes.new('ShaderNodeVectorMath')
     wsub.operation = 'SUBTRACT'
@@ -580,33 +606,33 @@ def stone_material(name="House_Pierre", base=(0.72, 0.66, 0.55),
     wmul.operation = 'SCALE'
     wmul.location = (-430, -40)
     links.new(wsub.outputs['Vector'], wmul.inputs[0])
-    wmul.inputs['Scale'].default_value = 0.04
+    wmul.inputs['Scale'].default_value = 0.06
     wadd = nodes.new('ShaderNodeVectorMath')
     wadd.operation = 'ADD'
     wadd.location = (-590, 200)
     links.new(comb.outputs['Vector'], wadd.inputs[0])
     links.new(wmul.outputs['Vector'], wadd.inputs[1])
 
-    row_h = 0.30 / max(0.3, scale)      # hauteur d'assise (~27cm façade)
+    row_h = 0.20 / max(0.3, scale)      # hauteur d'assise (~18cm façade)
     brick = nodes.new('ShaderNodeTexBrick')
     brick.location = (-260, 220)
     brick.offset = 0.5                   # décalage d'un demi-moellon
     brick.offset_frequency = 2
-    brick.squash = 1.18                  # une rangée sur deux plus longue
-    brick.squash_frequency = 2
+    brick.squash = 1.35                  # longueurs variées par rangée
+    brick.squash_frequency = 3
     brick.inputs['Scale'].default_value = 1.0
-    brick.inputs['Mortar Size'].default_value = 0.016
-    brick.inputs['Mortar Smooth'].default_value = 0.5
+    brick.inputs['Mortar Size'].default_value = 0.009
+    brick.inputs['Mortar Smooth'].default_value = 0.65
     brick.inputs['Bias'].default_value = 0.0
-    brick.inputs['Brick Width'].default_value = row_h * 2.4
+    brick.inputs['Brick Width'].default_value = row_h * 2.2
     brick.inputs['Row Height'].default_value = row_h
     # teintes calcaire par moellon (Color1↔Color2 au hasard par pierre)
     # — écart FRANC: la version trop douce lisait "parpaing peint"
-    brick.inputs['Color1'].default_value = (r * 0.72, g * 0.70,
-                                            b * 0.66, 1)
-    brick.inputs['Color2'].default_value = (min(1, r * 1.18),
-                                            min(1, g * 1.14),
-                                            min(1, b * 1.06), 1)
+    brick.inputs['Color1'].default_value = (r * 0.80, g * 0.78,
+                                            b * 0.74, 1)
+    brick.inputs['Color2'].default_value = (min(1, r * 1.12),
+                                            min(1, g * 1.09),
+                                            min(1, b * 1.04), 1)
     brick.inputs['Mortar'].default_value = (*joint[:3], 1)
     links.new(wadd.outputs['Vector'], brick.inputs['Vector'])
 
@@ -659,12 +685,12 @@ def stone_material(name="House_Pierre", base=(0.72, 0.66, 0.55),
     hsum2.operation = 'MULTIPLY_ADD'                 # + bosselage*0.5
     hsum2.location = (240, -220)
     links.new(boss.outputs['Fac'], hsum2.inputs[0])
-    hsum2.inputs[1].default_value = 0.5
+    hsum2.inputs[1].default_value = 0.28
     links.new(hsum.outputs['Value'], hsum2.inputs[2])
     bump = nodes.new('ShaderNodeBump')
     bump.location = (400, -160)
-    bump.inputs['Strength'].default_value = 0.55
-    bump.inputs['Distance'].default_value = 0.010
+    bump.inputs['Strength'].default_value = 0.38
+    bump.inputs['Distance'].default_value = 0.006
     links.new(hsum2.outputs['Value'], bump.inputs['Height'])
     links.new(bump.outputs['Normal'], bsdf.inputs['Normal'])
 
@@ -873,6 +899,17 @@ def glass_material(name="Window_Glass_V2"):
     glass.inputs['Color'].default_value = (0.82, 0.89, 0.92, 1)
     glass.inputs['IOR'].default_value = 1.45
     glass.inputs['Roughness'].default_value = 0.005
+    if _photo():
+        # reflets pas au miroir absolu: micro-voile + irrégularité
+        gn = nodes.new('ShaderNodeTexNoise')
+        gn.location = (-300, -220)
+        gn.inputs['Scale'].default_value = 2.5
+        gmap = nodes.new('ShaderNodeMapRange')
+        gmap.location = (-120, -220)
+        gmap.inputs['To Min'].default_value = 0.015
+        gmap.inputs['To Max'].default_value = 0.045
+        links.new(gn.outputs['Fac'], gmap.inputs['Value'])
+        links.new(gmap.outputs['Result'], glass.inputs['Roughness'])
     # ✅ Reflet de CIEL: une vitre réelle en plein jour est un miroir
     # partiel — mix d'un glossy net par Fresnel (les vitres "mortes"
     # étaient un tell d'audit)

@@ -32,7 +32,8 @@ SAILLIE = 0.025        # saillie devant le nu du mur
 HARPE_H = 0.34         # hauteur d'une assise de chaînage
 HARPE_L1 = 0.42        # harpe longue
 HARPE_L2 = 0.26        # harpe courte (alternance)
-HARPE_EP = 0.045       # saillie du chaînage
+HARPE_EP = 0.020       # saillie du chaînage (4,5cm faisait
+#                        des bosses Lego au soleil rasant)
 
 
 def build_surrounds(props, collection, spec, wall_depth):
