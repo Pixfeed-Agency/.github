@@ -148,6 +148,37 @@ def test_maison_generee_cloisons():
             f"cloison à x={got:.2f}, attendue vers {exp:.2f}")
 
 
+def test_fenetre_par_piece():
+    """✅ S4: en mode programme, chaque cellule arrière (chambres, SdB,
+    WC) reçoit SA fenêtre, centrée dans la cellule."""
+    import bpy
+    ctx = _generate_programme(prog_bedrooms=3, prog_bathrooms=1,
+                              prog_wc_separate=True, prog_garage='NONE')
+    p = ctx.scene.house_generator
+    cells = [float(v) for v in p.programme_cells.split(',')]
+    t = programme.WALL_T
+    inner = p.house_width - 2 * t
+    scale = inner / sum(cells)
+    from mathutils import Vector
+    def _center(o):
+        pts = [o.matrix_world @ Vector(c) for c in o.bound_box]
+        return sum(pts, Vector()) / 8
+    wins = sorted(
+        _center(o).x
+        for o in bpy.data.collections["House"].objects
+        if o.name.startswith(("Window_CASEMENT", "Window_Asset"))
+        and "Sash" not in o.name
+        and abs(_center(o).y - p.house_length) < 1.0)
+    assert len(wins) == len(cells), \
+        f"{len(wins)} fenêtre(s) arrière pour {len(cells)} pièce(s)"
+    acc = t
+    for cw, wx in zip(cells, wins):
+        c0, c1 = acc, acc + cw * scale
+        acc = c1
+        assert c0 - 0.05 < wx < c1 + 0.05, \
+            f"fenêtre à x={wx:.2f} hors de sa cellule [{c0:.2f},{c1:.2f}]"
+
+
 def test_programme_desactive_redevient_uniforme():
     """programme_active=False → découpage uniforme historique."""
     import bpy

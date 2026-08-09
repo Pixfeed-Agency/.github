@@ -1,5 +1,28 @@
 # Changelog — House Generator
 
+## v1.17.0 — Spec d'ouverture UNIFIÉE, pilotée par les pièces (S4)
+
+Quatre implémentations parallèles des ouvertures (trous briques,
+cutters Boolean, menuiseries, volets) → UNE SEULE (`openings.py`).
+
+- **`openings.compute()`**: LA liste des ouvertures (coin bas, dims,
+  mur, type, centre, étage), géométrie strictement identique au
+  producteur historique (murs briques 5/5, murs simples 2/2 au pixel
+  près avant la partie pièces)
+- Les Booleans des murs simples et les menuiseries/volets CONSOMMENT
+  la même liste — les boucles dupliquées (et leurs skips porte/aile/
+  balcon recopiés) sont mortes
+- **Deux incohérences latentes corrigées par l'unification**: le seuil
+  d'exclusion des fenêtres derrière le balcon divergeait entre trous
+  et menuiseries; la porte-fenêtre du balcon n'était jamais DÉCOUPÉE
+  dans les murs simples (mur plein derrière la menuiserie)
+- **✅ "Pilotée par les pièces"**: en mode PROGRAMME, chaque cellule
+  arrière (chambres, SdB, WC) reçoit SA fenêtre au centre de la
+  cellule — la façade découle du plan (fini la chambre sans fenêtre
+  de l'espacement uniforme); invariant dédié (fenêtre dans sa cellule
+  ±5cm), référence programme_3ch rebasée
+- 54 invariants au total
+
 ## v1.16.0 — Fondations du moteur: normes, niveaux, graines, maillage
 ## (chantiers structurels S8 + S3 + S6 + S7)
 

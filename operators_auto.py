@@ -748,7 +748,15 @@ class HOUSE_OT_generate_auto(Operator):
         return walls
 
     def _calculate_openings_for_brick_walls(self, props):
-        """Calcule les positions des ouvertures pour les murs en briques"""
+        """✅ S4: délègue à la SPEC D'OUVERTURE UNIFIÉE (openings.py) —
+        même liste pour les trous briques, les Booleans, les menuiseries
+        et les volets."""
+        from . import openings as openings_mod
+        return openings_mod.compute(self, props)
+
+    def _calculate_openings_LEGACY_S4(self, props):
+        """Corps historique conservé en référence pendant S4 (supprimé
+        après validation complète) — NE PLUS APPELER."""
         width = props.house_width
         length = props.house_length
 
@@ -1483,109 +1491,28 @@ class HOUSE_OT_generate_auto(Operator):
         combined_bm = bmesh.new()
 
         try:
-            # PORTE
-            door_height = DOOR_HEIGHT
-            door_width = props.front_door_width
-            door_depth = wall_thickness + DOOR_DEPTH_EXTRA
-
-            door_bm = bmesh.new()
-            bmesh.ops.create_cube(door_bm, size=1.0)
-
-            door_scale = Matrix.Diagonal((door_width, door_depth, door_height, 1.0))
-            bmesh.ops.transform(door_bm, matrix=door_scale, verts=door_bm.verts)
-
-            # ✅ FIX: Cutter centré sur le seuil + demi-hauteur (porte posée
-            # sur le soubassement visible)
-            door_location = Vector((self._door_center_x(props), wall_thickness/2,
-                                    self._plinth_visible(props) + door_height/2))
-            bmesh.ops.translate(door_bm, verts=door_bm.verts, vec=door_location)
-
-            # ✅ FIX: index_update() obligatoire — les .index de bmesh ne sont
-            # pas maintenus automatiquement (faces du cutter corrompues sinon)
-            door_bm.verts.index_update()
-            vert_offset = len(combined_bm.verts)
-            for v in door_bm.verts:
-                combined_bm.verts.new(v.co)
-            combined_bm.verts.ensure_lookup_table()
-
-            for f in door_bm.faces:
-                combined_bm.faces.new([combined_bm.verts[vert_offset + v.index] for v in f.verts])
-
-            door_bm.free()
-
-            # FENÊTRES
-            for floor in range(props.num_floors):
-                floor_z = floor * props.floor_height
-                # ✅ FIX: Géométrie verticale partagée (le cutter des murs
-                # simples est centré sur le CENTRE de la fenêtre)
-                window_height, _, window_z = self._window_vertical(
-                    floor_z, props.floor_height, window_height_ratio)
-                window_depth = wall_thickness + WINDOW_DEPTH_EXTRA
-                window_width = layout['width']
-
-                spacing_front = width / (num_windows_front + 1)
-                for i in range(num_windows_front):
-                    x_pos = spacing_front * (i + 1)
-
-                    if floor == 0 and abs(x_pos - self._door_center_x(props)) < door_width * 1.5:
-                        continue
-                    if self._covered_by_wing('front', x_pos):
-                        continue
-
+            # ✅ S4: on consomme LA SPEC UNIFIÉE (openings.py) — les
+            # boucles parallèles à garder synchrones avec les briques
+            # sont mortes. Bonus de l'unification: la porte-fenêtre du
+            # balcon est enfin DÉCOUPÉE aussi dans les murs simples.
+            from . import openings as openings_mod
+            for o in openings_mod.compute(self, props):
+                extra = WINDOW_DEPTH_EXTRA if o['type'] == 'window' \
+                    else DOOR_DEPTH_EXTRA
+                d = wall_thickness + extra
+                cz = o['z'] + o['height'] / 2
+                if o['wall'] in ('front', 'back'):
+                    cy = wall_thickness / 2 if o['wall'] == 'front' \
+                        else length - wall_thickness / 2
                     self._add_window_to_combined_mesh(
-                        combined_bm, x_pos, wall_thickness/2, window_z,
-                        window_width, window_depth, window_height
-                    )
-
-                # ✅ FIX: num_windows_back câblé pour la façade arrière
-                num_windows_back = layout['num_back']
-                spacing_back = width / (num_windows_back + 1)
-                for i in range(num_windows_back):
-                    x_pos = spacing_back * (i + 1)
-                    if self._covered_by_wing('back', x_pos):
-                        continue
-                    self._add_window_to_combined_mesh(
-                        combined_bm, x_pos, length - wall_thickness/2, window_z,
-                        window_width, window_depth, window_height
-                    )
-
-                spacing_side = length / (num_windows_side + 1)
-                for i in range(num_windows_side):
-                    y_pos = spacing_side * (i + 1)
-                    if self._covered_by_wing('left', y_pos):
-                        continue
-                    self._add_window_to_combined_mesh(
-                        combined_bm, wall_thickness/2, y_pos, window_z,
-                        window_depth, window_width, window_height
-                    )
-
-                for i in range(num_windows_side):
-                    y_pos = spacing_side * (i + 1)
-                    if self._covered_by_wing('right', y_pos):
-                        continue
-                    self._add_window_to_combined_mesh(
-                        combined_bm, width - wall_thickness/2, y_pos, window_z,
-                        window_depth, window_width, window_height
-                    )
-
-            # ✅ MULTI-VOLUMES: cutter du passage vers l'aile
-            for wing in getattr(self, '_wings', []):
-                from . import volumes
-                po = volumes.passage_opening(
-                    wing, props, wall_thickness + DOOR_DEPTH_EXTRA,
-                    self._plinth_visible(props))
-                pz = po['z'] + po['height'] / 2
-                pd = wall_thickness + DOOR_DEPTH_EXTRA
-                if po['wall'] in ('front', 'back'):
-                    cy = wall_thickness / 2 if po['wall'] == 'front' else length - wall_thickness / 2
-                    self._add_window_to_combined_mesh(
-                        combined_bm, po['x'] + po['width'] / 2, cy, pz,
-                        po['width'], pd, po['height'])
+                        combined_bm, o['x'] + o['width'] / 2, cy, cz,
+                        o['width'], d, o['height'])
                 else:
-                    cx = wall_thickness / 2 if po['wall'] == 'left' else width - wall_thickness / 2
+                    cx = wall_thickness / 2 if o['wall'] == 'left' \
+                        else width - wall_thickness / 2
                     self._add_window_to_combined_mesh(
-                        combined_bm, cx, po['y'] + po['width'] / 2, pz,
-                        pd, po['width'], po['height'])
+                        combined_bm, cx, o['y'] + o['width'] / 2, cz,
+                        d, o['width'], o['height'])
 
             combined_cutter, combined_mesh = self._create_mesh_from_bmesh("Openings_Cutter", combined_bm)
             collection.objects.link(combined_cutter)
@@ -1664,96 +1591,33 @@ class HOUSE_OT_generate_auto(Operator):
         # que les fenêtres visuelles — cohérence garantie)
         shutter_specs = []
 
-        for floor in range(props.num_floors):
-            floor_z = floor * floor_height_actual
-            # ✅ FIX MAJEUR: L'objet fenêtre est construit CENTRÉ sur son
-            # origine, mais les ouvertures des murs briques stockent le BAS
-            # du trou → la fenêtre visuelle était une demi-hauteur trop bas
-            # (le fameux "jeu" entre le trou et la fenêtre). On place
-            # désormais la fenêtre à son CENTRE, cohérent avec le trou.
-            window_height, _, window_z = self._window_vertical(
-                floor_z, floor_height_actual, window_height_ratio)
-
-            # Mur avant
-            spacing_front = width / (num_windows_front + 1)
-            for i in range(num_windows_front):
-                x_pos = spacing_front * (i + 1)
-
-                if floor == 0 and abs(x_pos - self._door_center_x(props)) < props.front_door_width * 1.5:
-                    continue
-                if self._covered_by_wing('front', x_pos):
-                    continue
-                # ✅ v1.7: la porte-fenêtre du balcon remplace la fenêtre
-                if floor >= 1 and getattr(props, 'include_balcony', False) and \
-                        abs(x_pos - width / 2) < getattr(props, 'balcony_width', 2.6) / 2 + 0.4:
-                    continue
-
-                window_gen.generate_window(
-                    window_type=props.window_type,
-                    width=window_width,
-                    height=window_height,
-                    location=Vector((x_pos, wall_depth/2, window_z)),
-                    orientation='front',
-                    collection=collection
-                )
-                shutter_specs.append({'x': x_pos, 'y': 0, 'z_center': window_z,
-                                      'width': window_width, 'height': window_height,
-                                      'wall': 'front'})
-
-            # Mur arrière
-            # ✅ FIX: num_windows_back câblé (mêmes valeurs que les trous)
-            num_windows_back = layout['num_back']
-            spacing_back = width / (num_windows_back + 1)
-            for i in range(num_windows_back):
-                x_pos = spacing_back * (i + 1)
-                if self._covered_by_wing('back', x_pos):
-                    continue
-                window_gen.generate_window(
-                    window_type=props.window_type,
-                    width=window_width,
-                    height=window_height,
-                    location=Vector((x_pos, length - wall_depth/2, window_z)),
-                    orientation='back',
-                    collection=collection
-                )
-                shutter_specs.append({'x': x_pos, 'y': length, 'z_center': window_z,
-                                      'width': window_width, 'height': window_height,
-                                      'wall': 'back'})
-
-            # Mur gauche
-            spacing_side = length / (num_windows_side + 1)
-            for i in range(num_windows_side):
-                y_pos = spacing_side * (i + 1)
-                if self._covered_by_wing('left', y_pos):
-                    continue
-                window_gen.generate_window(
-                    window_type=props.window_type,
-                    width=window_width,
-                    height=window_height,
-                    location=Vector((wall_depth/2, y_pos, window_z)),
-                    orientation='left',
-                    collection=collection
-                )
-                shutter_specs.append({'x': 0, 'y': y_pos, 'z_center': window_z,
-                                      'width': window_width, 'height': window_height,
-                                      'wall': 'left'})
-
-            # Mur droit
-            for i in range(num_windows_side):
-                y_pos = spacing_side * (i + 1)
-                if self._covered_by_wing('right', y_pos):
-                    continue
-                window_gen.generate_window(
-                    window_type=props.window_type,
-                    width=window_width,
-                    height=window_height,
-                    location=Vector((width - wall_depth/2, y_pos, window_z)),
-                    orientation='right',
-                    collection=collection
-                )
-                shutter_specs.append({'x': width, 'y': y_pos, 'z_center': window_z,
-                                      'width': window_width, 'height': window_height,
-                                      'wall': 'right'})
+        # ✅ S4: on consomme LA SPEC UNIFIÉE — mêmes ouvertures que les
+        # trous (briques ET Booleans): les skips porte/aile/balcon sont
+        # DANS la spec, plus dupliqués ici. En mode PROGRAMME, chaque
+        # pièce arrière reçoit SA fenêtre (centre de cellule).
+        from . import openings as openings_mod
+        for o in openings_mod.windows_of(openings_mod.compute(self, props)):
+            wall = o['wall']
+            z_center = o['z'] + o['height'] / 2
+            if wall == 'front':
+                loc = Vector((o['along'], wall_depth / 2, z_center))
+                sx, sy = o['along'], 0
+            elif wall == 'back':
+                loc = Vector((o['along'], length - wall_depth / 2, z_center))
+                sx, sy = o['along'], length
+            elif wall == 'left':
+                loc = Vector((wall_depth / 2, o['along'], z_center))
+                sx, sy = 0, o['along']
+            else:
+                loc = Vector((width - wall_depth / 2, o['along'], z_center))
+                sx, sy = width, o['along']
+            window_gen.generate_window(
+                window_type=props.window_type,
+                width=o['width'], height=o['height'],
+                location=loc, orientation=wall, collection=collection)
+            shutter_specs.append({'x': sx, 'y': sy, 'z_center': z_center,
+                                  'width': o['width'],
+                                  'height': o['height'], 'wall': wall})
 
         # ✅ MULTI-VOLUMES: fenêtres de l'aile (mêmes réglages, repère
         # transformé) + leurs volets
