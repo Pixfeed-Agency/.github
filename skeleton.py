@@ -192,25 +192,71 @@ def faces(poly):
 
 
 def ridge_segments(cells, eps=1e-6):
-    """Arcs du squelette: frontières partagées par les pans de DEUX
-    arêtes différentes (faîtages, arêtiers, noues) — pour poser
-    faîtières et bandes de noue. Les frontières internes entre pièces
-    d'un même pan sont ignorées (coplanaires)."""
-    seen = {}
-    segs = []
+    """Arcs du squelette (faîtages/arêtiers/noues): frontières entre les
+    pans de DEUX arêtes différentes.
+
+    ✅ Appariement par LIGNE SUPPORT + chevauchement d'intervalles — la
+    fragmentation en pièces découpe les frontières différemment selon
+    le pan (l'appariement segment-à-segment ratait des arcs → arêtiers
+    sans couvre-joint et tuiles de bord sans plan de coupe). Un arc
+    FUSIONNÉ par paire de pans et par ligne.
+    Returns: [(A, B, pan_i, pan_j)] avec A/B = (x, y, d).
+    """
+    lines = {}
+
+    def line_key(a, b):
+        dx, dy = b[0] - a[0], b[1] - a[1]
+        L = (dx * dx + dy * dy) ** 0.5
+        ux, uy = dx / L, dy / L
+        if (ux < -1e-9) or (abs(ux) < 1e-9 and uy < 0):
+            ux, uy = -ux, -uy
+        off = a[0] * uy - a[1] * ux
+        return (round(ux, 6), round(uy, 6), round(off, 6)), (ux, uy)
+
     for idx, pieces in cells:
         for cell in pieces:
             m = len(cell)
             for k in range(m):
                 a, b = cell[k], cell[(k + 1) % m]
                 if a[2] < eps and b[2] < eps:
-                    continue      # arête au sol (le mur lui-même)
-                key = tuple(sorted((tuple(round(v, 6) for v in a),
-                                    tuple(round(v, 6) for v in b))))
-                if key in seen:
-                    if seen[key] != idx:
-                        segs.append((a, b, seen[key], idx))
-                else:
-                    seen[key] = idx
-    return segs
+                    continue          # arête au sol (le mur)
+                if abs(a[0] - b[0]) < 1e-9 and abs(a[1] - b[1]) < 1e-9:
+                    continue
+                key, (ux, uy) = line_key(a, b)
+                lines.setdefault(key, {}).setdefault(idx, []).append(
+                    ((a[0] * ux + a[1] * uy, a[2]),
+                     (b[0] * ux + b[1] * uy, b[2])))
 
+    segs = []
+    for (ux, uy, off), by_pan in lines.items():
+        pans = sorted(by_pan)
+        if len(pans) < 2:
+            continue
+        px, py = uy * off, -ux * off      # point de la ligne à t=0
+        for ii in range(len(pans)):
+            for jj in range(ii + 1, len(pans)):
+                pa, pb = pans[ii], pans[jj]
+                ta = [t for seg in by_pan[pa] for (t, _d) in seg]
+                tb = [t for seg in by_pan[pb] for (t, _d) in seg]
+                lo, hi = max(min(ta), min(tb)), min(max(ta), max(tb))
+                if hi - lo < 0.05:
+                    continue
+                samples = sorted({(round(t, 9), round(d, 9))
+                                  for seg in by_pan[pa]
+                                  for (t, d) in seg})
+
+                def d_at(t):
+                    prev = samples[0]
+                    for s in samples:
+                        if s[0] >= t - 1e-9:
+                            if s[0] - prev[0] < 1e-12:
+                                return s[1]
+                            w = (t - prev[0]) / (s[0] - prev[0])
+                            return prev[1] * (1 - w) + s[1] * w
+                        prev = s
+                    return samples[-1][1]
+
+                A = (px + ux * lo, py + uy * lo, d_at(lo))
+                B = (px + ux * hi, py + uy * hi, d_at(hi))
+                segs.append((A, B, pa, pb))
+    return segs

@@ -70,7 +70,10 @@ def _point_in_convex(p, poly, eps=1e-6):
             sign = s
         elif s != sign:
             return False
-    return True
+    # sign == 0 → polygone dégénéré (aplati): jamais "dedans" — les
+    # pièces-lamelles le long des arêtiers validaient des tuiles
+    # entières qui débordaient le pan (crénelage vu au rendu)
+    return sign != 0
 
 
 def build(props, collection, contour, wall_top, pitch_deg, tile_color):
@@ -212,10 +215,17 @@ def build(props, collection, contour, wall_top, pitch_deg, tile_color):
     # --- TUILES par pan (si couverture) ---
     if props.roof_covering != 'TILES':
         return objs
+    # ✅ S5: arcs (arêtiers/noues/faîtages) adjacents à chaque pan —
+    # les plans de COUPE verticaux des tuiles de bord
+    arcs_by_pan = {}
+    for a, b, i2, j2 in skeleton.ridge_segments(cells):
+        for k in (i2, j2):
+            arcs_by_pan.setdefault(k, []).append((a, b))
     random.seed(norms.derive_seed(props, 'tuiles_squelette'))
     step_v = TILE_L - TILE_OVERLAP
     delta = math.atan2(norms.TUILE_NEZ_H, step_v)
     positions = []
+    cut_tiles = []   # ✅ S5: (pos, rot, pan, arcs) des tuiles de bord
     for i, pieces in cells:
         (ex0, ey0), (ex1, ey1) = edges[i]
         ed = Vector((ex1 - ex0, ey1 - ey0, 0))
@@ -247,29 +257,43 @@ def build(props, collection, contour, wall_top, pitch_deg, tile_color):
                   + u * (u0 - o_eave) - nrm_in * (o_eave * 1.0)
                   + Vector((0, 0, -o_eave * slope)))
         slope_len = (dmax + o_eave) / cosp
+        pan_arcs = arcs_by_pan.get(i, [])
+
+        def _in_pan(q):
+            if any(_point_in_convex(q, piece) for piece in pieces):
+                return True
+            t_along = (q[0] - ex0) * u.x + (q[1] - ey0) * u.y
+            t_out = (q[0] - ex0) * nrm_in.x + (q[1] - ey0) * nrm_in.y
+            return (-o_eave - 0.05 < t_out < 0.02
+                    and -o_eave - 0.05 < t_along < eL + o_eave + 0.05)
+
         iv = 0
         while iv * step_v + TILE_L <= slope_len + 0.03 + 1e-6:
             for iu in range(n_u):
                 p = origin + u * (iu * TILE_W) + dir_v * (iv * step_v) \
                     + normal * 0.008
-                # prédicat: la tuile (son centre projeté) est dans le
-                # pan, ou dans la bande de débord de SON égout
-                q = (p.x + u.x * TILE_W / 2 + nrm_in.x * TILE_L / 2,
-                     p.y + u.y * TILE_W / 2 + nrm_in.y * TILE_L / 2)
-                inside = any(_point_in_convex(q, piece)
-                             for piece in pieces)
-                if not inside:
-                    # bande de débord: sous l'égout de CETTE arête
-                    t_along = (Vector((q[0] - ex0, q[1] - ey0, 0))).dot(u)
-                    t_out = (Vector((q[0] - ex0, q[1] - ey0, 0))).dot(nrm_in)
-                    if not (-o_eave - 0.05 < t_out < 0.02
-                            and -o_eave - 0.05 < t_along < eL + o_eave + 0.05):
-                        continue
+                # ✅ S5: les 4 COINS de l'emprise de la tuile décident:
+                # tout dedans → instance; partiel → tuile COUPÉE réelle
+                # au plan de l'arc (fini le crénelage sous les noues)
+                corners = []
+                for cu in (0.02, TILE_W - 0.02):
+                    for cv in (0.02, TILE_L - 0.02):
+                        corners.append((p.x + u.x * cu
+                                        + nrm_in.x * cosp * cv,
+                                        p.y + u.y * cu
+                                        + nrm_in.y * cosp * cv))
+                ins = [_in_pan(c) for c in corners]
+                if not any(ins):
+                    continue
                 j = math.radians(0.8)
                 r = Euler((base_rot.x + random.uniform(-j, j),
                            base_rot.y + random.uniform(-j, j),
                            base_rot.z + random.uniform(-j, j)), 'XYZ')
-                positions.append((p + normal * random.uniform(0, 0.003), r))
+                pos = p + normal * random.uniform(0, 0.003)
+                if all(ins):
+                    positions.append((pos, r))
+                else:
+                    cut_tiles.append((pos, r, i, pan_arcs))
             iv += 1
 
     if positions:
@@ -318,6 +342,84 @@ def build(props, collection, contour, wall_top, pitch_deg, tile_color):
         mod = obj.modifiers.new("TileInstancer", 'NODES')
         mod.node_group = ng
         objs.append(obj)
+
+    # ✅ S5: TUILES COUPÉES réelles le long des arêtiers/noues — chaque
+    # tuile de bord est une copie du master, posée puis BISECTÉE par
+    # les plans verticaux des arcs de son pan (côté égout conservé).
+    if cut_tiles:
+        master = next((o for o in collection.objects
+                       if o.name.startswith("Tile_Master")), None)
+        bm_c = bmesh.new()
+        kept = 0
+        for pos, rot, pan_i, pan_arcs in cut_tiles:
+            (ex0, ey0), (ex1, ey1) = edges[pan_i]
+            ed = Vector((ex1 - ex0, ey1 - ey0, 0))
+            eave_mid = Vector((ex0, ey0, 0)) + ed / 2
+            tb = bmesh.new()
+            tb.from_mesh(master.data)
+            M = (Matrix.Translation(pos)
+                 @ rot.to_matrix().to_4x4())
+            bmesh.ops.transform(tb, verts=tb.verts, matrix=M)
+            for a, b in pan_arcs:
+                av = Vector((a[0], a[1], 0))
+                bv = Vector((b[0], b[1], 0))
+                d2 = (bv - av)
+                if d2.length < 1e-6:
+                    continue
+                # ✅ ne couper que par les arcs À PORTÉE de la tuile:
+                # le PLAN infini d'une noue prolongée tranchait des
+                # tuiles à l'autre bout du même pan (bande de dalle
+                # nue le long des arêtiers — vu au rendu)
+                pc2 = Vector((pos.x, pos.y, 0))
+                tseg = max(0.0, min(1.0, (pc2 - av).dot(d2)
+                                    / d2.length_squared))
+                if (pc2 - (av + d2 * tseg)).length > 0.75:
+                    continue
+                n2 = Vector((-d2.y, d2.x, 0)).normalized()
+                s = 1.0 if n2.dot(eave_mid - av) >= 0 else -1.0
+                # retirer le côté OPPOSÉ à l'égout du pan
+                res = bmesh.ops.bisect_plane(
+                    tb, geom=tb.verts[:] + tb.edges[:] + tb.faces[:],
+                    plane_co=av, plane_no=-s * n2,
+                    clear_outer=True, clear_inner=False)
+                cut_edges = [e for e in res['geom_cut']
+                             if isinstance(e, bmesh.types.BMEdge)]
+                if cut_edges:
+                    try:
+                        bmesh.ops.holes_fill(tb, edges=cut_edges)
+                    except Exception:
+                        pass
+                if not tb.faces:
+                    break
+            if tb.faces:
+                kept += 1
+                tb.verts.index_update()   # indices AVANT le mapping
+                vmap = {}
+                for vv in tb.verts:
+                    vmap[vv.index] = bm_c.verts.new(vv.co)
+                for ff in tb.faces:
+                    try:
+                        bm_c.faces.new([vmap[vv.index] for vv in ff.verts])
+                    except ValueError:
+                        pass
+            tb.free()
+        if len(bm_c.faces):
+            try:
+                from . import look
+                cmat = look.tile_material(
+                    tile_color, getattr(props, 'roof_finish', 'AUTO'))
+            except Exception:
+                cmat = _tile_accessory_material(tile_color)
+            oc = _new_mesh_obj("Roof_Tiles_Cut", bm_c, collection,
+                               "roof", cmat)
+            for poly in oc.data.polygons:
+                poly.use_smooth = True
+            objs.append(oc)
+        else:
+            bm_c.free()
+        print(f"[House] ✓ Toit squelette: {len(positions)} tuiles "
+              f"instanciées + {kept} tuiles COUPÉES sur {len(cells)} pans")
+    else:
         print(f"[House] ✓ Toit squelette: {len(positions)} tuiles sur "
               f"{len(cells)} pans")
     return objs

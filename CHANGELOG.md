@@ -1,5 +1,26 @@
 # Changelog — House Generator
 
+## v1.20.0 — Tuiles COUPÉES aux arêtiers et noues (S5, partie 2)
+
+Fin du crénelage: sur le toit squelette, les tuiles de bord sont de
+VRAIES tuiles coupées, plus des tuiles omises.
+
+- Décision par les 4 COINS de l'emprise de chaque tuile: tout dedans →
+  instance GN (léger); partiel → copie réelle du master BISECTÉE par
+  les plans verticaux des arcs du pan (côté égout conservé), fusionnée
+  dans `Roof_Tiles_Cut`
+- `skeleton.ridge_segments` réécrit: appariement par LIGNE SUPPORT +
+  chevauchement d'intervalles (la fragmentation en pièces cassait
+  l'appariement segment-à-segment → arêtiers sans couvre-joint et
+  bords sans plan de coupe); un arc FUSIONNÉ par paire de pans
+- Trois corrections trouvées par la boucle rendu→diagnostic: ordre
+  index_update/mapping bmesh, pièces dégénérées acceptées comme
+  "dedans", et PLAN INFINI d'une noue prolongée qui tranchait des
+  tuiles à l'autre bout du pan (coupe désormais bornée à la portée
+  du segment d'arc)
+- Croupe legacy (HIP) inchangée au pixel près; référence
+  roof_skeleton_L rebasée; 73 invariants verts
+
 ## v1.19.0 — Masters de tuiles PAR COUVERTURE (S5, partie 1)
 
 - La géométrie du master suit enfin la couverture: **ARDOISE = élément
