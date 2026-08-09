@@ -47,6 +47,13 @@ PROP_TAGS = {
     'roof_window_style': ('roof',),
     # Environnement / éclairage
     'include_environment': ('env',),
+    'terrain_mode': ('env',), 'parcel_width': ('env',),
+    'parcel_length': ('env',), 'parcel_north': ('env',),
+    'parcel_slope': ('env',), 'parcel_access': ('env',),
+    'house_pos_x': ('env',), 'house_pos_y': ('env',),
+    'house_rotation': ('env',), 'sun_hour': ('env',),
+    'include_hedge': ('env',), 'include_grass': ('env',),
+    'terrain_asset': ('env',),
     'auto_lighting': ('env',),
     # Annexes
     'include_terrace': ('structure',),
@@ -770,6 +777,8 @@ class HouseGeneratorProperties(PropertyGroup):
             ('TERRE_CUITE', "Terre cuite", "Variation de cuisson par tuile"),
             ('ARDOISE', "Ardoise", "Gris bleuté satiné, feuilletage"),
             ('BETON', "Béton", "Tuile béton grise mate"),
+            ('PLATE', "Tuile plate", "Tuile plate terre cuite vieillie, "
+                                     "tons mélangés (longères/bourgogne)"),
         ],
         default='AUTO',
         update=regenerate_house
@@ -790,6 +799,61 @@ class HouseGeneratorProperties(PropertyGroup):
         default=3, min=1, max=8,
         update=regenerate_house
     )
+
+    # ✅ TERRAIN & IMPLANTATION (parcelle, nord, soleil, pente)
+    terrain_mode: EnumProperty(
+        name="Terrain",
+        description="Mode de terrain sous la maison",
+        items=[
+            ('LEGACY', "Auto simple", "Terrain circulaire historique"),
+            ('AUTO', "Parcelle", "Parcelle paramétrique: dimensions, "
+                                 "nord, pente, accès, haie en limite"),
+            ('CUSTOM', "Mon terrain", "Votre mesh (slot terrain) — "
+                                      "House garde soleil et implantation"),
+        ],
+        default='LEGACY', update=regenerate_house)
+    parcel_width: FloatProperty(
+        name="Largeur parcelle", default=40.0, min=10.0, max=300.0,
+        update=regenerate_house)
+    parcel_length: FloatProperty(
+        name="Longueur parcelle", default=60.0, min=10.0, max=300.0,
+        update=regenerate_house)
+    parcel_north: FloatProperty(
+        name="Nord (°)", description="Angle du nord par rapport à "
+        "l'arrière de la maison (boussole)", default=0.0,
+        min=-180.0, max=180.0, update=regenerate_house)
+    parcel_slope: FloatProperty(
+        name="Pente (%)", description="Pente du terrain naturel — la "
+        "maison pose sur une plateforme avec talus",
+        default=0.0, min=0.0, max=15.0, update=regenerate_house)
+    parcel_access: EnumProperty(
+        name="Accès", description="Côté d'arrivée de l'allée",
+        items=[('FRONT', "Avant", ""), ('BACK', "Arrière", ""),
+               ('LEFT', "Gauche", ""), ('RIGHT', "Droite", "")],
+        default='FRONT', update=regenerate_house)
+    house_pos_x: FloatProperty(
+        name="Position X", description="Position de la maison sur la "
+        "parcelle (depuis le centre)", default=0.0, min=-120.0,
+        max=120.0, update=regenerate_house)
+    house_pos_y: FloatProperty(
+        name="Position Y", default=0.0, min=-120.0, max=120.0,
+        update=regenerate_house)
+    house_rotation: FloatProperty(
+        name="Orientation (°)", description="Rotation de la maison "
+        "sur la parcelle", default=0.0, min=-180.0, max=180.0,
+        update=regenerate_house)
+    sun_hour: FloatProperty(
+        name="Heure solaire", description="Position du soleil (6-21h, "
+        "course est→ouest selon le nord)", default=15.0, min=6.0,
+        max=21.0, update=regenerate_house)
+    include_hedge: BoolProperty(
+        name="Haie en limite", default=True, update=regenerate_house)
+    include_grass: BoolProperty(
+        name="Herbe", default=True, update=regenerate_house)
+    terrain_asset: bpy.props.PointerProperty(
+        name="Slot terrain", type=bpy.types.Object,
+        poll=lambda self, obj: obj.type == 'MESH'
+        and "house_step" not in obj.keys(), update=regenerate_house)
 
     # ✅ AMÉNAGEMENT (rendu client): éclairage, cuisine, SdB, mobilier
     include_interior_lights: BoolProperty(

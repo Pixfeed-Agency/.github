@@ -302,6 +302,27 @@ def _st_lighting(op, context, props, collection):
 
 def _st_environment(op, context, props, collection):
     from . import features
+    # ✅ TERRAIN: parcelle paramétrique / mesh utilisateur
+    if getattr(props, 'terrain_mode', 'LEGACY') != 'LEGACY':
+        from . import terrain, look
+        gf = None
+        for wg in op._wings:
+            if wg.get('garage') and wg.get('garage_opening') is not None:
+                fp = wg['footprint']
+                gf = (fp[0] + 0.4, fp[2] - 0.4)
+        terrain.build(props, collection, door_x=op._door_center_x(props),
+                      garage_front=gf)
+        # ciel Nishita aligné sur l'heure/nord du terrain
+        import math as _m
+        e = terrain.sun_direction(props)
+        elev = _m.degrees(_m.pi / 2 - e.x)
+        rot = _m.degrees(-e.z - _m.pi / 2)
+        try:
+            look.setup_sky_and_view(sun_elevation_deg=max(3.0, elev),
+                                    sun_rotation_deg=rot)
+        except Exception as ex:
+            print(f"[House] Ciel: {ex}")
+        return
     garage_front = None
     for wg in op._wings:
         if wg.get('garage') and wg.get('garage_opening') is not None:

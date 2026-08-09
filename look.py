@@ -111,6 +111,8 @@ def tile_material(base_color=(0.34, 0.115, 0.062), finish='AUTO'):
         base_color = (0.070, 0.082, 0.098)
     elif finish == 'BETON':
         base_color = (0.30, 0.29, 0.27)
+    elif finish == 'PLATE':
+        base_color = (0.28, 0.10, 0.055)   # brun-rouge vieilli
     suffix = "" if finish in ('AUTO', 'TERRE_CUITE') else f"_{finish.title()}"
     mat = _new_mat("House_Tile" + suffix)
     nodes, links, bsdf = _basic(mat)

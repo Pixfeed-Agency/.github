@@ -1,5 +1,29 @@
 # Changelog — House Generator
 
+## v1.23.0 — TERRAIN & IMPLANTATION (chantier terrain, 1/5 du brief)
+
+La maison seule, sur une parcelle générée, ou sur TON terrain.
+
+- **3 modes** (panneau "Terrain & implantation"): Auto simple
+  (historique, inchangé au pixel), **Parcelle** paramétrique,
+  **Mon terrain** (slot `terrain_asset` — votre mesh remplace le sol,
+  House garde soleil et implantation). L'hybride = parcelle + slots
+- **Parcelle**: dimensions réelles (ex. 40×60), **NORD** (boussole),
+  **pente %** (la maison pose sur une plateforme de terrassement avec
+  talus de raccord 4m), côté d'ACCÈS (l'allée gravier va du bord de
+  parcelle jusqu'au perron/garage), haie en LIMITE de parcelle, herbe
+  sur toute la parcelle (hors emprise et allée)
+- **Implantation**: position X/Y et ORIENTATION de la maison sur la
+  parcelle (la maison reste à l'origine moteur — c'est la parcelle
+  qui se place autour: zéro risque sur le bâti)
+- **SOLEIL PAR HEURE** (6-21h): course est→ouest selon le nord,
+  élévation réaliste, chaud et rasant matin/soir — "lumière de fin
+  d'après-midi" d'un brief = `sun_hour 17.5`; ciel Nishita aligné
+- Corrections trouvées au rendu: allée calculée en espace parcelle
+  (elle partait à côté quand la maison était décalée/tournée), z du
+  terrain UNIFIÉ pente+plateforme+talus (l'allée plongeait sous le
+  plateau), herbe bornée à la parcelle (prédicat inside + z pente)
+
 ## v1.22.0 — NIVEAU RENDU CLIENT: finitions ext. + intérieur habité
 
 L'objectif "rendu d'artiste/architecte intérieur-extérieur" — les cinq

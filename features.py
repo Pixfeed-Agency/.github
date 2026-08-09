@@ -659,9 +659,9 @@ def _create_tile_master(collection, color):
     # ✅ S5: MASTER PAR COUVERTURE — une ardoise est PLATE, une tuile
     # béton a un profil bas: le galbe canal pour tout le monde était le
     # défaut n°1 du rendu ardoise (matière juste, géométrie fausse)
-    if finish == 'ARDOISE':
+    if finish in ('ARDOISE', 'PLATE'):
         bm = bmesh.new()
-        e = 0.008            # épaisseur d'une ardoise
+        e = 0.008 if finish == 'ARDOISE' else 0.014   # plate: 14mm
         v = [bm.verts.new(p) for p in
              ((0, 0, 0), (w, 0, 0), (w, TILE_L, 0), (0, TILE_L, 0),
               (0, 0.012, e), (w, 0.012, e), (w, TILE_L, e), (0, TILE_L, e))]
@@ -2227,7 +2227,8 @@ def _create_grass_clump(collection):
     return obj
 
 
-def _scatter_grass(collection, cx, cy, radius, exclude_rects, seed=7):
+def _scatter_grass(collection, cx, cy, radius, exclude_rects, seed=7,
+                   inside=None, z_of=None):
     """Pelouse VIVANTE: points aléatoires (hors allées/emprise bâtie)
     instanciant la touffe maître — même mécanique GN que les briques."""
     import random as _rnd
@@ -2241,7 +2242,9 @@ def _scatter_grass(collection, cx, cy, radius, exclude_rects, seed=7):
         if any(rx0 - 0.1 < x < rx1 + 0.1 and ry0 - 0.1 < y < ry1 + 0.1
                for (rx0, ry0, rx1, ry1) in exclude_rects):
             continue
-        pts.append((x, y, 0.0))
+        if inside is not None and not inside(x, y):
+            continue          # ✅ terrain: rester DANS la parcelle
+        pts.append((x, y, z_of(x, y) if z_of else 0.0))
         rots.append(_rnd.uniform(0, 2 * math.pi))
         scales.append(_rnd.uniform(0.6, 1.35))
     if not pts:

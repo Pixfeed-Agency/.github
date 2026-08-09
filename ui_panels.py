@@ -103,11 +103,36 @@ class HOUSE_PT_main_panel(Panel):
         row.scale_y = 2.0
         row.operator("house.generate_auto", text="Générer la maison", icon='HOME')
         
+        # ✅ TERRAIN & IMPLANTATION
+        box = layout.box()
+        box.label(text="Terrain & implantation", icon='WORLD_DATA')
+        box.prop(props, "include_environment", text="Environnement", toggle=True)
+        if props.include_environment:
+            box.prop(props, "terrain_mode", text="Mode")
+            if props.terrain_mode == 'AUTO':
+                row = box.row(align=True)
+                row.prop(props, "parcel_width", text="Larg.")
+                row.prop(props, "parcel_length", text="Long.")
+                row = box.row(align=True)
+                row.prop(props, "parcel_north", text="Nord°")
+                row.prop(props, "parcel_slope", text="Pente%")
+                box.prop(props, "parcel_access", text="Accès")
+                row = box.row(align=True)
+                row.prop(props, "house_pos_x", text="Pos X")
+                row.prop(props, "house_pos_y", text="Pos Y")
+                box.prop(props, "house_rotation", text="Orientation°")
+                row = box.row(align=True)
+                row.prop(props, "include_hedge", text="Haie")
+                row.prop(props, "include_grass", text="Herbe")
+            elif props.terrain_mode == 'CUSTOM':
+                box.prop(props, "terrain_asset", text="Mon terrain")
+            if props.terrain_mode != 'LEGACY':
+                box.prop(props, "sun_hour", text="Heure solaire")
+
         layout.separator()
         row = layout.row()
         row.prop(context.scene, "house_auto_update", text="Mise à jour auto")
         row.prop(context.scene, "house_viewport_proxy", text="Proxy viewport")
-        layout.prop(props, "include_environment", text="Environnement (terrain, ciel, caméra)", toggle=True)
 
         # ✅ ASSETS: menuiseries réutilisables via l'Asset Browser
         layout.separator()
