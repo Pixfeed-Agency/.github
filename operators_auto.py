@@ -1202,11 +1202,14 @@ class HOUSE_OT_generate_auto(Operator):
         pitch_rad = math.radians(pitch)
         ridge_along_y = length >= width
         bm = bmesh.new()
+        # la base descend SOUS l'arase: les murs adaptés s'arrêtent un
+        # peu plus bas et un jour ouvert traversait le pignon
+        h0 = h - 0.6
 
-        def prism(tri, n0, n1, axis):
-            """Triangle extrudé de n0 à n1 le long de `axis`."""
+        def prism(profile, n0, n1, axis):
+            """Polygone extrudé de n0 à n1 le long de `axis`."""
             lo, hi = [], []
-            for (a, z) in tri:
+            for (a, z) in profile:
                 if axis == 'y':
                     lo.append(bm.verts.new((a, n0, z)))
                     hi.append(bm.verts.new((a, n1, z)))
@@ -1215,20 +1218,23 @@ class HOUSE_OT_generate_auto(Operator):
                     hi.append(bm.verts.new((n1, a, z)))
             bm.faces.new(lo)
             bm.faces.new(list(reversed(hi)))
-            for k in range(3):
-                k2 = (k + 1) % 3
+            m = len(profile)
+            for k in range(m):
+                k2 = (k + 1) % m
                 bm.faces.new([lo[k], lo[k2], hi[k2], hi[k]])
 
         if ridge_along_y:
             rh = (width / 2) * math.tan(pitch_rad)
-            tri = ((0.0, h), (width, h), (width / 2, h + rh))
-            prism(tri, 0.0, t, 'y')
-            prism(tri, length - t, length, 'y')
+            prof = ((0.0, h0), (width, h0), (width, h),
+                    (width / 2, h + rh), (0.0, h))
+            prism(prof, 0.0, t, 'y')
+            prism(prof, length - t, length, 'y')
         else:
             rh = (length / 2) * math.tan(pitch_rad)
-            tri = ((0.0, h), (length, h), (length / 2, h + rh))
-            prism(tri, 0.0, t, 'x')
-            prism(tri, width - t, width, 'x')
+            prof = ((0.0, h0), (length, h0), (length, h),
+                    (length / 2, h + rh), (0.0, h))
+            prism(prof, 0.0, t, 'x')
+            prism(prof, width - t, width, 'x')
         bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
         obj, _mesh = self._create_mesh_from_bmesh("Gable_Pignons", bm)
         bm.free()
