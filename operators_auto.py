@@ -2566,6 +2566,148 @@ class HOUSE_OT_opening_remove(bpy.types.Operator):
         return {'FINISHED'}
 
 
+class HOUSE_OT_camera_photo(bpy.types.Operator):
+    """✅ v1.28 CAMÉRA PHOTO D'ARCHITECTURE: hauteur d'œil, verticales
+    parfaitement droites (caméra horizontale + décentrement/shift comme
+    un objectif à bascule), profondeur de champ f/8, et développement
+    photo léger au compositor (vignette, glare, micro-dispersion) —
+    les signaux subliminaux "ceci est une photo"."""
+    bl_idname = "house.camera_photo"
+    bl_label = "Caméra photo extérieure"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    direction: bpy.props.EnumProperty(
+        name="Point de vue",
+        items=[('SO', "Sud-Ouest", ""), ('SE', "Sud-Est", ""),
+               ('NO', "Nord-Ouest", ""), ('NE', "Nord-Est", ""),
+               ('S', "Sud frontal", "")],
+        default='SO')
+    distance: bpy.props.FloatProperty(
+        name="Distance (× diagonale)", default=1.05, min=0.6, max=3.0)
+    lens: bpy.props.FloatProperty(name="Focale (mm)", default=32.0,
+                                  min=20.0, max=85.0)
+
+    def execute(self, context):
+        scene = context.scene
+        props = scene.house_generator
+        W, L = props.house_width, props.house_length
+        cx, cy = W / 2, L / 2
+        diag = math.hypot(W, L)
+        d = self.distance * diag
+        offs = {'SO': (-0.66, -0.75), 'SE': (0.66, -0.75),
+                'NO': (-0.66, 0.75), 'NE': (0.66, 0.75),
+                'S': (0.0, -1.0)}[self.direction]
+        n = math.hypot(*offs)
+        px = cx + offs[0] / n * d
+        py = cy + offs[1] / n * d
+        eye = 1.65
+
+        cam_obj = bpy.data.objects.get("House_PhotoCam")
+        if cam_obj is None:
+            cam = bpy.data.cameras.new("House_PhotoCam")
+            cam_obj = bpy.data.objects.new("House_PhotoCam", cam)
+            scene.collection.objects.link(cam_obj)
+        cam = cam_obj.data
+        cam.lens = self.lens
+        cam.sensor_width = 36.0
+
+        cam_obj.location = (px, py, eye)
+        # caméra HORIZONTALE (verticales droites): on vise le centre du
+        # plan au niveau de l'œil, la hauteur se cadre au SHIFT
+        look_dir = Vector((cx - px, cy - py, 0.0))
+        cam_obj.rotation_euler = look_dir.to_track_quat('-Z', 'Y'
+                                                        ).to_euler()
+        dist_h = look_dir.length
+        # cadrer ~45% de la hauteur du faîtage
+        wall_top = props.num_floors * props.floor_height
+        half = min(W, L) / 2
+        eff = self._pitch(props)
+        peak = wall_top + half * math.tan(math.radians(eff))
+        target_z = 0.45 * peak
+        cam.shift_y = (self.lens / cam.sensor_width) \
+            * (target_z - eye) / dist_h
+        # profondeur de champ photo d'archi (nette mais pas infinie)
+        cam.dof.use_dof = True
+        cam.dof.focus_distance = dist_h
+        cam.dof.aperture_fstop = 8.0
+        scene.camera = cam_obj
+
+        self._compositor(scene)
+        self.report({'INFO'}, f"Caméra photo {self.direction} posée "
+                              f"(shift {cam.shift_y:.3f})")
+        return {'FINISHED'}
+
+    @staticmethod
+    def _pitch(props):
+        try:
+            return HOUSE_OT_generate_auto._effective_pitch(
+                props.roof_type, props.roof_pitch)
+        except Exception:
+            return props.roof_pitch
+
+    @staticmethod
+    def _compositor(scene):
+        """Développement photo: glare doux + micro-dispersion + vignette.
+        Idempotent (les nodes marqués house_photo sont reconstruits)."""
+        scene.use_nodes = True
+        nt = scene.node_tree
+        for n in [n for n in nt.nodes if n.get("house_photo")]:
+            nt.nodes.remove(n)
+        rl = next((n for n in nt.nodes if n.type == 'R_LAYERS'), None)
+        comp = next((n for n in nt.nodes if n.type == 'COMPOSITE'), None)
+        if rl is None:
+            rl = nt.nodes.new('CompositorNodeRLayers')
+        if comp is None:
+            comp = nt.nodes.new('CompositorNodeComposite')
+
+        glare = nt.nodes.new('CompositorNodeGlare')
+        glare["house_photo"] = True
+        glare.glare_type = 'FOG_GLOW'
+        glare.quality = 'MEDIUM'
+        glare.mix = -0.92
+        glare.threshold = 1.0
+        glare.location = (300, 0)
+
+        lens = nt.nodes.new('CompositorNodeLensdist')
+        lens["house_photo"] = True
+        lens.use_fit = True
+        lens.inputs['Distortion'].default_value = 0.002
+        lens.inputs['Dispersion'].default_value = 0.004
+        lens.location = (520, 0)
+
+        # vignette: masque ellipse flouté multiplié
+        mask = nt.nodes.new('CompositorNodeEllipseMask')
+        mask["house_photo"] = True
+        mask.width = 1.85
+        mask.height = 1.55
+        mask.location = (300, -260)
+        blur = nt.nodes.new('CompositorNodeBlur')
+        blur["house_photo"] = True
+        blur.filter_type = 'FAST_GAUSS'
+        blur.size_x = blur.size_y = 420
+        blur.use_relative = False
+        blur.location = (480, -260)
+        vmap = nt.nodes.new('CompositorNodeMapRange')
+        vmap["house_photo"] = True
+        vmap.inputs['To Min'].default_value = 0.86
+        vmap.inputs['To Max'].default_value = 1.0
+        vmap.location = (660, -260)
+        vmix = nt.nodes.new('CompositorNodeMixRGB')
+        vmix["house_photo"] = True
+        vmix.blend_type = 'MULTIPLY'
+        vmix.inputs['Fac'].default_value = 1.0
+        vmix.location = (760, 0)
+
+        li = nt.links
+        li.new(rl.outputs['Image'], glare.inputs['Image'])
+        li.new(glare.outputs['Image'], lens.inputs['Image'])
+        li.new(mask.outputs['Mask'], blur.inputs['Image'])
+        li.new(blur.outputs['Image'], vmap.inputs['Value'])
+        li.new(lens.outputs['Image'], vmix.inputs[1])
+        li.new(vmap.outputs['Value'], vmix.inputs[2])
+        li.new(vmix.outputs['Image'], comp.inputs['Image'])
+
+
 class HOUSE_OT_room_add(bpy.types.Operator):
     """Ajoute une pièce au tableau de pièces"""
     bl_idname = "house.room_add"
@@ -2697,6 +2839,7 @@ classes = (
     HOUSE_OT_apply_preset,
     HOUSE_OT_solve_programme,
     HOUSE_OT_camera_interior,
+    HOUSE_OT_camera_photo,
     HOUSE_OT_opening_add,
     HOUSE_OT_opening_remove,
     HOUSE_OT_room_add,

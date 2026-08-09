@@ -178,6 +178,12 @@ class HOUSE_PT_main_panel(Panel):
                                f"({len(props.rooms_table)} pièces)",
                           icon='INFO')
 
+        # ✅ v1.28 CAMÉRA PHOTO (verticales droites + développement)
+        box = layout.box()
+        box.label(text="Rendu photo", icon='CAMERA_DATA')
+        box.operator("house.camera_photo", icon='RESTRICT_RENDER_OFF')
+        box.label(text="Imperfections photo: niveau Détail = Photo")
+
         # ✅ TERRAIN & IMPLANTATION
         box = layout.box()
         box.label(text="Terrain & implantation", icon='WORLD_DATA')

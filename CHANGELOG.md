@@ -1,5 +1,32 @@
 # Changelog — House Generator
 
+## v1.28.0 — PHOTORÉALISME MAISON: imperfections, assises, caméra photo
+
+Sortir du "délire maquette" — tout procédural, poids zéro, et le
+rendu NORMAL reste bit-identique (les imperfections sont liées au
+niveau de détail PHOTO).
+
+- **Imperfections photo (PHOTO)**: plus jamais de roughness uniforme
+  (bruit ±5-8% sur enduit, pierre, taille, bois), COULURES verticales
+  étirées par la gravité + CREUX salis à l'Ambient Occlusion sur les
+  façades, arêtes adoucies au node Bevel (5-8mm) — deux plans ne se
+  rencontrent jamais à angle vif dans la réalité
+- **Pierre en MOELLONS ASSISÉS**: le Voronoï (opus incertum) remplacé
+  par un appareillage en assises horizontales (Brick Texture): rangées
+  ondulées, longueurs alternées, écart de teinte franc par moellon,
+  joints beurrés adoucis, bosselage par pierre. Les moellons de
+  soubassement suivent (assises plus petites)
+- **Tuiles vieillies (PHOTO)**: ~5% de tuiles franchement plus sombres
+  (remplacées au fil des ans) en plus de l'étalement de cuisson
+- **Caméra photo d'architecture** (`house.camera_photo`): hauteur
+  d'œil 1,65m, caméra horizontale + DÉCENTREMENT (verticales
+  parfaitement droites, comme un objectif à bascule), DOF f/8, et
+  développement au compositor: glare doux, micro-dispersion, vignette.
+  5 points de vue (SO/SE/NO/NE/S frontal), distance et focale réglables
+- La porte bois hérite du veinage + bevel (wood_material) au PHOTO
+- 84 invariants (pierre assisée, PHOTO-seulement, verticales/shift),
+  banc fast 10/10 (NORMAL pixel-identique)
+
 ## v1.27.0 — TABLEAU DE PIÈCES + corrections géométrie (5/5 du brief)
 
 Le dernier chantier du brief (le plan par les surfaces) et les défauts

@@ -49,6 +49,110 @@ def _instance_random(nodes, links, x, y):
 
 
 # ============================================================
+# ✅ v1.28 — IMPERFECTIONS PHOTO (anti-maquette)
+# Les trois règles des rendus qui trompent l'œil:
+#   1. JAMAIS de roughness uniforme (le "vernis CG")
+#   2. Les arêtes vives n'existent pas (bevel au shading)
+#   3. Une façade vit: coulures, creux salis, pied de mur terni
+# Tout est OPT-IN au niveau de détail PHOTO — le rendu NORMAL reste
+# bit-identique (banc visuel).
+# ============================================================
+
+def _photo():
+    """True au niveau de détail PHOTO."""
+    try:
+        return bpy.context.scene.house_generator.detail_level == 'PHOTO'
+    except Exception:
+        return False
+
+
+def _rough_noise(nodes, links, bsdf, base_rough, amount=0.08, scale=8.0,
+                 x=-420, y=-460):
+    """Bruit de roughness ±amount autour de la valeur nominale."""
+    n = nodes.new('ShaderNodeTexNoise')
+    n.location = (x, y)
+    n.inputs['Scale'].default_value = scale
+    n.inputs['Detail'].default_value = 4.0
+    mr = nodes.new('ShaderNodeMapRange')
+    mr.location = (x + 200, y)
+    mr.inputs['To Min'].default_value = max(0.0, base_rough - amount)
+    mr.inputs['To Max'].default_value = min(1.0, base_rough + amount)
+    links.new(n.outputs['Fac'], mr.inputs['Value'])
+    links.new(mr.outputs['Result'], bsdf.inputs['Roughness'])
+
+
+def _edge_bevel(nodes, links, bsdf, radius=0.006, x=-420, y=-680):
+    """Node Bevel (Cycles): arêtes adoucies au shading. Se chaîne
+    AVANT un éventuel Bump déjà branché sur Normal."""
+    bv = nodes.new('ShaderNodeBevel')
+    bv.location = (x, y)
+    bv.samples = 4
+    bv.inputs['Radius'].default_value = radius
+    tgt = bsdf.inputs['Normal']
+    if tgt.is_linked:
+        up = tgt.links[0].from_node
+        if up.type == 'BUMP' and not up.inputs['Normal'].is_linked:
+            links.new(bv.outputs['Normal'], up.inputs['Normal'])
+            return
+    links.new(bv.outputs['Normal'], tgt)
+
+
+def _grime(nodes, links, bsdf, streaks=0.06, cavities=0.12,
+           x=-420, y=-900):
+    """Salissures: COULURES verticales (bruit étiré par la gravité) et
+    CREUX salis (Ambient Occlusion), multipliés sur la Base Color.
+    Nécessite une Base Color déjà câblée."""
+    src = bsdf.inputs['Base Color']
+    if not src.is_linked:
+        return
+    from_sock = src.links[0].from_socket
+
+    geo = nodes.new('ShaderNodeNewGeometry')
+    geo.location = (x - 560, y)
+    mapping = nodes.new('ShaderNodeMapping')
+    mapping.location = (x - 380, y)
+    # étirement vertical: les traînées suivent la pluie
+    mapping.inputs['Scale'].default_value = (7.0, 7.0, 0.45)
+    links.new(geo.outputs['Position'], mapping.inputs['Vector'])
+    sn = nodes.new('ShaderNodeTexNoise')
+    sn.location = (x - 190, y)
+    sn.inputs['Scale'].default_value = 1.0
+    sn.inputs['Detail'].default_value = 5.0
+    links.new(mapping.outputs['Vector'], sn.inputs['Vector'])
+    smap = nodes.new('ShaderNodeMapRange')
+    smap.location = (x, y)
+    smap.inputs['To Min'].default_value = 1.0 - streaks
+    smap.inputs['To Max'].default_value = 1.0
+    links.new(sn.outputs['Fac'], smap.inputs['Value'])
+
+    ao = nodes.new('ShaderNodeAmbientOcclusion')
+    ao.location = (x - 190, y - 220)
+    ao.samples = 4
+    ao.inputs['Distance'].default_value = 0.35
+    amap = nodes.new('ShaderNodeMapRange')
+    amap.location = (x, y - 220)
+    amap.inputs['To Min'].default_value = 1.0 - cavities
+    amap.inputs['To Max'].default_value = 1.0
+    links.new(ao.outputs['AO'], amap.inputs['Value'])
+
+    m1 = nodes.new('ShaderNodeMix')
+    m1.data_type = 'RGBA'
+    m1.blend_type = 'MULTIPLY'
+    m1.location = (x + 200, y)
+    m1.inputs['Factor'].default_value = 1.0
+    links.new(from_sock, m1.inputs[6])
+    links.new(smap.outputs['Result'], m1.inputs[7])
+    m2 = nodes.new('ShaderNodeMix')
+    m2.data_type = 'RGBA'
+    m2.blend_type = 'MULTIPLY'
+    m2.location = (x + 380, y)
+    m2.inputs['Factor'].default_value = 1.0
+    links.new(m1.outputs[2], m2.inputs[6])
+    links.new(amap.outputs['Result'], m2.inputs[7])
+    links.new(m2.outputs[2], bsdf.inputs['Base Color'])
+
+
+# ============================================================
 # TUILES TERRE CUITE
 # ============================================================
 
@@ -192,6 +296,17 @@ def tile_material(base_color=(0.34, 0.115, 0.062), finish='AUTO'):
     links.new(bump_noise.outputs['Fac'], bump.inputs['Height'])
     links.new(bump.outputs['Normal'], bsdf.inputs['Normal'])
 
+    if _photo():
+        # ~5% de tuiles FRANCHEMENT plus sombres (remplacées au fil des
+        # ans) — l'étalement doux seul reste trop propre. On garde le
+        # dégradé normal jusqu'à 0.94 puis on plonge vers le sombre.
+        keep = ramp.color_ramp.elements.new(0.94)
+        keep.color = (min(1, r * 1.30), min(1, g * 1.25),
+                      min(1, b * 1.15), 1)
+        dark = [el for el in ramp.color_ramp.elements
+                if el.position >= 0.999][0]
+        dark.color = (r * 0.40, g * 0.38, b * 0.40, 1)
+        _edge_bevel(nodes, links, bsdf, 0.003)
     return mat
 
 
@@ -388,6 +503,9 @@ def wood_material(name, base=(0.32, 0.19, 0.10), rough=0.45, along='Z'):
     links.new(wave.outputs['Fac'], bump.inputs['Height'])
     links.new(bump.outputs['Normal'], bsdf.inputs['Normal'])
 
+    if _photo():
+        _rough_noise(nodes, links, bsdf, rough, 0.08, scale=18.0)
+        _edge_bevel(nodes, links, bsdf, 0.004)
     return mat
 
 
@@ -417,11 +535,17 @@ def zinc_material():
 
 def stone_material(name="House_Pierre", base=(0.72, 0.66, 0.55),
                    scale=1.1, joint=(0.62, 0.57, 0.48)):
-    """✅ PIERRE VUE procédurale (zéro texture): appareillage par
-    Voronoï — chaque cellule est une pierre (teinte calcaire variée),
-    la distance au bord fait le JOINT beurré, bump = joints en creux +
-    grain de taille. `scale` règle la taille des pierres (moellons de
-    soubassement: scale plus grand = pierres plus petites)."""
+    """✅ v1.28 PIERRE VUE en MOELLONS ASSISÉS (zéro texture).
+
+    Le Voronoï v1.25 faisait de l'opus incertum (pierres polygonales)
+    — or le "pierre vue" des longères est du moellon ASSISÉ: rangées
+    horizontales, hauteurs d'assises quasi constantes, longueurs de
+    pierres variables, joints beurrés irréguliers. Le node Brick
+    Texture fait exactement cet appareillage: chaque brique = un
+    moellon (teinte aléatoire), Fac = le joint.
+
+    `scale` conserve sa sémantique v1.25: plus grand = pierres plus
+    petites (moellons de soubassement scale≈2.3)."""
     mat = _new_mat(name)
     nodes, links, bsdf = _basic(mat)
     r, g, b = base[:3]
@@ -441,70 +565,113 @@ def stone_material(name="House_Pierre", base=(0.72, 0.66, 0.55),
     comb.location = (-750, 200)
     links.new(add.outputs['Value'], comb.inputs['X'])
     links.new(sep.outputs['Z'], comb.inputs['Y'])
-    # pierres plus LONGUES que hautes (assises): anisotropie
-    mapn = nodes.new('ShaderNodeMapping')
-    mapn.location = (-590, 200)
-    mapn.inputs['Scale'].default_value = (1.0, 2.1, 1.0)
-    links.new(comb.outputs['Vector'], mapn.inputs['Vector'])
 
-    vor = nodes.new('ShaderNodeTexVoronoi')
-    vor.location = (-400, 260)
-    vor.feature = 'DISTANCE_TO_EDGE'
-    vor.inputs['Scale'].default_value = scale
-    vor.inputs['Randomness'].default_value = 0.85
-    links.new(mapn.outputs['Vector'], vor.inputs['Vector'])
-    vor2 = nodes.new('ShaderNodeTexVoronoi')      # couleur par pierre
-    vor2.location = (-400, 20)
-    vor2.inputs['Scale'].default_value = scale
-    vor2.inputs['Randomness'].default_value = 0.85
-    links.new(mapn.outputs['Vector'], vor2.inputs['Vector'])
+    # assises pas tirées au laser: micro-ondulation du calepin
+    warp = nodes.new('ShaderNodeTexNoise')
+    warp.location = (-750, -40)
+    warp.inputs['Scale'].default_value = 0.35
+    warp.inputs['Detail'].default_value = 2.0
+    wsub = nodes.new('ShaderNodeVectorMath')
+    wsub.operation = 'SUBTRACT'
+    wsub.location = (-590, -40)
+    links.new(warp.outputs['Color'], wsub.inputs[0])
+    wsub.inputs[1].default_value = (0.5, 0.5, 0.5)
+    wmul = nodes.new('ShaderNodeVectorMath')
+    wmul.operation = 'SCALE'
+    wmul.location = (-430, -40)
+    links.new(wsub.outputs['Vector'], wmul.inputs[0])
+    wmul.inputs['Scale'].default_value = 0.04
+    wadd = nodes.new('ShaderNodeVectorMath')
+    wadd.operation = 'ADD'
+    wadd.location = (-590, 200)
+    links.new(comb.outputs['Vector'], wadd.inputs[0])
+    links.new(wmul.outputs['Vector'], wadd.inputs[1])
 
-    # joint si distance au bord < seuil
-    jmask = nodes.new('ShaderNodeMapRange')
-    jmask.location = (-200, 260)
-    jmask.inputs['From Min'].default_value = 0.008
-    jmask.inputs['From Max'].default_value = 0.030
-    jmask.clamp = True
-    links.new(vor.outputs['Distance'], jmask.inputs['Value'])
+    row_h = 0.30 / max(0.3, scale)      # hauteur d'assise (~27cm façade)
+    brick = nodes.new('ShaderNodeTexBrick')
+    brick.location = (-260, 220)
+    brick.offset = 0.5                   # décalage d'un demi-moellon
+    brick.offset_frequency = 2
+    brick.squash = 1.18                  # une rangée sur deux plus longue
+    brick.squash_frequency = 2
+    brick.inputs['Scale'].default_value = 1.0
+    brick.inputs['Mortar Size'].default_value = 0.016
+    brick.inputs['Mortar Smooth'].default_value = 0.5
+    brick.inputs['Bias'].default_value = 0.0
+    brick.inputs['Brick Width'].default_value = row_h * 2.4
+    brick.inputs['Row Height'].default_value = row_h
+    # teintes calcaire par moellon (Color1↔Color2 au hasard par pierre)
+    # — écart FRANC: la version trop douce lisait "parpaing peint"
+    brick.inputs['Color1'].default_value = (r * 0.72, g * 0.70,
+                                            b * 0.66, 1)
+    brick.inputs['Color2'].default_value = (min(1, r * 1.18),
+                                            min(1, g * 1.14),
+                                            min(1, b * 1.06), 1)
+    brick.inputs['Mortar'].default_value = (*joint[:3], 1)
+    links.new(wadd.outputs['Vector'], brick.inputs['Vector'])
 
-    ramp = nodes.new('ShaderNodeValToRGB')        # teintes calcaire
-    ramp.location = (-200, 20)
-    ramp.color_ramp.elements[0].color = (r * 0.82, g * 0.82, b * 0.80, 1)
-    ramp.color_ramp.elements[1].color = (min(1, r * 1.14),
-                                         min(1, g * 1.12),
-                                         min(1, b * 1.05), 1)
-    e = ramp.color_ramp.elements.new(0.5)
-    e.color = (r, g * 0.98, b * 0.92, 1)
-    links.new(vor2.outputs['Color'], ramp.inputs['Fac'])
-
-    mixj = nodes.new('ShaderNodeMix')
-    mixj.data_type = 'RGBA'
-    mixj.location = (30, 140)
-    mixj.inputs[6].default_value = (*joint[:3], 1)   # joint
-    links.new(jmask.outputs['Result'], mixj.inputs['Factor'])
-    links.new(ramp.outputs['Color'], mixj.inputs[7])
-    links.new(mixj.outputs[2], bsdf.inputs['Base Color'])
+    # nuages de teinte à l'échelle du mur (une façade n'est jamais unie)
+    cloud = nodes.new('ShaderNodeTexNoise')
+    cloud.location = (-260, -20)
+    cloud.inputs['Scale'].default_value = 0.4
+    cloud.inputs['Detail'].default_value = 4.0
+    links.new(geo.outputs['Position'], cloud.inputs['Vector'])
+    cmap = nodes.new('ShaderNodeMapRange')
+    cmap.location = (-80, -20)
+    cmap.inputs['To Min'].default_value = 0.87
+    cmap.inputs['To Max'].default_value = 1.07
+    links.new(cloud.outputs['Fac'], cmap.inputs['Value'])
+    mixc = nodes.new('ShaderNodeMix')
+    mixc.data_type = 'RGBA'
+    mixc.blend_type = 'MULTIPLY'
+    mixc.location = (100, 160)
+    mixc.inputs['Factor'].default_value = 1.0
+    links.new(brick.outputs['Color'], mixc.inputs[6])
+    links.new(cmap.outputs['Result'], mixc.inputs[7])
+    links.new(mixc.outputs[2], bsdf.inputs['Base Color'])
 
     bsdf.inputs['Roughness'].default_value = 0.92
 
-    # relief: joints en creux + grain de pierre
+    # relief: joints en creux (Fac) + grain de taille + bosselage
+    # doux par moellon (une pierre n'est pas plane)
     grain = nodes.new('ShaderNodeTexNoise')
-    grain.location = (-200, -220)
+    grain.location = (-260, -260)
     grain.inputs['Scale'].default_value = 55.0
     grain.inputs['Detail'].default_value = 5.0
-    links.new(mapn.outputs['Vector'], grain.inputs['Vector'])
-    addb = nodes.new('ShaderNodeMath')
-    addb.operation = 'MULTIPLY_ADD'
-    addb.location = (0, -160)
-    links.new(grain.outputs['Fac'], addb.inputs[0])
-    addb.inputs[1].default_value = 0.25
-    links.new(jmask.outputs['Result'], addb.inputs[2])
+    links.new(wadd.outputs['Vector'], grain.inputs['Vector'])
+    boss = nodes.new('ShaderNodeTexNoise')
+    boss.location = (-260, -480)
+    boss.inputs['Scale'].default_value = 6.5
+    boss.inputs['Detail'].default_value = 2.0
+    links.new(wadd.outputs['Vector'], boss.inputs['Vector'])
+    inv = nodes.new('ShaderNodeMath')                # 1 - joint
+    inv.operation = 'SUBTRACT'
+    inv.location = (-80, -160)
+    inv.inputs[0].default_value = 1.0
+    links.new(brick.outputs['Fac'], inv.inputs[1])
+    hsum = nodes.new('ShaderNodeMath')
+    hsum.operation = 'MULTIPLY_ADD'                  # grain*0.2 + pierre
+    hsum.location = (80, -220)
+    links.new(grain.outputs['Fac'], hsum.inputs[0])
+    hsum.inputs[1].default_value = 0.20
+    links.new(inv.outputs['Value'], hsum.inputs[2])
+    hsum2 = nodes.new('ShaderNodeMath')
+    hsum2.operation = 'MULTIPLY_ADD'                 # + bosselage*0.5
+    hsum2.location = (240, -220)
+    links.new(boss.outputs['Fac'], hsum2.inputs[0])
+    hsum2.inputs[1].default_value = 0.5
+    links.new(hsum.outputs['Value'], hsum2.inputs[2])
     bump = nodes.new('ShaderNodeBump')
-    bump.location = (180, -160)
+    bump.location = (400, -160)
     bump.inputs['Strength'].default_value = 0.55
-    bump.inputs['Distance'].default_value = 0.006
-    links.new(addb.outputs['Value'], bump.inputs['Height'])
+    bump.inputs['Distance'].default_value = 0.010
+    links.new(hsum2.outputs['Value'], bump.inputs['Height'])
     links.new(bump.outputs['Normal'], bsdf.inputs['Normal'])
+
+    if _photo():
+        _rough_noise(nodes, links, bsdf, 0.92, 0.06, scale=12.0)
+        _edge_bevel(nodes, links, bsdf, 0.008)
+        _grime(nodes, links, bsdf, streaks=0.05, cavities=0.10)
     return mat
 
 
@@ -533,6 +700,10 @@ def cut_stone_material(name="House_Pierre_Taille",
     bump.inputs['Distance'].default_value = 0.001
     links.new(n.outputs['Fac'], bump.inputs['Height'])
     links.new(bump.outputs['Normal'], bsdf.inputs['Normal'])
+    if _photo():
+        _rough_noise(nodes, links, bsdf, 0.85, 0.05, scale=20.0)
+        _edge_bevel(nodes, links, bsdf, 0.006)
+        _grime(nodes, links, bsdf, streaks=0.04, cavities=0.08)
     return mat
 
 
@@ -620,6 +791,10 @@ def stucco_material(name="House_Stucco", base=(0.475, 0.40, 0.30),
         bump.inputs['Distance'].default_value = 0.0016
     links.new(gnoise.outputs['Fac'], bump.inputs['Height'])
     links.new(bump.outputs['Normal'], bsdf.inputs['Normal'])
+    if _photo():
+        _rough_noise(nodes, links, bsdf, 0.93, 0.05, scale=14.0)
+        _edge_bevel(nodes, links, bsdf, 0.005)
+        _grime(nodes, links, bsdf, streaks=0.06, cavities=0.10)
     return mat
 
 
