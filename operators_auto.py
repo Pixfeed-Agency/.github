@@ -1223,18 +1223,21 @@ class HOUSE_OT_generate_auto(Operator):
                 k2 = (k + 1) % m
                 bm.faces.new([lo[k], lo[k2], hi[k2], hi[k]])
 
+        # en retrait de 1,2cm du nu de façade: coplanaire avec le mur,
+        # la base z-fightait (bande noire à hauteur d'arase)
+        r = 0.012
         if ridge_along_y:
             rh = (width / 2) * math.tan(pitch_rad)
             prof = ((0.0, h0), (width, h0), (width, h),
                     (width / 2, h + rh), (0.0, h))
-            prism(prof, 0.0, t, 'y')
-            prism(prof, length - t, length, 'y')
+            prism(prof, r, t - r, 'y')
+            prism(prof, length - t + r, length - r, 'y')
         else:
             rh = (length / 2) * math.tan(pitch_rad)
             prof = ((0.0, h0), (length, h0), (length, h),
                     (length / 2, h + rh), (0.0, h))
-            prism(prof, 0.0, t, 'x')
-            prism(prof, width - t, width, 'x')
+            prism(prof, r, t - r, 'x')
+            prism(prof, width - t + r, width - r, 'x')
         bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
         obj, _mesh = self._create_mesh_from_bmesh("Gable_Pignons", bm)
         bm.free()
