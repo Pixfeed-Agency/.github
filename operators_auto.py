@@ -2633,9 +2633,34 @@ class HOUSE_OT_camera_photo(bpy.types.Operator):
         scene.camera = cam_obj
 
         self._compositor(scene)
-        self.report({'INFO'}, f"Caméra photo {self.direction} posée "
-                              f"(shift {cam.shift_y:.3f})")
+        # ✅ RÈGLE DES OMBRES CONSTRUITES: sans soleil OBLIQUE sur la
+        # façade cadrée, pas d'ombres d'égout/volets/tableaux → l'image
+        # tombe en "maquette diffuse" quel que soit le matériau.
+        warn = self._sun_check(props, look_dir)
+        if warn:
+            self.report({'WARNING'}, warn)
+        else:
+            self.report({'INFO'}, f"Caméra photo {self.direction} posée "
+                                  f"(shift {cam.shift_y:.3f})")
         return {'FINISHED'}
+
+    @staticmethod
+    def _sun_check(props, look_dir):
+        """Avertit si le soleil n'éclaire pas la façade regardée."""
+        try:
+            from . import terrain
+            e = terrain.sun_direction(props)
+            sun = Vector((0.0, 0.0, -1.0))
+            sun.rotate(e)                      # direction des rayons
+            facing = -look_dir.normalized()    # normale vers la caméra
+            d = -sun.normalized().dot(facing)
+            if d < 0.25:
+                return ("Soleil dans le dos de la façade cadrée — "
+                        "ombres plates (changez sun_hour/nord ou le "
+                        "point de vue)")
+        except Exception:
+            pass
+        return None
 
     @staticmethod
     def _pitch(props):

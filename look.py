@@ -962,10 +962,10 @@ def ground_material():
 
     ramp = nodes.new('ShaderNodeValToRGB')
     ramp.location = (-420, 150)
-    ramp.color_ramp.elements[0].color = (0.075, 0.115, 0.035, 1)
-    ramp.color_ramp.elements[1].color = (0.155, 0.185, 0.06, 1)
+    ramp.color_ramp.elements[0].color = (0.070, 0.095, 0.040, 1)
+    ramp.color_ramp.elements[1].color = (0.135, 0.150, 0.070, 1)
     e = ramp.color_ramp.elements.new(0.55)
-    e.color = (0.105, 0.15, 0.048, 1)
+    e.color = (0.095, 0.120, 0.055, 1)
     links.new(patches.outputs['Fac'], ramp.inputs['Fac'])
     links.new(ramp.outputs['Color'], bsdf.inputs['Base Color'])
 
@@ -1000,7 +1000,7 @@ def setup_sky_and_view(sun_elevation_deg=38.0, sun_rotation_deg=145.0,
     # Color management filmique moderne
     try:
         scene.view_settings.view_transform = 'AgX'
-        scene.view_settings.look = 'AgX - Base Contrast'
+        scene.view_settings.look = 'AgX - Medium High Contrast'
     except TypeError:
         pass  # Fallback: transform par défaut
     # ✅ Le soleil Nishita est PHYSIQUE (~100k lux): il faut exposer
@@ -1023,9 +1023,9 @@ def setup_sky_and_view(sun_elevation_deg=38.0, sun_rotation_deg=145.0,
     sky.sky_type = 'NISHITA'
     sky.sun_elevation = math.radians(sun_elevation_deg)
     sky.sun_rotation = math.radians(sun_rotation_deg)
-    sky.sun_intensity = 0.85
+    sky.sun_intensity = 1.0
     # ✅ disque solaire élargi → ombres DOUCES (fini le rasoir CG)
-    sky.sun_size = math.radians(1.6)
+    sky.sun_size = math.radians(0.7)
     sky.altitude = 60
     sky.air_density = 1.0
     sky.dust_density = 0.45   # ciel bleu net
