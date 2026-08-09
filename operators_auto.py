@@ -1624,7 +1624,18 @@ class HOUSE_OT_generate_auto(Operator):
         # DANS la spec, plus dupliqués ici. En mode PROGRAMME, chaque
         # pièce arrière reçoit SA fenêtre (centre de cellule).
         from . import openings as openings_mod
-        for o in openings_mod.windows_of(openings_mod.compute(self, props)):
+        _spec_full = openings_mod.compute(self, props)
+
+        # ✅ PIERRE: encadrements de taille + chaînages d'angle
+        if getattr(props, 'include_stone_surrounds', False):
+            from . import masonry
+            masonry.build_surrounds(props, collection, _spec_full,
+                                    wall_depth)
+            wall_h_ = getattr(self, 'real_wall_height', None) or \
+                (props.num_floors * props.floor_height)
+            masonry.build_quoins(props, collection, wall_h_)
+
+        for o in openings_mod.windows_of(_spec_full):
             wall = o['wall']
             z_center = o['z'] + o['height'] / 2
             if wall == 'front':
@@ -1974,7 +1985,21 @@ class HOUSE_OT_generate_auto(Operator):
         print("[House] ✓ Fondations générées (socle visible + seuil de porte)")
 
     def _apply_foundation_material(self, obj):
-        """Applique un matériau béton aux fondations"""
+        """Applique un matériau béton aux fondations — MOELLONS de
+        pierre plus sombres si la façade est en pierre (brief: moellons
+        plus foncés sur 60cm de soubassement)."""
+        props = bpy.context.scene.house_generator
+        if getattr(props, 'wall_finish', 'AUTO') == 'PIERRE':
+            from . import look
+            base = tuple(props.wall_material_color)[:3]
+            mat = look.stone_material(
+                "House_Moellons",
+                base=(base[0] * 0.62, base[1] * 0.60, base[2] * 0.58),
+                scale=2.3,
+                joint=(base[0] * 0.5, base[1] * 0.48, base[2] * 0.45))
+            obj.data.materials.clear()
+            obj.data.materials.append(mat)
+            return
         mat_name = "Foundation_Material"
 
         if mat_name not in bpy.data.materials:

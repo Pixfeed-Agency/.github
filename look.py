@@ -415,11 +415,134 @@ def zinc_material():
     return mat
 
 
+def stone_material(name="House_Pierre", base=(0.72, 0.66, 0.55),
+                   scale=1.1, joint=(0.62, 0.57, 0.48)):
+    """✅ PIERRE VUE procédurale (zéro texture): appareillage par
+    Voronoï — chaque cellule est une pierre (teinte calcaire variée),
+    la distance au bord fait le JOINT beurré, bump = joints en creux +
+    grain de taille. `scale` règle la taille des pierres (moellons de
+    soubassement: scale plus grand = pierres plus petites)."""
+    mat = _new_mat(name)
+    nodes, links, bsdf = _basic(mat)
+    r, g, b = base[:3]
+
+    # projection façade: (x+y, z) comme la brique de cheminée
+    geo = nodes.new('ShaderNodeNewGeometry')
+    geo.location = (-1250, 200)
+    sep = nodes.new('ShaderNodeSeparateXYZ')
+    sep.location = (-1080, 200)
+    links.new(geo.outputs['Position'], sep.inputs['Vector'])
+    add = nodes.new('ShaderNodeMath')
+    add.operation = 'ADD'
+    add.location = (-910, 260)
+    links.new(sep.outputs['X'], add.inputs[0])
+    links.new(sep.outputs['Y'], add.inputs[1])
+    comb = nodes.new('ShaderNodeCombineXYZ')
+    comb.location = (-750, 200)
+    links.new(add.outputs['Value'], comb.inputs['X'])
+    links.new(sep.outputs['Z'], comb.inputs['Y'])
+    # pierres plus LONGUES que hautes (assises): anisotropie
+    mapn = nodes.new('ShaderNodeMapping')
+    mapn.location = (-590, 200)
+    mapn.inputs['Scale'].default_value = (1.0, 2.1, 1.0)
+    links.new(comb.outputs['Vector'], mapn.inputs['Vector'])
+
+    vor = nodes.new('ShaderNodeTexVoronoi')
+    vor.location = (-400, 260)
+    vor.feature = 'DISTANCE_TO_EDGE'
+    vor.inputs['Scale'].default_value = scale
+    vor.inputs['Randomness'].default_value = 0.85
+    links.new(mapn.outputs['Vector'], vor.inputs['Vector'])
+    vor2 = nodes.new('ShaderNodeTexVoronoi')      # couleur par pierre
+    vor2.location = (-400, 20)
+    vor2.inputs['Scale'].default_value = scale
+    vor2.inputs['Randomness'].default_value = 0.85
+    links.new(mapn.outputs['Vector'], vor2.inputs['Vector'])
+
+    # joint si distance au bord < seuil
+    jmask = nodes.new('ShaderNodeMapRange')
+    jmask.location = (-200, 260)
+    jmask.inputs['From Min'].default_value = 0.008
+    jmask.inputs['From Max'].default_value = 0.030
+    jmask.clamp = True
+    links.new(vor.outputs['Distance'], jmask.inputs['Value'])
+
+    ramp = nodes.new('ShaderNodeValToRGB')        # teintes calcaire
+    ramp.location = (-200, 20)
+    ramp.color_ramp.elements[0].color = (r * 0.82, g * 0.82, b * 0.80, 1)
+    ramp.color_ramp.elements[1].color = (min(1, r * 1.14),
+                                         min(1, g * 1.12),
+                                         min(1, b * 1.05), 1)
+    e = ramp.color_ramp.elements.new(0.5)
+    e.color = (r, g * 0.98, b * 0.92, 1)
+    links.new(vor2.outputs['Color'], ramp.inputs['Fac'])
+
+    mixj = nodes.new('ShaderNodeMix')
+    mixj.data_type = 'RGBA'
+    mixj.location = (30, 140)
+    mixj.inputs[6].default_value = (*joint[:3], 1)   # joint
+    links.new(jmask.outputs['Result'], mixj.inputs['Factor'])
+    links.new(ramp.outputs['Color'], mixj.inputs[7])
+    links.new(mixj.outputs[2], bsdf.inputs['Base Color'])
+
+    bsdf.inputs['Roughness'].default_value = 0.92
+
+    # relief: joints en creux + grain de pierre
+    grain = nodes.new('ShaderNodeTexNoise')
+    grain.location = (-200, -220)
+    grain.inputs['Scale'].default_value = 55.0
+    grain.inputs['Detail'].default_value = 5.0
+    links.new(mapn.outputs['Vector'], grain.inputs['Vector'])
+    addb = nodes.new('ShaderNodeMath')
+    addb.operation = 'MULTIPLY_ADD'
+    addb.location = (0, -160)
+    links.new(grain.outputs['Fac'], addb.inputs[0])
+    addb.inputs[1].default_value = 0.25
+    links.new(jmask.outputs['Result'], addb.inputs[2])
+    bump = nodes.new('ShaderNodeBump')
+    bump.location = (180, -160)
+    bump.inputs['Strength'].default_value = 0.55
+    bump.inputs['Distance'].default_value = 0.006
+    links.new(addb.outputs['Value'], bump.inputs['Height'])
+    links.new(bump.outputs['Normal'], bsdf.inputs['Normal'])
+    return mat
+
+
+def cut_stone_material(name="House_Pierre_Taille",
+                       base=(0.80, 0.75, 0.66)):
+    """Pierre de TAILLE lisse (encadrements, chaînages): calcaire
+    clair finement grené, arêtes nettes."""
+    mat = _new_mat(name)
+    nodes, links, bsdf = _basic(mat)
+    n = nodes.new('ShaderNodeTexNoise')
+    n.location = (-400, 100)
+    n.inputs['Scale'].default_value = 90.0
+    n.inputs['Detail'].default_value = 4.0
+    mix = nodes.new('ShaderNodeMix')
+    mix.data_type = 'RGBA'
+    mix.blend_type = 'MULTIPLY'
+    mix.location = (-180, 140)
+    mix.inputs['Factor'].default_value = 0.10
+    mix.inputs[6].default_value = (*base[:3], 1)
+    links.new(n.outputs['Color'], mix.inputs[7])
+    links.new(mix.outputs[2], bsdf.inputs['Base Color'])
+    bsdf.inputs['Roughness'].default_value = 0.85
+    bump = nodes.new('ShaderNodeBump')
+    bump.location = (-180, -120)
+    bump.inputs['Strength'].default_value = 0.12
+    bump.inputs['Distance'].default_value = 0.001
+    links.new(n.outputs['Fac'], bump.inputs['Height'])
+    links.new(bump.outputs['Normal'], bsdf.inputs['Normal'])
+    return mat
+
+
 def wall_material(base, finish='AUTO'):
     """✅ v1.15: finition murale PROCÉDURALE au choix (chantier n°7):
     AUTO/CREPI_FIN = enduit taloché actuel, CREPI_GROS = crépi projeté
     à gros grain, LISSE = peinture mate unie. Point d'entrée unique
     pour les murs SIMPLE (maison + ailes + _apply_materials)."""
+    if finish == 'PIERRE':
+        return stone_material(base=base)
     if finish == 'LISSE':
         mat = _new_mat("House_Wall_Lisse")
         nodes, links, bsdf = _basic(mat)

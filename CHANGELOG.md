@@ -1,5 +1,29 @@
 # Changelog — House Generator
 
+## v1.25.0 — PIERRE procédurale + RAL menuiseries (3/5 du brief)
+
+LE matériau manquant révélé par le brief longère — 100% procédural,
+zéro texture embarquée (comme demandé).
+
+- **Pierre vue** (`wall_finish = PIERRE`): appareillage par Voronoï —
+  chaque cellule est une pierre calcaire de teinte variée (assises
+  plus longues que hautes), joints beurrés teinte sable, joints en
+  creux + grain de taille au bump. Couleur de base au choix
+- **Moellons de soubassement** automatiques: quand la façade est en
+  pierre, la fondation passe en moellons PLUS PETITS et PLUS SOMBRES
+  (le brief: "moellons plus foncés sur 60 cm")
+- **Encadrements en PIERRE DE TAILLE** (géométrie réelle, option):
+  jambages 16cm + linteau monolithe 24cm + appui saillant autour de
+  CHAQUE ouverture — dérivés de la spec S4, donc compatibles tableau
+  d'ouvertures et mode auto; + **CHAÎNAGES D'ANGLE à harpes
+  alternées** aux 4 angles (assises de 34cm)
+- **Menuiseries RAL** (`joinery_color`): la teinte des dormants et
+  ouvrants est enfin pilotable (le RAL 7016 du brief) — blanc
+  historique par défaut (références intactes)
+- Validé sur la façade du brief: pierre vue + encadrements sur les
+  baies ET les fenêtres du tableau + chaînages + moellons — rendu
+  conforme; 77 invariants, banc fast 10/10
+
 ## v1.24.0 — TABLEAU D'OUVERTURES hétérogènes (2/5 du brief)
 
 Le manque n°1 des briefs réels: House imposait UN type et UNE taille

@@ -74,3 +74,28 @@ def test_facade_mixte_du_brief():
     # volets UNIQUEMENT sur la battante (pas sur la baie)
     shutters = [o for o in coll.objects if o.name.startswith("Shutter")]
     assert len(shutters) == 2, f"{len(shutters)} battants != 2"
+
+
+def test_pierre_encadrements():
+    """PIERRE: matériau appareillé, moellons au soubassement, un
+    encadrement de taille par ouverture, chaînages aux 4 angles."""
+    bpy.ops.wm.read_factory_settings(use_empty=True)
+    p = bpy.context.scene.house_generator
+    p.house_width, p.house_length = 12.0, 7.0
+    p.wall_construction_type = 'SIMPLE'
+    p.wall_finish = 'PIERRE'
+    p.include_stone_surrounds = True
+    p.foundation_height = 0.6
+    assert 'FINISHED' in bpy.ops.house.generate_auto()
+    coll = bpy.data.collections["House"]
+    names = {o.name.split('.')[0] for o in coll.objects}
+    assert "Stone_Surrounds" in names and "Stone_Quoins" in names
+    walls = next(o for o in coll.objects if o.name == "Walls")
+    assert walls.data.materials[0].name.startswith("House_Pierre")
+    fond = next(o for o in coll.objects if o.name == "Foundation")
+    assert fond.data.materials[0].name == "House_Moellons", \
+        f"soubassement: {fond.data.materials[0].name}"
+    surr = next(o for o in coll.objects
+                if o.name.startswith("Stone_Surrounds"))
+    # ~5 boîtes par fenêtre (2 jambages+linteau+appui 2 pièces) → >0
+    assert len(surr.data.polygons) >= 6 * 3 * 4

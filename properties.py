@@ -86,6 +86,8 @@ PROP_TAGS = {
     'wall_finish': ('walls',),
     # tableau d'ouvertures: change les trous → tout
     'use_openings_table': ('all',),
+    'include_stone_surrounds': ('joinery',),
+    'joinery_color': ('joinery',),
     'roof_finish': ('roof',),
 }
 
@@ -805,6 +807,9 @@ class HouseGeneratorProperties(PropertyGroup):
             ('CREPI_FIN', "Crépi fin", "Enduit taloché, grain serré"),
             ('CREPI_GROS', "Crépi projeté", "Gros grain projeté, relief net"),
             ('LISSE', "Peinture lisse", "Peinture mate unie (sans grain)"),
+            ('PIERRE', "Pierre vue", "Calcaire appareillé à pierre vue "
+                                     "(procédural) — moellons plus "
+                                     "sombres au soubassement"),
         ],
         default='AUTO',
         update=regenerate_house
@@ -839,6 +844,20 @@ class HouseGeneratorProperties(PropertyGroup):
         default=3, min=1, max=8,
         update=regenerate_house
     )
+
+    # ✅ PIERRE: encadrements de taille + chaînages (géométrie réelle)
+    include_stone_surrounds: BoolProperty(
+        name="Encadrements pierre",
+        description="Jambages, linteaux et appuis en pierre de taille "
+                    "autour de chaque ouverture + chaînages d'angle",
+        default=False, update=regenerate_house)
+    joinery_color: FloatVectorProperty(
+        name="Couleur menuiseries",
+        description="Teinte des dormants et ouvrants (RAL) — les "
+                    "volets ont leur propre couleur",
+        subtype='COLOR', size=3, min=0.0, max=1.0,
+        default=(0.95, 0.95, 0.95),   # blanc historique
+        update=regenerate_house)
 
     # ✅ TABLEAU D'OUVERTURES (prime sur le calcul automatique)
     use_openings_table: BoolProperty(

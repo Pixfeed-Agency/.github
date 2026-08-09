@@ -106,7 +106,11 @@ class HOUSE_PT_main_panel(Panel):
         box.prop(props, "shutter_asset", text="Volet")
         box.prop(props, "tile_asset", text="Tuile")
         box.prop(props, "wall_finish", text="Murs")
+        if props.wall_finish == 'PIERRE':
+            box.prop(props, "include_stone_surrounds",
+                     text="Encadrements + chaînages pierre")
         box.prop(props, "roof_finish", text="Toit")
+        box.prop(props, "joinery_color", text="Menuiseries (RAL)")
         
         layout.separator()
         row = layout.row()

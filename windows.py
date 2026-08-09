@@ -1123,10 +1123,18 @@ class WindowGenerator:
     # ============================================================
     
     def _apply_frame_material(self, obj):
-        """Applique un matériau PBR réaliste pour cadres de fenêtres"""
-        mat_name = f"Window_Frame_Material_{self.quality}"
+        """Applique un matériau PBR réaliste pour cadres de fenêtres.
+        ✅ Teinte pilotée par joinery_color (RAL) — le matériau est
+        recréé quand la couleur change (nom suffixé)."""
+        try:
+            col = tuple(bpy.context.scene
+                        .house_generator.joinery_color)[:3]
+        except Exception:
+            col = (0.30, 0.22, 0.14)
+        key = f"{int(col[0]*255)}_{int(col[1]*255)}_{int(col[2]*255)}"
+        mat_name = f"Window_Frame_{self.quality}_{key}"
         mat = bpy.data.materials.get(mat_name)
-        
+
         if not mat:
             mat = bpy.data.materials.new(mat_name)
             mat.use_nodes = True
@@ -1141,7 +1149,8 @@ class WindowGenerator:
             # Principled BSDF
             principled = nodes.new('ShaderNodeBsdfPrincipled')
             principled.location = (0, 0)
-            principled.inputs['Base Color'].default_value = (0.95, 0.95, 0.95, 1.0)  # Blanc
+            # ✅ teinte pilotée (joinery_color / RAL)
+            principled.inputs['Base Color'].default_value = (*col, 1.0)
             principled.inputs['Metallic'].default_value = 0.0
             principled.inputs['Roughness'].default_value = 0.3  # Légèrement brillant
             principled.inputs['Specular IOR Level'].default_value = 0.5
