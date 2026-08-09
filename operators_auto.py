@@ -288,7 +288,30 @@ class HOUSE_OT_generate_auto(Operator):
 
         UNIQUE source de vérité — utilisée par les toits, les murs adaptés
         (SHED/GABLE) et la génération de briques, pour que tout reste aligné.
+        ✅ VOLUMÉTRIE: si un FAÎTAGE CIBLE est donné (ridge_height_target
+        > 0), la pente est DÉRIVÉE de la hauteur visée — comme dans un
+        vrai outil d'architecture (l'une des deux cotes pilote l'autre).
         """
+        try:
+            p = bpy.context.scene.house_generator
+            target = getattr(p, 'ridge_height_target', 0.0)
+            if target > 0.1 and roof_type in ('GABLE', 'HIP', 'SKELETON'):
+                wall_top = p.num_floors * p.floor_height
+                half = min(p.house_width, p.house_length) / 2
+                if target > wall_top + 0.2 and half > 0.5:
+                    derived = math.degrees(
+                        math.atan((target - wall_top) / half))
+                    # la COTE prime sur la plage stylistique: on autorise
+                    # jusqu'à 60° (tuiles plates de longère) — au-delà,
+                    # le faîtage demandé est inatteignable et on le dit
+                    eff = max(10.0, min(60.0, derived))
+                    if abs(eff - derived) > 0.5:
+                        print(f"[House] ⚠️ Faîtage cible {target:.2f}m → "
+                              f"pente {derived:.1f}° hors 10-60°, "
+                              f"clampée à {eff:.0f}°")
+                    return eff
+        except Exception:
+            pass
         lo, hi = cls.PITCH_RANGES.get(roof_type, (5.0, 60.0))
         clamped = max(lo, min(hi, pitch))
         if abs(clamped - pitch) > 1e-6:
@@ -1789,11 +1812,22 @@ class HOUSE_OT_generate_auto(Operator):
             fha = props.floor_height
         W, L = props.house_width, props.house_length
         nb, ns = wl['num_back'], wl['num_side']
+        attic_rise = None
+        if getattr(props, 'attic_habitable', False) \
+                and props.roof_type == 'GABLE' and props.num_floors == 1:
+            # la volée unique monte de la dalle RDC au plancher de
+            # combles (multi-étages + combles: pas encore de volée
+            # supplémentaire — limité au plain-pied des longères)
+            from . import attic as attic_mod
+            wall_h = getattr(self, 'real_wall_height', None) or \
+                (props.num_floors * props.floor_height)
+            attic_rise = wall_h + attic_mod.FLOOR_T - FLOOR_THICKNESS
         self._interior_layout = interiors.interior_layout(
             props, self._get_wall_depth(props), fha,
             self._door_center_x(props),
             [W / (nb + 1) * (i + 1) for i in range(nb)],
-            [L / (ns + 1) * (i + 1) for i in range(ns)])
+            [L / (ns + 1) * (i + 1) for i in range(ns)],
+            attic_rise=attic_rise)
         return self._interior_layout
 
     def _generate_interiors(self, context, props, collection, style_config):
@@ -1840,6 +1874,21 @@ class HOUSE_OT_generate_auto(Operator):
                              self._get_wall_depth(props), fha,
                              self._get_interior_layout(props, style_config),
                              _openings_mod.compute(self, props))
+
+        # ✅ COMBLES AMÉNAGÉS (plain-pied + combles, GABLE)
+        if getattr(props, 'attic_habitable', False) \
+                and props.roof_type == 'GABLE':
+            if props.num_floors == 1:
+                from . import attic as attic_mod
+                il_a = self._get_interior_layout(props, style_config)
+                attic_mod.build(props, collection, wall_h,
+                                self._effective_pitch('GABLE',
+                                                      props.roof_pitch),
+                                self._get_wall_depth(props),
+                                tremie=il_a.get('tremie'))
+            else:
+                print("[House] ⚠️ Combles aménagés: supportés en "
+                      "plain-pied (1 niveau) — ignorés ici")
 
         # ✅ AMÉNAGEMENT: éclairage, cuisine, SdB, mobilier (slots
         # d'assets prioritaires, procédural en repli)

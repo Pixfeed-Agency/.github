@@ -86,6 +86,9 @@ PROP_TAGS = {
     'wall_finish': ('walls',),
     # tableau d'ouvertures: change les trous → tout
     'use_openings_table': ('all',),
+    'ridge_height_target': ('all',),
+    'attic_habitable': ('all',),
+    'attic_trusses': ('interior',),
     'include_stone_surrounds': ('joinery',),
     'joinery_color': ('joinery',),
     'roof_finish': ('roof',),
@@ -858,6 +861,23 @@ class HouseGeneratorProperties(PropertyGroup):
         subtype='COLOR', size=3, min=0.0, max=1.0,
         default=(0.95, 0.95, 0.95),   # blanc historique
         update=regenerate_house)
+
+    # ✅ VOLUMÉTRIE: faîtage cible + combles aménagés
+    ridge_height_target: FloatProperty(
+        name="Faîtage cible",
+        description="Hauteur de faîtage VISÉE depuis le sol (0 = la "
+                    "pente pilote) — la pente est dérivée",
+        default=0.0, min=0.0, max=15.0, update=regenerate_house)
+    attic_habitable: BoolProperty(
+        name="Combles aménagés",
+        description="Niveau habitable sous rampants: plancher, "
+                    "jambettes 1m, plafond 2.40 sous entrait, escalier "
+                    "(GABLE, plain-pied + combles)",
+        default=False, update=regenerate_house)
+    attic_trusses: BoolProperty(
+        name="Fermes apparentes",
+        description="Entraits de charpente visibles dans les combles",
+        default=False, update=regenerate_house)
 
     # ✅ TABLEAU D'OUVERTURES (prime sur le calcul automatique)
     use_openings_table: BoolProperty(

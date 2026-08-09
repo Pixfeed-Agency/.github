@@ -232,7 +232,12 @@ class HOUSE_PT_roof_panel(Panel):
         col = layout.column(align=True)
         col.prop(props, "roof_type", text="Type")
         col.prop(props, "roof_pitch", text="Pente")
+        col.prop(props, "ridge_height_target", text="Faîtage cible (0=pente)")
         col.prop(props, "roof_overhang", text="Débord")
+        if props.roof_type == 'GABLE':
+            col.prop(props, "attic_habitable", text="Combles aménagés")
+            if props.attic_habitable:
+                col.prop(props, "attic_trusses", text="Fermes apparentes")
 
         # ✅ NOUVEAU: Couverture + gouttières + cheminée
         layout.separator()

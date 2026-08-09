@@ -1,5 +1,33 @@
 # Changelog — House Generator
 
+## v1.26.0 — VOLUMÉTRIE: faîtage cible + combles aménagés (4/5 du brief)
+
+Les deux cotes de coupe d'un vrai brief (faîtage ET pente) et le
+niveau habitable sous rampants des longères.
+
+- **Faîtage cible** (`ridge_height_target`, GABLE/HIP/SKELETON): la
+  hauteur de faîtage visée DÉRIVE la pente — comme dans un vrai outil
+  d'architecture, l'une des deux cotes pilote l'autre. La cote prime
+  sur la plage stylistique (jusqu'à 60°, tuiles plates de longère);
+  0 = la pente du slider commande (comportement historique)
+- **Combles aménagés** (`attic_habitable`, plain-pied GABLE): plancher
+  à l'arase (18cm, troué par la trémie), jambettes de 1,00 m, rampants
+  plâtrés, plafond plat à 2,40 m — les hauteurs du brief type ("2,40 m
+  sous entrait, mur de 1,00 m sous sablière"). Garde-fou si la
+  pente/portée ne permet pas d'aménager
+- **L'escalier y monte VRAIMENT**: volée unique recalculée sur la
+  hauteur d'arase + plancher (marches ~18cm), trémie + garde-corps à
+  l'arrivée. Corrige l'escalier fantôme (0 volée en plain-pied)
+- **Fermes apparentes** (`attic_trusses`): entraits bois visibles sous
+  le plafond tous les ~2,40 m, abouts encastrés dans les rampants
+- **Éclairage des combles**: suspensions 2700K automatiques (pas de
+  fenêtre de toit = rendu intérieur noir sinon)
+- Règle de construction respectée: TOUT le second œuvre des combles
+  reste SOUS le plan des versants avec 22cm de réserve (chevrons +
+  isolant) — la v0 du chantier faisait percer rampants et abouts
+  d'entraits à travers les tuiles, invariant pytest dédié désormais
+- 79 invariants, banc fast 10/10 (défauts pixel-identiques)
+
 ## v1.25.0 — PIERRE procédurale + RAL menuiseries (3/5 du brief)
 
 LE matériau manquant révélé par le brief longère — 100% procédural,

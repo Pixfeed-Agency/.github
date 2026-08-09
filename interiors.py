@@ -95,7 +95,7 @@ def _partition_with_doorway(bm, axis, at, a0, a1, z0, z1, door_at):
 
 
 def interior_layout(props, wall_depth, floor_height_actual, door_center_x,
-                    window_xs_back, window_ys_side):
+                    window_xs_back, window_ys_side, attic_rise=None):
     """✅ v1.5: Distribution PARTAGÉE — positions des refends, passage
     aligné sur l'entrée, et ESCALIER DROIT avec trémie si ≥ 2 étages.
 
@@ -143,10 +143,13 @@ def interior_layout(props, wall_depth, floor_height_actual, door_center_x,
     x_split = x_splits[0] if x_splits else W * 0.5  # compat historique
 
     stair = tremie = None
-    if props.num_floors >= 2:
+    # ✅ COMBLES: l'escalier existe aussi en plain-pied + combles
+    # aménagés (attic_rise = hauteur sol RDC → plancher des combles)
+    rise = attic_rise or floor_height_actual
+    if props.num_floors >= 2 or attic_rise:
         going = norms.ESCALIER_GIRON
         n = max(norms.ESCALIER_N_MIN,
-                int(math.ceil(floor_height_actual / norms.ESCALIER_HAUTEUR_MAX)))
+                int(math.ceil(rise / norms.ESCALIER_HAUTEUR_MAX)))
         run = n * going
         y1 = y_refend - PARTITION_T / 2 - 0.06
         y0 = y1 - 1.0
@@ -161,7 +164,8 @@ def interior_layout(props, wall_depth, floor_height_actual, door_center_x,
                 if x0 - 0.7 < door_pass < x1 + 0.7:
                     door_pass = t + 0.75
             stair = {'kind': 'straight', 'x0': x0, 'x1': x1, 'y0': y0,
-                     'y1': y1, 'n': n, 'going': going, 'run': run}
+                     'y1': y1, 'n': n, 'going': going, 'run': run,
+                     'rise': rise}
             tremie = (x0 + run * 0.35, y0 - 0.02, x1 + 0.15, y1 + 0.02)
         else:
             # ✅ v1.7: VOLÉE EN L (quart tournant à palier) pour les
@@ -173,8 +177,7 @@ def interior_layout(props, wall_depth, floor_height_actual, door_center_x,
             xA0 = t + 0.35
             availA = xA1 - xA0
             n_tot = max(norms.ESCALIER_N_MIN,
-                        int(math.ceil(floor_height_actual
-                                      / norms.ESCALIER_HAUTEUR_MAX)))
+                        int(math.ceil(rise / norms.ESCALIER_HAUTEUR_MAX)))
             nA = max(3, min(n_tot - 4, int(availA / going)))
             nB = n_tot - nA - 1   # le palier compte pour une hauteur
             runB = nB * going
@@ -189,7 +192,7 @@ def interior_layout(props, wall_depth, floor_height_actual, door_center_x,
                 stair = {'kind': 'L', 'xA0': xA0, 'xA1': xA1,
                          'y0': y0, 'y1': y1, 'landing': landing,
                          'nA': nA, 'nB': nB, 'going': going,
-                         'n': n_tot, 'yB_end': yB_end}
+                         'n': n_tot, 'yB_end': yB_end, 'rise': rise}
                 tremie = (xA1 - 0.35, yB_end - 0.05, W - t, y1 + 0.02)
 
     return {'y_refend': y_refend, 'door_pass': door_pass,
@@ -199,6 +202,14 @@ def interior_layout(props, wall_depth, floor_height_actual, door_center_x,
 
 def build_staircase(props, collection, layout, floor_height_actual,
                     slab_top, style_name='TRADITIONAL'):
+    # ✅ COMBLES: la volée monte de `rise` (plancher des combles) si
+    # le layout l'impose (plain-pied + combles aménagés) — et il faut
+    # UNE volée même avec num_floors=1 (la boucle historique en
+    # construisait zéro: escalier fantôme)
+    n_flights = props.num_floors - 1
+    if layout.get('stair') and layout['stair'].get('rise'):
+        floor_height_actual = layout['stair']['rise']
+        n_flights = max(1, n_flights)
     """✅ v1.5: ESCALIER DROIT entre chaque étage, style selon
     l'architecture: BOIS (limons + contremarches + garde-corps bois) en
     traditionnel/méditerranéen, BÉTON + garde-corps métal fin en
@@ -257,7 +268,7 @@ def build_staircase(props, collection, layout, floor_height_actual,
         landing = stair['landing']
         yB_end = stair['yB_end']
         W = props.house_width
-        for floor in range(props.num_floors - 1):
+        for floor in range(n_flights):
             z_base = slab_top + floor * floor_height_actual
             rise = floor_height_actual / (nA + nB + 1)
             # volée A (monte vers +x, dans la bande du refend)
@@ -331,7 +342,7 @@ def build_staircase(props, collection, layout, floor_height_actual,
               f"+ palier + garde-corps de trémie")
         return objs2
 
-    for floor in range(props.num_floors - 1):
+    for floor in range(n_flights):
         z_base = slab_top + floor * floor_height_actual
         rise = floor_height_actual / n
         for i in range(n):
@@ -385,7 +396,7 @@ def build_staircase(props, collection, layout, floor_height_actual,
     objs.append(_new_mesh_obj("Stair_Rail", bm_rail, collection,
                               "interior", rail_mat))
     print(f"[House] ✓ Escalier {'bois' if wood_style else 'béton/métal'}: "
-          f"{stair['n']} marches × {props.num_floors - 1} volée(s) + trémie")
+          f"{stair['n']} marches × {n_flights} volée(s) + trémie")
     return objs
 
 
