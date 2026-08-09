@@ -1716,6 +1716,11 @@ def build_shutters(props, collection, window_specs):
                         _add_box(bm, a0 + 0.015, min(yb, yb + 0.014), zb,
                                  a1 - 0.015, max(yb, yb + 0.014),
                                  zb + hgt * 0.09)
+                    # ✅ GONDS: pattes de fixation sur la ligne de
+                    # charnière (les volets tenaient "par magie")
+                    for zg in (hgt * 0.15, hgt * 0.80):
+                        _add_box(bm, -0.012, y0 - 0.010, zg,
+                                 0.012, y0 + t + 0.010, zg + 0.05)
                 else:
                     x0 = -t if wall == 'left' else 0.0
                     y_out = side * w_leaf
@@ -1729,6 +1734,9 @@ def build_shutters(props, collection, window_specs):
                         _add_box(bm, min(xb, xb + 0.014), a0 + 0.015, zb,
                                  max(xb, xb + 0.014), a1 - 0.015,
                                  zb + hgt * 0.09)
+                    for zg in (hgt * 0.15, hgt * 0.80):
+                        _add_box(bm, x0 - 0.010, -0.012, zg,
+                                 x0 + t + 0.010, 0.012, zg + 0.05)
                 obj = _new_mesh_obj(leaf_name, bm, collection,
                                     "shutter", mat)
             obj.location = hinge
@@ -1816,9 +1824,15 @@ def _carpentry_other_roofs(props, collection, wall_height, effective_pitch,
         # Fascia d'égout bas (x = -o_eave)
         _add_box(bm, -o_eave - ft, y0, z_low - rt - fh + 0.06,
                  -o_eave, y1, z_low - rt + 0.06)
+        # ✅ SOFFITE bas
+        _add_box(bm, -o_eave, y0, z_low - rt - fh + 0.06,
+                 0.02, y1, z_low - rt - fh + 0.075)
         # Bandeau haut (x = width + o_eave) — pas de gouttière en tête
         _add_box(bm, width + o_eave, y0, z_high - rt - fh + 0.06,
                  width + o_eave + ft, y1, z_high - rt + 0.06)
+        # ✅ SOFFITE haut
+        _add_box(bm, width - 0.02, y0, z_high - rt - fh + 0.06,
+                 width + o_eave, y1, z_high - rt - fh + 0.075)
         objs.append(_new_mesh_obj("Roof_Fascia", bm, collection, "roof", fascia_mat))
         # Planches de rive le long des rampants (±Y)
         bm = bmesh.new()
@@ -1982,6 +1996,8 @@ def build_roof_carpentry(props, collection, wall_height, effective_pitch,
     wood = _simple_material("House_Rafter", (0.36, 0.25, 0.15), roughness=0.7)
     fascia_mat = _simple_material("House_Fascia", (0.92, 0.92, 0.90), roughness=0.5)
     rive_mat = _tile_accessory_material(tile_color)
+    _sprops = getattr(bpy.context.scene, 'house_generator', None)
+    _flat_rive = getattr(_sprops, 'roof_finish', 'AUTO') == 'ARDOISE'
 
     objs = []
     slope = math.tan(pitch_rad)
@@ -2057,22 +2073,28 @@ def build_roof_carpentry(props, collection, wall_height, effective_pitch,
     # --- PLANCHE DE RIVE (fascia) le long des égouts ---
     bm = bmesh.new()
     fh, ft = norms.FASCIA_H, norms.FASCIA_EP
+    zs = z_eave - rt - fh + 0.06     # bas du bandeau
+    st = 0.015                       # lambris de SOFFITE (sous-face)
     if ridge_along_y:
         y0, y1 = -o_rake, length + o_rake
         for (s0, s1) in _split_interval(y0, y1, ex.get('left')):
-            _add_box(bm, -o_eave - ft, s0, z_eave - rt - fh + 0.06,
-                     -o_eave, s1, z_eave - rt + 0.06)
+            _add_box(bm, -o_eave - ft, s0, zs, -o_eave, s1, zs + fh)
+            # ✅ SOFFITE: ferme la sous-face d'égout (les chevrons à nu
+            # faisaient une bande noire sous le débord — audit v1.21)
+            _add_box(bm, -o_eave, s0, zs, 0.02, s1, zs + st)
         for (s0, s1) in _split_interval(y0, y1, ex.get('right')):
-            _add_box(bm, width + o_eave, s0, z_eave - rt - fh + 0.06,
-                     width + o_eave + ft, s1, z_eave - rt + 0.06)
+            _add_box(bm, width + o_eave, s0, zs,
+                     width + o_eave + ft, s1, zs + fh)
+            _add_box(bm, width - 0.02, s0, zs, width + o_eave, s1, zs + st)
     else:
         x0, x1 = -o_rake, width + o_rake
         for (s0, s1) in _split_interval(x0, x1, ex.get('front')):
-            _add_box(bm, s0, -o_eave - ft, z_eave - rt - fh + 0.06,
-                     s1, -o_eave, z_eave - rt + 0.06)
+            _add_box(bm, s0, -o_eave - ft, zs, s1, -o_eave, zs + fh)
+            _add_box(bm, s0, -o_eave, zs, s1, 0.02, zs + st)
         for (s0, s1) in _split_interval(x0, x1, ex.get('back')):
-            _add_box(bm, s0, length + o_eave, z_eave - rt - fh + 0.06,
-                     s1, length + o_eave + ft, z_eave - rt + 0.06)
+            _add_box(bm, s0, length + o_eave, zs,
+                     s1, length + o_eave + ft, zs + fh)
+            _add_box(bm, s0, length - 0.02, zs, s1, length + o_eave, zs + st)
     objs.append(_new_mesh_obj("Roof_Fascia", bm, collection, "roof", fascia_mat))
 
     # --- PLANCHES DE RIVE DE PIGNON (bargeboards) le long des rampants ---
@@ -2127,7 +2149,8 @@ def build_roof_carpentry(props, collection, wall_height, effective_pitch,
 
     # --- TUILES DE RIVE le long des pignons (demi-ronds inclinés) ---
     bm = bmesh.new()
-    r = 0.07
+    # ✅ ARDOISE: rive FINE (bande zinc) au lieu du demi-rond terre cuite
+    r = 0.022 if _flat_rive else 0.07
     if ridge_along_y:
         half = width / 2
         peak = h + half * slope

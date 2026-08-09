@@ -442,7 +442,19 @@ class HOUSE_PT_elements_panel(Panel):
         if props.include_interiors:
             box.prop(props, "num_bedrooms", text="Chambres")
             box.prop(props, "include_electrical", text="Électricité (prises)")
-            box.prop(props, "outlets_per_room", text="Prises par pièce")
+            if props.include_electrical:
+                box.prop(props, "outlets_per_room", text="Prises par pièce")
+            box.prop(props, "include_interior_lights", text="Éclairage intérieur")
+            box.prop(props, "include_furnishing", text="Aménagement (cuisine/SdB/mobilier)")
+            if props.include_furnishing:
+                col = box.column(align=True)
+                col.label(text="Slots meubles (vide = procédural):")
+                col.prop(props, "kitchen_asset", text="Cuisine")
+                col.prop(props, "bathroom_asset", text="SdB")
+                col.prop(props, "bed_asset", text="Lit")
+                col.prop(props, "table_asset", text="Table")
+                col.prop(props, "sofa_asset", text="Canapé")
+            box.operator("house.camera_interior", icon='CAMERA_DATA')
             box.prop(props, "interior_wall_color", text="Peinture murs")
 
         # ✅ MULTI-VOLUMES: aile en L (module volumes.py)

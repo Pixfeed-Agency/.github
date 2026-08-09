@@ -53,6 +53,13 @@ PROP_TAGS = {
     # Intérieurs (structure aussi: la trémie est percée dans les dalles)
     'interior_wall_color': ('interior',),
     'include_electrical': ('interior',),
+    'include_interior_lights': ('interior',),
+    'include_furnishing': ('interior',),
+    'kitchen_asset': ('interior',),
+    'bathroom_asset': ('interior',),
+    'bed_asset': ('interior',),
+    'table_asset': ('interior',),
+    'sofa_asset': ('interior',),
     'outlets_per_room': ('interior',),
     'num_bedrooms': ('interior', 'structure'),
     'programme_active': ('interior', 'structure'),
@@ -783,6 +790,38 @@ class HouseGeneratorProperties(PropertyGroup):
         default=3, min=1, max=8,
         update=regenerate_house
     )
+
+    # ✅ AMÉNAGEMENT (rendu client): éclairage, cuisine, SdB, mobilier
+    include_interior_lights: BoolProperty(
+        name="Éclairage intérieur",
+        description="Suspensions chaudes (2700K) dans chaque pièce",
+        default=False, update=regenerate_house)
+    include_furnishing: BoolProperty(
+        name="Aménagement",
+        description="Cuisine, sanitaires et mobilier — équipement de "
+                    "base paramétrique, remplacé par vos assets si les "
+                    "slots sont remplis",
+        default=False, update=regenerate_house)
+    kitchen_asset: bpy.props.PointerProperty(
+        name="Asset cuisine", type=bpy.types.Object,
+        poll=lambda self, obj: obj.type == 'MESH'
+        and "house_step" not in obj.keys(), update=regenerate_house)
+    bathroom_asset: bpy.props.PointerProperty(
+        name="Asset salle de bain", type=bpy.types.Object,
+        poll=lambda self, obj: obj.type == 'MESH'
+        and "house_step" not in obj.keys(), update=regenerate_house)
+    bed_asset: bpy.props.PointerProperty(
+        name="Asset lit", type=bpy.types.Object,
+        poll=lambda self, obj: obj.type == 'MESH'
+        and "house_step" not in obj.keys(), update=regenerate_house)
+    table_asset: bpy.props.PointerProperty(
+        name="Asset table", type=bpy.types.Object,
+        poll=lambda self, obj: obj.type == 'MESH'
+        and "house_step" not in obj.keys(), update=regenerate_house)
+    sofa_asset: bpy.props.PointerProperty(
+        name="Asset canapé", type=bpy.types.Object,
+        poll=lambda self, obj: obj.type == 'MESH'
+        and "house_step" not in obj.keys(), update=regenerate_house)
 
     interior_wall_color: FloatVectorProperty(
         name="Couleur murs intérieurs",

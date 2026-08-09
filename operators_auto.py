@@ -1693,6 +1693,24 @@ class HOUSE_OT_generate_auto(Operator):
             collection=collection
         )
 
+        # ✅ PERRON + SEUIL: la porte ne donne plus sur l'herbe (audit) —
+        # dalle de seuil au niveau du socle + marche(s) vers le terrain
+        import bmesh as _bm
+        from .features import _add_box as _fb, _new_mesh_obj as _nmo, \
+            _simple_material as _sm
+        plinth = self._plinth_visible(props)
+        pw = door_width + 0.6
+        bm = _bm.new()
+        # dalle de seuil (affleure le bas de porte)
+        _fb(bm, door_x - pw / 2, -1.20, max(0.0, plinth - 0.02),
+            door_x + pw / 2, 0.02, plinth + 0.005)
+        # marche intermédiaire si le seuil est haut (> 16cm)
+        if plinth > 0.16:
+            _fb(bm, door_x - pw / 2 - 0.15, -1.55, 0.0,
+                door_x + pw / 2 + 0.15, -1.15, plinth / 2)
+        conc = _sm("House_Seuil", (0.58, 0.56, 0.52), roughness=0.9)
+        _nmo("Door_Perron", bm, collection, "foundation", conc)
+
     def _get_interior_layout(self, props, style_config):
         """✅ v1.5: distribution intérieure PARTAGÉE (cloisons, escalier,
         trémie) — utilisée par les dalles ET les intérieurs."""
@@ -1750,6 +1768,25 @@ class HOUSE_OT_generate_auto(Operator):
             interiors.build_electrical(props, collection,
                                        il, self._get_wall_depth(props),
                                        fha)
+
+        # ✅ SECOND ŒUVRE: plinthes + chambranles (rendu client)
+        from . import openings as _openings_mod
+        interiors.build_trim(props, collection,
+                             self._get_wall_depth(props), fha,
+                             self._get_interior_layout(props, style_config),
+                             _openings_mod.compute(self, props))
+
+        # ✅ AMÉNAGEMENT: éclairage, cuisine, SdB, mobilier (slots
+        # d'assets prioritaires, procédural en repli)
+        from . import furnishing
+        _il = self._get_interior_layout(props, style_config)
+        _wd = self._get_wall_depth(props)
+        if getattr(props, 'include_interior_lights', False):
+            furnishing.build_lighting(props, collection, _il, _wd, fha)
+        if getattr(props, 'include_furnishing', False):
+            furnishing.build_kitchen(props, collection, _il, _wd, fha)
+            furnishing.build_bathroom(props, collection, _il, _wd, fha)
+            furnishing.build_furniture(props, collection, _il, _wd, fha)
 
 
         # ✅ v1.5: escalier (si ≥ 2 étages) + portes intérieures
@@ -2307,6 +2344,34 @@ class HOUSE_OT_apply_preset(bpy.types.Operator):
         return {'FINISHED'}
 
 
+class HOUSE_OT_camera_interior(bpy.types.Operator):
+    """✅ Caméra INTÉRIEURE prête à rendre: œil à 1.5m dans le séjour,
+    focale 20mm, exposition intérieure — le cadrage archviz de base."""
+    bl_idname = "house.camera_interior"
+    bl_label = "Caméra intérieure (séjour)"
+    bl_description = ("Place une caméra de rendu dans le séjour "
+                      "(20mm, hauteur d'œil) visant les pièces")
+
+    def execute(self, context):
+        props = context.scene.house_generator
+        W, L = props.house_width, props.house_length
+        cam_data = bpy.data.cameras.get("House_Cam_Int") or \
+            bpy.data.cameras.new("House_Cam_Int")
+        cam_data.lens = 20
+        cam = bpy.data.objects.get("House_Cam_Int")
+        if cam is None:
+            cam = bpy.data.objects.new("House_Cam_Int", cam_data)
+            context.scene.collection.objects.link(cam)
+        cam.location = Vector((W * 0.82, props.wall_thickness + 0.7, 1.5))
+        target = Vector((W * 0.25, L * 0.62, 1.25))
+        d = target - cam.location
+        cam.rotation_euler = d.to_track_quat('-Z', 'Y').to_euler()
+        context.scene.camera = cam
+        context.scene.view_settings.exposure = 0.8
+        self.report({'INFO'}, "Caméra intérieure posée (20mm, œil 1.5m)")
+        return {'FINISHED'}
+
+
 class HOUSE_OT_solve_programme(bpy.types.Operator):
     """✅ v1.14: MODE PROGRAMME — "3 chambres, SdB, garage" → House
     résout l'emprise, la distribution et les options, puis génère."""
@@ -2382,6 +2447,7 @@ classes = (
     HOUSE_OT_export_gltf,
     HOUSE_OT_apply_preset,
     HOUSE_OT_solve_programme,
+    HOUSE_OT_camera_interior,
 )
 
 

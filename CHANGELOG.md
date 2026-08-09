@@ -1,5 +1,41 @@
 # Changelog — House Generator
 
+## v1.22.0 — NIVEAU RENDU CLIENT: finitions ext. + intérieur habité
+
+L'objectif "rendu d'artiste/architecte intérieur-extérieur" — les cinq
+phases actées, slots d'assets prioritaires partout.
+
+EXTÉRIEUR (les 4 tells d'audit corrigés):
+- **SOFFITES**: sous-face d'égout FERMÉE (lambris) sur GABLE, SHED,
+  ailes et toit squelette — fini la bande noire de chevrons à nu
+- **PERRON + SEUIL**: dalle de seuil sous la porte + marche si socle
+  haut — la porte ne donne plus sur l'herbe
+- **VITRES VIVANTES**: reflet de ciel par Fresnel (mix glossy) — les
+  rectangles noirs en plein jour étaient un tell majeur
+- **GONDS de volets** (pattes sur la ligne de charnière) et RIVES
+  FINES en finition ardoise (plus de demi-ronds terre cuite)
+
+INTÉRIEUR (de "coquille" à "habité"):
+- **SECOND ŒUVRE**: plinthes 100mm sur tout le périmètre et les deux
+  faces des cloisons (passages déduits) + CHAMBRANLES de fenêtres —
+  interiors.build_trim, alimenté par la spec d'ouvertures S4
+- **ÉCLAIRAGE INTÉRIEUR** (option): suspension 2700K par pièce, deux
+  au séjour (câble + abat-jour + point chaud)
+- **CUISINE paramétrique** (mode programme): linéaire caissons + plan
+  de travail + crédence + meubles hauts + évier + plaque
+- **SDB + WC équipés**: meuble-vasque, miroir, douche (receveur +
+  paroi verre + colonne), cuvette + réservoir + lave-mains — posés
+  dans LEURS cellules du programme
+- **MOBILIER**: lit par chambre (sommier/matelas/tête), table et
+  canapé au séjour
+- **SLOTS partout** (kitchen/bathroom/bed/table/sofa_asset): vos
+  propres meubles remplacent le procédural, posés à l'échelle au sol
+  sans déformation — le procédural n'est que le repli
+- **Caméra intérieure** en un clic (20mm, œil 1.5m, exposition
+  intérieure) — house.camera_interior
+- Références du banc rebasées (soffites/perron/verre changent chaque
+  façade)
+
 ## v1.21.0 — Audit des mesures automatiques + ÉLECTRICITÉ
 
 Ré-analyse complète sur les modèles livrés (rendus d'audit rapprochés

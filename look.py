@@ -572,8 +572,22 @@ def glass_material(name="Window_Glass_V2"):
     glass.location = (0, 0)
     glass.inputs['Color'].default_value = (0.82, 0.89, 0.92, 1)
     glass.inputs['IOR'].default_value = 1.45
-    glass.inputs['Roughness'].default_value = 0.02
-    links.new(glass.outputs['BSDF'], out.inputs['Surface'])
+    glass.inputs['Roughness'].default_value = 0.005
+    # ✅ Reflet de CIEL: une vitre réelle en plein jour est un miroir
+    # partiel — mix d'un glossy net par Fresnel (les vitres "mortes"
+    # étaient un tell d'audit)
+    gloss = nodes.new('ShaderNodeBsdfGlossy')
+    gloss.location = (0, -160)
+    gloss.inputs['Roughness'].default_value = 0.02
+    fres = nodes.new('ShaderNodeFresnel')
+    fres.location = (-200, -80)
+    fres.inputs['IOR'].default_value = 1.45
+    mixg = nodes.new('ShaderNodeMixShader')
+    mixg.location = (180, -40)
+    links.new(fres.outputs['Fac'], mixg.inputs['Fac'])
+    links.new(glass.outputs['BSDF'], mixg.inputs[1])
+    links.new(gloss.outputs['BSDF'], mixg.inputs[2])
+    links.new(mixg.outputs['Shader'], out.inputs['Surface'])
     if hasattr(mat, "surface_render_method"):
         mat.surface_render_method = 'BLENDED'
     elif hasattr(mat, "blend_method"):

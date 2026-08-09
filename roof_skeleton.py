@@ -188,6 +188,18 @@ def build(props, collection, contour, wall_top, pitch_deg, tile_color):
                                 c + Vector((0, 0, ze - ROOF_T + 0.06
                                             - norms.FASCIA_H / 2)))
                             @ quat.to_matrix().to_4x4())
+        # ✅ SOFFITE: lambris horizontal mur → bandeau
+        sof = bmesh.ops.create_cube(bm, size=1.0)
+        zs = ze - ROOF_T + 0.06 - norms.FASCIA_H
+        bmesh.ops.transform(bm, verts=sof['verts'],
+                            matrix=Matrix.Diagonal(
+                                (L, o_eave + 0.02, 0.015, 1.0)))
+        c_s = (Vector((x0, y0, 0)) + Vector((x1, y1, 0))) / 2 \
+            + nrm * ((o_eave - 0.02) / 2)
+        bmesh.ops.transform(bm, verts=sof['verts'],
+                            matrix=Matrix.Translation(
+                                c_s + Vector((0, 0, zs + 0.008)))
+                            @ quat.to_matrix().to_4x4())
         if getattr(props, 'include_gutters', False):
             segg = bmesh.ops.create_cone(
                 bm_g, cap_ends=True, segments=12,

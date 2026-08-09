@@ -746,6 +746,10 @@ def build_wing_roof(props, collection, frame, o_eave, o_rake, tile_color,
              -o_eave, y_f1, z_eave - ROOF_T + 0.06)
     _add_box(bm, w + o_eave, y_f0, z_eave - ROOF_T - fh + 0.06,
              w + o_eave + ft, y_f1, z_eave - ROOF_T + 0.06)
+    # ✅ SOFFITES de l'aile (sous-face fermée, cf. audit v1.21)
+    zs_w = z_eave - ROOF_T - fh + 0.06
+    _add_box(bm, -o_eave, y_f0, zs_w, 0.02, y_f1, zs_w + 0.015)
+    _add_box(bm, w - 0.02, y_f0, zs_w, w + o_eave, y_f1, zs_w + 0.015)
     bmesh.ops.transform(bm, verts=bm.verts, matrix=M)
     fascia_mat = _simple_material("House_Fascia", (0.92, 0.92, 0.90), roughness=0.5)
     objs.append(_new_mesh_obj("Wing_Fascia", bm, collection, "roof", fascia_mat))

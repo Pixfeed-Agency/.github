@@ -738,3 +738,121 @@ def build_electrical(props, collection, layout, wall_depth,
     print(f"[House] ✓ Électricité: {count_p} prises + {count_i} "
           f"interrupteurs (NF C 15-100: 0.25m / 1.10m)")
     return [obj]
+
+
+# ============================================================
+# ✅ SECOND ŒUVRE — plinthes et chambranles (niveau rendu client)
+# ============================================================
+
+def build_trim(props, collection, wall_depth, floor_height_actual,
+               layout, openings_spec):
+    """PLINTHES (100×12mm) sur tout le périmètre intérieur et les deux
+    faces des cloisons (passages de portes déduits), + CHAMBRANLES
+    (habillage 80×12mm) autour de chaque fenêtre côté pièce.
+
+    C'est le second œuvre qui sépare une "maquette" d'un intérieur
+    présentable — première chose que l'œil cherche au pied des murs.
+    """
+    W, L = props.house_width, props.house_length
+    t = wall_depth
+    liner = 0.036
+    ep, hz = 0.012, 0.10          # épaisseur / hauteur de plinthe
+    mat = _simple_material("House_Trim", (0.94, 0.94, 0.92),
+                           roughness=0.35)
+    bm = bmesh.new()
+    y_refend = layout['y_refend']
+    door_pass = layout['door_pass']
+
+    def _plinth_x(y_face, sgn, x0, x1, z0, gaps):
+        """Plinthe le long d'un mur ⟂ y (face à y_face, saillie sgn)."""
+        segs = [(x0, x1)]
+        for (g0, g1) in gaps:
+            segs = [s for seg in segs for s in _cut(seg, g0, g1)]
+        for (s0, s1) in segs:
+            if s1 - s0 > 0.05:
+                _add_box(bm, s0, min(y_face, y_face + sgn * ep), z0,
+                         s1, max(y_face, y_face + sgn * ep), z0 + hz)
+
+    def _plinth_y(x_face, sgn, y0, y1, z0, gaps):
+        segs = [(y0, y1)]
+        for (g0, g1) in gaps:
+            segs = [s for seg in segs for s in _cut(seg, g0, g1)]
+        for (s0, s1) in segs:
+            if s1 - s0 > 0.05:
+                _add_box(bm, min(x_face, x_face + sgn * ep), s0, z0,
+                         max(x_face, x_face + sgn * ep), s1, z0 + hz)
+
+    def _cut(seg, g0, g1):
+        s0, s1 = seg
+        if g1 <= s0 or g0 >= s1:
+            return [seg]
+        out = []
+        if g0 > s0:
+            out.append((s0, g0))
+        if g1 < s1:
+            out.append((g1, s1))
+        return out
+
+    for floor in range(props.num_floors):
+        z0 = floor * floor_height_actual + norms.DALLE_EP + 0.002
+        # trous au sol de cet étage (portes/passages de la spec)
+        door_gaps_front = [(o['x'] - 0.05, o['x'] + o['width'] + 0.05)
+                          for o in openings_spec
+                          if o['type'] != 'window' and o['wall'] == 'front'
+                          and o.get('floor', 0) == floor]
+        gaps_by_wall = {}
+        for o in openings_spec:
+            if o['type'] == 'window' or o.get('floor', 0) != floor:
+                continue
+            a = o['x'] if o['wall'] in ('front', 'back') else o['y']
+            gaps_by_wall.setdefault(o['wall'], []).append(
+                (a - 0.05, a + o['width'] + 0.05))
+        # périmètre (nu intérieur)
+        _plinth_x(t + liner, +1, t, W - t, z0,
+                  gaps_by_wall.get('front', []))
+        _plinth_x(L - t - liner, -1, t, W - t, z0,
+                  gaps_by_wall.get('back', []))
+        _plinth_y(t + liner, +1, t, L - t, z0,
+                  gaps_by_wall.get('left', []))
+        _plinth_y(W - t - liner, -1, t, L - t, z0,
+                  gaps_by_wall.get('right', []))
+        # refend transversal (2 faces), passage de porte déduit
+        dg = [(door_pass - DOORWAY_W / 2 - 0.05,
+               door_pass + DOORWAY_W / 2 + 0.05)]
+        _plinth_x(y_refend - PARTITION_T / 2, -1, t, W - t, z0, dg)
+        _plinth_x(y_refend + PARTITION_T / 2, +1, t, W - t, z0, dg)
+        # cloisons longitudinales (2 faces), porte à y_refend+0.75
+        for xs in layout.get('x_splits', []):
+            dgx = [(y_refend + 0.75 - DOORWAY_W - 0.05,
+                    y_refend + 0.75 + 0.05)]
+            _plinth_y(xs - PARTITION_T / 2, -1, y_refend, L - t, z0, dgx)
+            _plinth_y(xs + PARTITION_T / 2, +1, y_refend, L - t, z0, dgx)
+
+    # --- CHAMBRANLES de fenêtres (côté pièce) ---
+    cb = 0.08
+    for o in openings_spec:
+        if o['type'] != 'window':
+            continue
+        z0w, z1w = o['z'] - cb, o['z'] + o['height'] + cb
+        if o['wall'] in ('front', 'back'):
+            a0, a1 = o['x'] - cb, o['x'] + o['width'] + cb
+            yf = t + liner if o['wall'] == 'front' else L - t - liner
+            sgn = 1 if o['wall'] == 'front' else -1
+            y0f, y1f = sorted((yf, yf + sgn * ep))
+            _add_box(bm, a0, y0f, z0w, a1, y1f, z0w + cb)
+            _add_box(bm, a0, y0f, z1w - cb, a1, y1f, z1w)
+            _add_box(bm, a0, y0f, z0w, a0 + cb, y1f, z1w)
+            _add_box(bm, a1 - cb, y0f, z0w, a1, y1f, z1w)
+        else:
+            a0, a1 = o['y'] - cb, o['y'] + o['width'] + cb
+            xf = t + liner if o['wall'] == 'left' else W - t - liner
+            sgn = 1 if o['wall'] == 'left' else -1
+            x0f, x1f = sorted((xf, xf + sgn * ep))
+            _add_box(bm, x0f, a0, z0w, x1f, a1, z0w + cb)
+            _add_box(bm, x0f, a0, z1w - cb, x1f, a1, z1w)
+            _add_box(bm, x0f, a0, z0w, x1f, a0 + cb, z1w)
+            _add_box(bm, x0f, a1 - cb, z0w, x1f, a1, z1w)
+
+    obj = _new_mesh_obj("Interior_Trim", bm, collection, "trim", mat)
+    print("[House] ✓ Second œuvre: plinthes + chambranles posés")
+    return [obj]
