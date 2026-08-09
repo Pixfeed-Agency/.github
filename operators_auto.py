@@ -2303,7 +2303,19 @@ class HOUSE_OT_generate_auto(Operator):
                 # (blanc), faîtières/rives (terre cuite) et bandes de noue
                 # (zinc) en brun uni à CHAQUE génération
                 if len(obj.data.materials) == 0:
-                    obj.data.materials.append(roof_mat)
+                    # ✅ v1.29: pans NON couverts de tuiles 3D → slot
+                    # 'tuiles' du pack réalisme (texture scannée)
+                    pbr = None
+                    if props.roof_covering != 'TILES':
+                        try:
+                            from . import look, realism
+                            maps = realism.maps_for(props, 'tuiles')
+                            if maps:
+                                pbr = look.pbr_material(
+                                    "House_Roof_PBR", maps, size=1.6)
+                        except Exception:
+                            pbr = None
+                    obj.data.materials.append(pbr or roof_mat)
             elif part_type == "floor":
                 if len(obj.data.materials) == 0:
                     obj.data.materials.append(floor_mat)

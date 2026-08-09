@@ -87,6 +87,7 @@ PROP_TAGS = {
     # tableau d'ouvertures: change les trous → tout
     'use_openings_table': ('all',),
     'use_rooms_table': ('interior', 'structure'),
+    'realism_dir': ('all',),
     'ridge_height_target': ('all',),
     'attic_habitable': ('all',),
     'attic_trusses': ('interior',),
@@ -907,6 +908,18 @@ class HouseGeneratorProperties(PropertyGroup):
         default=False, update=regenerate_house)
     openings_table: bpy.props.CollectionProperty(type=HouseOpeningItem)
     openings_table_index: IntProperty(default=0)
+
+    # ✅ v1.29 PACK RÉALISME: dossier de textures scannées CC0
+    # (polyhaven.com / ambientcg.com) — sous-dossiers pierre/ enduit/
+    # sol/ tuiles/ + un .hdr/.exr = ciel. Vide = tout procédural.
+    realism_dir: StringProperty(
+        name="Dossier réalisme",
+        description="Dossier de textures PBR scannées (CC0): "
+                    "sous-dossiers pierre/, enduit/, sol/, tuiles/ "
+                    "(conventions ambientCG/Poly Haven) et un fichier "
+                    ".hdr/.exr pour le ciel. Vide = matériaux "
+                    "procéduraux",
+        default="", subtype='DIR_PATH', update=regenerate_house)
 
     # ✅ v1.27 TABLEAU DE PIÈCES (prime sur le mode programme)
     use_rooms_table: BoolProperty(

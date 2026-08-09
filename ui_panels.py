@@ -120,6 +120,24 @@ class HOUSE_PT_main_panel(Panel):
                      text="Encadrements + chaînages pierre")
         box.prop(props, "roof_finish", text="Toit")
         box.prop(props, "joinery_color", text="Menuiseries (RAL)")
+
+        # ✅ v1.29 PACK RÉALISME (textures scannées CC0, optionnel)
+        box = layout.box()
+        box.label(text="Pack réalisme (textures CC0)", icon='TEXTURE')
+        box.prop(props, "realism_dir", text="")
+        if props.realism_dir:
+            try:
+                from . import realism
+                rep = realism.report(props)
+            except Exception:
+                rep = None
+            if rep:
+                box.label(text=f"Trouvé: {rep}", icon='CHECKMARK')
+            else:
+                box.label(text="Aucun set reconnu (pierre/, enduit/, "
+                               "sol/, tuiles/, *.hdr)", icon='ERROR')
+        else:
+            box.label(text="polyhaven.com · ambientcg.com (gratuit)")
         
         layout.separator()
         row = layout.row()

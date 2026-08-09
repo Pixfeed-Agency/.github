@@ -12,6 +12,7 @@
 
 import bpy
 import math
+import os
 
 
 # ============================================================
@@ -733,12 +734,103 @@ def cut_stone_material(name="House_Pierre_Taille",
     return mat
 
 
+def pbr_material(name, maps, size=2.5):
+    """✅ v1.29 PACK RÉALISME: matériau depuis un set PBR SCANNÉ
+    (le standard Revit/Enscape). Box-mapping en coordonnées objet
+    (aucun UV requis), `size` = taille physique couverte par une
+    répétition (m). Maps reconnues: color(+ao), roughness, normal,
+    height."""
+    mat = _new_mat(name)
+    nodes, links, bsdf = _basic(mat)
+
+    coord = nodes.new('ShaderNodeTexCoord')
+    coord.location = (-1000, 0)
+    mapping = nodes.new('ShaderNodeMapping')
+    mapping.location = (-820, 0)
+    s = 1.0 / max(0.05, size)
+    mapping.inputs['Scale'].default_value = (s, s, s)
+    links.new(coord.outputs['Object'], mapping.inputs['Vector'])
+
+    def img_node(path, y, non_color=True):
+        img = bpy.data.images.load(path, check_existing=True)
+        if non_color:
+            img.colorspace_settings.name = 'Non-Color'
+        n = nodes.new('ShaderNodeTexImage')
+        n.location = (-560, y)
+        n.image = img
+        n.projection = 'BOX'
+        n.projection_blend = 0.25
+        links.new(mapping.outputs['Vector'], n.inputs['Vector'])
+        return n
+
+    col = img_node(maps['color'], 260, non_color=False)
+    color_out = col.outputs['Color']
+    if 'ao' in maps:
+        ao = img_node(maps['ao'], 20)
+        mx = nodes.new('ShaderNodeMix')
+        mx.data_type = 'RGBA'
+        mx.blend_type = 'MULTIPLY'
+        mx.location = (-260, 200)
+        mx.inputs['Factor'].default_value = 1.0
+        links.new(color_out, mx.inputs[6])
+        links.new(ao.outputs['Color'], mx.inputs[7])
+        color_out = mx.outputs[2]
+    links.new(color_out, bsdf.inputs['Base Color'])
+
+    if 'roughness' in maps:
+        rg = img_node(maps['roughness'], -220)
+        links.new(rg.outputs['Color'], bsdf.inputs['Roughness'])
+    else:
+        bsdf.inputs['Roughness'].default_value = 0.85
+
+    normal_out = None
+    if 'normal' in maps:
+        nm = img_node(maps['normal'], -460)
+        nmap = nodes.new('ShaderNodeNormalMap')
+        nmap.location = (-260, -460)
+        links.new(nm.outputs['Color'], nmap.inputs['Color'])
+        normal_out = nmap.outputs['Normal']
+    if 'height' in maps:
+        hg = img_node(maps['height'], -700)
+        bmp = nodes.new('ShaderNodeBump')
+        bmp.location = (-60, -560)
+        bmp.inputs['Strength'].default_value = 0.35
+        bmp.inputs['Distance'].default_value = 0.02
+        links.new(hg.outputs['Color'], bmp.inputs['Height'])
+        if normal_out is not None:
+            links.new(normal_out, bmp.inputs['Normal'])
+        normal_out = bmp.outputs['Normal']
+    if normal_out is not None:
+        links.new(normal_out, bsdf.inputs['Normal'])
+
+    if _photo():
+        _edge_bevel(nodes, links, bsdf, 0.006)
+    print(f"[Look] ✓ Matériau PBR scanné: {name} "
+          f"({len(maps)} maps, {size:.1f}m)")
+    return mat
+
+
+def _realism_maps(slot):
+    """Maps du pack réalisme pour un slot, ou None (procédural)."""
+    try:
+        from . import realism
+        p = bpy.context.scene.house_generator
+        return realism.maps_for(p, slot)
+    except Exception:
+        return None
+
+
 def wall_material(base, finish='AUTO'):
     """✅ v1.15: finition murale PROCÉDURALE au choix (chantier n°7):
     AUTO/CREPI_FIN = enduit taloché actuel, CREPI_GROS = crépi projeté
     à gros grain, LISSE = peinture mate unie. Point d'entrée unique
-    pour les murs SIMPLE (maison + ailes + _apply_materials)."""
+    pour les murs SIMPLE (maison + ailes + _apply_materials).
+    ✅ v1.29: le PACK RÉALISME (textures scannées) prime quand le slot
+    correspondant est rempli."""
     if finish == 'PIERRE':
+        maps = _realism_maps('pierre')
+        if maps:
+            return pbr_material("House_Pierre_PBR", maps, size=2.5)
         return stone_material(base=base)
     if finish == 'LISSE':
         mat = _new_mat("House_Wall_Lisse")
@@ -746,6 +838,9 @@ def wall_material(base, finish='AUTO'):
         bsdf.inputs['Base Color'].default_value = (*base[:3], 1)
         bsdf.inputs['Roughness'].default_value = 0.9
         return mat
+    maps = _realism_maps('enduit')
+    if maps:
+        return pbr_material("House_Stucco_PBR", maps, size=3.0)
     grain = 'GROS' if finish == 'CREPI_GROS' else 'FIN'
     return stucco_material("House_Stucco", base, grain=grain)
 
@@ -948,7 +1043,11 @@ def pvc_material(name, base=(0.92, 0.92, 0.90)):
 # ============================================================
 
 def ground_material():
-    """Pelouse: patchs de verts variés + grain (sans particules pour l'instant)"""
+    """Pelouse: patchs de verts variés + grain (sans particules pour l'instant)
+    ✅ v1.29: slot 'sol' du pack réalisme prioritaire (texture scannée)."""
+    maps = _realism_maps('sol')
+    if maps:
+        return pbr_material("House_Ground_PBR", maps, size=2.0)
     mat = _new_mat("House_Ground")
     nodes, links, bsdf = _basic(mat)
 
@@ -1007,7 +1106,9 @@ def setup_sky_and_view(sun_elevation_deg=38.0, sun_rotation_deg=145.0,
     # comme un appareil photo (≈ -5 stops en plein soleil avec AgX)
     scene.view_settings.exposure = exposure
 
-    # Monde: Sky Texture Nishita
+    # Monde: Sky Texture Nishita — ou HDRI du pack réalisme s'il y en
+    # a un (un vrai ciel photographié se REFLÈTE dans les vitres: le
+    # standard des moteurs d'archviz)
     world = bpy.data.worlds.get("House_World") or bpy.data.worlds.new("House_World")
     scene.world = world
     world.use_nodes = True
@@ -1018,6 +1119,34 @@ def setup_sky_and_view(sun_elevation_deg=38.0, sun_rotation_deg=145.0,
     bg = nt.nodes.new('ShaderNodeBackground')
     bg.location = (100, 0)
     bg.inputs['Strength'].default_value = 1.0
+    hdri = None
+    try:
+        from . import realism
+        hdri = realism.active(
+            bpy.context.scene.house_generator).get('hdri')
+    except Exception:
+        pass
+    if hdri:
+        env = nt.nodes.new('ShaderNodeTexEnvironment')
+        env.location = (-200, 0)
+        env.image = bpy.data.images.load(hdri, check_existing=True)
+        mapv = nt.nodes.new('ShaderNodeMapping')
+        mapv.location = (-420, 0)
+        mapv.inputs['Rotation'].default_value = \
+            (0.0, 0.0, math.radians(sun_rotation_deg))
+        tc = nt.nodes.new('ShaderNodeTexCoord')
+        tc.location = (-620, 0)
+        nt.links.new(tc.outputs['Generated'], mapv.inputs['Vector'])
+        nt.links.new(mapv.outputs['Vector'], env.inputs['Vector'])
+        nt.links.new(env.outputs['Color'], bg.inputs['Color'])
+        nt.links.new(bg.outputs['Background'], out.inputs['Surface'])
+        for obj in list(bpy.data.objects):
+            if obj.name.startswith("House_Sun") or \
+                    obj.name.startswith("House_Fill"):
+                bpy.data.objects.remove(obj, do_unlink=True)
+        print(f"[Look] ✓ Ciel HDRI du pack réalisme: "
+              f"{os.path.basename(hdri)}")
+        return
     sky = nt.nodes.new('ShaderNodeTexSky')
     sky.location = (-200, 0)
     sky.sky_type = 'NISHITA'

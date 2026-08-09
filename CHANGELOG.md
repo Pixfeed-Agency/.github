@@ -1,5 +1,31 @@
 # Changelog — House Generator
 
+## v1.29.0 — PACK RÉALISME: textures scannées + HDRI (le standard archviz)
+
+Le verdict de la bataille anti-maquette: le procédural a un plafond.
+Les moteurs "qui font vrai" (Enscape, Lumion, les rendus Revit) posent
+des PHOTOS de vraies surfaces. House peut désormais faire pareil — en
+OPTION, sans alourdir l'extension d'un octet.
+
+- **Dossier réalisme** (`realism_dir`): l'utilisateur télécharge des
+  matériaux CC0 GRATUITS (polyhaven.com, ambientcg.com) dans un
+  dossier — sous-dossiers `pierre/`, `enduit/`, `sol/`, `tuiles/`
+  (conventions de nommage ambientCG/Poly Haven reconnues: Color,
+  Roughness, NormalGL, AmbientOcclusion, Displacement) et un fichier
+  `.hdr`/`.exr` à la racine pour le ciel
+- **Bascule automatique**: façades pierre/enduit, pelouse et pans de
+  toit lisses passent sur les scans (box-mapping, aucun UV requis,
+  AO multipliée, normal+height chaînés); le ciel HDRI remplace
+  Nishita et SE REFLÈTE dans les vitres
+- **Rien ne casse jamais**: slot vide ou incomplet → matériau
+  procédural habituel; dossier vide → House 100% procédural comme
+  avant (défauts pixel-identiques au banc)
+- Le panneau affiche ce qui a été trouvé dans le dossier
+- v1.28.1/v1.28.2 inclus: moellons 18cm joints fins, tuiles par lots
+  de cuisson, vitrage voilé, AgX contrasté, soleil net 0,7°, règle
+  des ombres construites dans la caméra photo
+- 86 invariants, banc fast 10/10
+
 ## v1.28.0 — PHOTORÉALISME MAISON: imperfections, assises, caméra photo
 
 Sortir du "délire maquette" — tout procédural, poids zéro, et le
