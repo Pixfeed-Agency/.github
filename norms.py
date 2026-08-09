@@ -67,6 +67,9 @@ PORTE_DORMANT_PROF = 0.10       # dormant de porte
 PORTE_EP = 0.04                 # épaisseur d'un vantail
 PORTE_CADRE_L = 0.06            # largeur du cadre
 PORTE_POIGNEE_H = 1.05          # axe de poignée (norme PMR ~0.9-1.3)
+LINTEAU_H = 2.15                # linteau standard: les HAUTS de fenêtres
+                                # s'alignent dessus (comme la porte) —
+                                # une façade réelle aligne ses linteaux
 
 # Appui de fenêtre BÉTON débordant (niveau PHOTO — DTU 20.1: débord
 # 3-5cm avec pente de rejet et oreilles)

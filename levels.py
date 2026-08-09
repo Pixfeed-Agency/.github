@@ -56,8 +56,11 @@ def window_vertical(floor_z, floor_height, height_ratio):
     La fenêtre est clampée pour ne pas dépasser le plafond de l'étage.
     """
     window_height = floor_height * height_ratio
-    sill_ratio = min(ALLEGE_RATIO_MAX, max(0.05, 1.0 - height_ratio - 0.05))
-    z_bottom = floor_z + floor_height * sill_ratio
+    # ✅ FIX "fenêtres trop hautes": le HAUT s'aligne sur le linteau
+    # standard (2.15, comme la porte) au lieu de flotter à ratio du
+    # plafond (linteaux à 2.30 > porte à 2.20 sur les rendus)
+    top = min(norms.LINTEAU_H, floor_height - 0.30)
+    z_bottom = floor_z + max(0.15, top - window_height)
     return window_height, z_bottom, z_bottom + window_height / 2
 
 

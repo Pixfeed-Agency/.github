@@ -1,5 +1,33 @@
 # Changelog — House Generator
 
+## v1.21.0 — Audit des mesures automatiques + ÉLECTRICITÉ
+
+Ré-analyse complète sur les modèles livrés (rendus d'audit rapprochés
++ mesures numériques) — quatre vrais bugs corrigés, une fonctionnalité.
+
+- **Fenêtres trop hautes (CORRIGÉ)**: les linteaux flottaient à ratio
+  du plafond (2.30, AU-DESSUS de la porte à 2.20). Le haut de chaque
+  fenêtre s'aligne désormais sur le LINTEAU standard (`norms.LINTEAU_H`
+  = 2.15, comme une vraie façade) → allège 0.91 sur le pavillon type.
+  Toutes les références du banc rebasées
+- **Porte de garage 19cm trop basse (CORRIGÉ)**: les panneaux étaient
+  construits en local PUIS re-translatés de z0 (double translation) —
+  porte enterrée dans le seuil et FENTE NOIRE de 21cm sous le linteau.
+  La porte remplit son ouverture (0.21 → 2.24 pour 0.20 → 2.25)
+- **Gouttière volante (CORRIGÉ)**: les descentes EP de l'aile/garage
+  pendaient EN L'AIR à o_rake devant le pignon — plaquées contre
+  l'angle du mur
+- **Voilage devant la façade (CORRIGÉ)**: il pendait 3cm DEVANT le nu
+  extérieur (mesuré y=[-0.03,+0.01]) — désormais côté pièce, 5cm
+  derrière le nu intérieur (y=+0.33)
+- **✅ ÉLECTRICITÉ (NF C 15-100)**: nouvelle option "Électricité" —
+  prises de courant (axe 0.25m du sol fini) réparties dans CHAQUE
+  pièce, interrupteur à 1.10m près de chaque porte, séjour à n+2
+  prises (minimum normatif 5); **nombre par pièce réglable** (1-8);
+  régénération incrémentale (tag interior)
+- 2 nouveaux tests (mesures de façade verrouillées + électricité
+  comptée et mesurée) → 75 invariants
+
 ## v1.20.0 — Tuiles COUPÉES aux arêtiers et noues (S5, partie 2)
 
 Fin du crénelage: sur le toit squelette, les tuiles de bord sont de

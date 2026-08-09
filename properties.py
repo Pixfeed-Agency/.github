@@ -52,6 +52,8 @@ PROP_TAGS = {
     'include_terrace': ('structure',),
     # Intérieurs (structure aussi: la trémie est percée dans les dalles)
     'interior_wall_color': ('interior',),
+    'include_electrical': ('interior',),
+    'outlets_per_room': ('interior',),
     'num_bedrooms': ('interior', 'structure'),
     'programme_active': ('interior', 'structure'),
     'programme_cells': ('interior', 'structure'),
@@ -763,6 +765,22 @@ class HouseGeneratorProperties(PropertyGroup):
             ('BETON', "Béton", "Tuile béton grise mate"),
         ],
         default='AUTO',
+        update=regenerate_house
+    )
+
+    # ✅ ÉLECTRICITÉ (NF C 15-100): prises + interrupteurs
+    include_electrical: BoolProperty(
+        name="Électricité",
+        description="Prises de courant (axe 0.25m) et interrupteurs "
+                    "(1.10m) sur les parois intérieures — NF C 15-100",
+        default=False,
+        update=regenerate_house
+    )
+    outlets_per_room: IntProperty(
+        name="Prises par pièce",
+        description="Nombre de prises par pièce (le séjour en reçoit "
+                    "deux de plus, minimum normatif 5)",
+        default=3, min=1, max=8,
         update=regenerate_house
     )
 

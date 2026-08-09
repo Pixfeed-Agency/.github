@@ -331,16 +331,19 @@ def build_garage_wing_door(frame, props, collection, opening, front_local):
     for i in range(n_panels):
         pz0 = i * ph + 0.008
         pz1 = (i + 1) * ph - 0.008
+        # ✅ FIX: panneaux en coordonnées LOCALES origine = bas de
+        # porte (le " - z0" doublait la translation z0 du matrix_world:
+        # porte 19cm trop basse, fente noire de 21cm sous le linteau)
         if front_local == 'front':
             a = opening['x']
-            _add_box(bm, a + 0.02, t0, pz0 - z0, a + gw - 0.02, t1, pz1 - z0)
+            _add_box(bm, a + 0.02, t0, pz0, a + gw - 0.02, t1, pz1)
         elif front_local == 'left':
             a = opening['y']
-            _add_box(bm, t0, a + 0.02, pz0 - z0, t1, a + gw - 0.02, pz1 - z0)
+            _add_box(bm, t0, a + 0.02, pz0, t1, a + gw - 0.02, pz1)
         else:  # right
             a = opening['y']
-            _add_box(bm, frame['w'] - t1, a + 0.02, pz0 - z0,
-                     frame['w'] - t0, a + gw - 0.02, pz1 - z0)
+            _add_box(bm, frame['w'] - t1, a + 0.02, pz0,
+                     frame['w'] - t0, a + gw - 0.02, pz1)
     mat = _simple_material("House_Garage_Door", (0.88, 0.88, 0.86), roughness=0.5)
     obj = _new_mesh_obj("Garage_Door", bm, collection, "garage", mat)
     # origine au bas de la porte (locale), transformée dans le monde
@@ -796,13 +799,14 @@ def build_wing_roof(props, collection, frame, o_eave, o_rake, tile_color,
                                 matrix=Matrix.Translation(Vector((
                                     x_g, (y_f0 + y_f1) / 2, z_eave - ROOF_T + 0.02))) @
                                 Matrix.Rotation(math.radians(90), 4, 'X'))
-        # Descentes aux angles du pignon extérieur
-        for x_g in (-o_eave - 0.02, w + o_eave + 0.02):
+        # ✅ FIX: descentes CONTRE l'angle du mur (elles flottaient à
+        # o_rake devant le pignon, en l'air)
+        for x_g in (-0.06, w + 0.06):
             down_z = z_eave - ROOF_T
             seg = bmesh.ops.create_cone(bm, cap_ends=True, segments=10,
                                         radius1=norms.DESCENTE_RAYON, radius2=norms.DESCENTE_RAYON, depth=down_z)
             bmesh.ops.transform(bm, verts=seg['verts'],
-                                matrix=Matrix.Translation(Vector((x_g, -o_rake + 0.10,
+                                matrix=Matrix.Translation(Vector((x_g, 0.15,
                                                                   down_z / 2))))
         bmesh.ops.transform(bm, verts=bm.verts, matrix=M)
         objs.append(_new_mesh_obj("Wing_Gutters", bm, collection, "gutter", zinc))

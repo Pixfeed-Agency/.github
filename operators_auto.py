@@ -1744,6 +1744,13 @@ class HOUSE_OT_generate_auto(Operator):
             else FLOOR_THICKNESS,
             layout=self._get_interior_layout(props, style_config),
             ceiling_profile=self._cathedral_profile(props, wall_h))
+        # ✅ ÉLECTRICITÉ: prises + interrupteurs (NF C 15-100)
+        if getattr(props, 'include_electrical', False):
+            il = self._get_interior_layout(props, style_config)
+            interiors.build_electrical(props, collection,
+                                       il, self._get_wall_depth(props),
+                                       fha)
+
 
         # ✅ v1.5: escalier (si ≥ 2 étages) + portes intérieures
         il = self._get_interior_layout(props, style_config)

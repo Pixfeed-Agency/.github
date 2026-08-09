@@ -662,3 +662,79 @@ def build_interiors(props, collection, wall_depth, floor_height_actual,
     print(f"[House] ✓ Intérieurs: plafonds + sols + cloisons "
           f"({props.num_floors} étage(s), {len(wing_frames or [])} aile(s))")
     return objs
+
+
+# ============================================================
+# ✅ ÉLECTRICITÉ — prises et interrupteurs (NF C 15-100)
+# ============================================================
+
+def build_electrical(props, collection, layout, wall_depth,
+                     floor_height_actual):
+    """Prises de courant et interrupteurs sur les parois intérieures.
+
+    NF C 15-100 (repères): axe des prises à 0.25 m du sol fini,
+    interrupteur à 1.10 m près de la porte de chaque pièce. Le NOMBRE
+    de prises par pièce est réglable (`outlets_per_room`); le séjour
+    en reçoit deux de plus (minimum normatif 5 en séjour).
+    """
+    n_per_room = max(1, int(getattr(props, 'outlets_per_room', 3)))
+    W, L = props.house_width, props.house_length
+    t = wall_depth
+    liner = 0.036                      # nu intérieur (doublage 3.5cm)
+    y_refend = layout['y_refend']
+    xs = [t] + list(layout.get('x_splits', [])) + [W - t]
+    slab_top = norms.DALLE_EP
+    z_prise = slab_top + 0.25          # axe prise (NF C 15-100)
+    z_inter = slab_top + 1.10          # interrupteur
+
+    mat = _simple_material("House_Socket", (0.96, 0.96, 0.94),
+                           roughness=0.4)
+    bm = bmesh.new()
+    count_p = count_i = 0
+
+    def plaque(cx, cy, cz, wall_axis, sign, switch=False):
+        """Plaque 82×82mm + saillie centrale, plaquée sur la paroi.
+        wall_axis 'x': paroi ⟂ x (plaque dans le plan yz), sinon ⟂ y."""
+        nonlocal count_p, count_i
+        s, e = 0.041, 0.012            # demi-plaque, épaisseur
+        if wall_axis == 'x':
+            _add_box(bm, cx, cy - s, cz - s, cx + sign * e, cy + s, cz + s)
+            _add_box(bm, cx + sign * e, cy - s * 0.45, cz - s * 0.45,
+                     cx + sign * (e + 0.006), cy + s * 0.45, cz + s * 0.45)
+        else:
+            _add_box(bm, cx - s, cy, cz - s, cx + s, cy + sign * e, cz + s)
+            _add_box(bm, cx - s * 0.45, cy + sign * e, cz - s * 0.45,
+                     cx + s * 0.45, cy + sign * (e + 0.006), cz + s * 0.45)
+        if switch:
+            count_i += 1
+        else:
+            count_p += 1
+
+    # --- PIÈCES ARRIÈRE (chambres/SdB/WC ou cellules uniformes) ---
+    for k in range(len(xs) - 1):
+        x0, x1 = xs[k], xs[k + 1]
+        if x1 - x0 < 0.6:
+            continue
+        # prises réparties sur le mur ARRIÈRE de la pièce (nu intérieur)
+        y_face = L - t - liner
+        for i in range(n_per_room):
+            cx = x0 + (x1 - x0) * (i + 1) / (n_per_room + 1)
+            plaque(cx, y_face, z_prise, 'y', -1)
+        # interrupteur près de la porte (côté pièce du refend)
+        door_y = y_refend + PARTITION_T / 2
+        plaque(min(x1 - 0.25, x0 + 0.9), door_y, z_inter, 'y', +1,
+               switch=True)
+
+    # --- SÉJOUR (devant le refend): n+2 prises + interrupteur entrée ---
+    y_face = t + liner
+    for i in range(n_per_room + 2):
+        cx = t + (W - 2 * t) * (i + 1) / (n_per_room + 3)
+        plaque(cx, y_face, z_prise, 'y', +1)
+    plaque(min(W - t - 0.3, layout['door_pass'] + 0.35), t + liner,
+           z_inter, 'y', +1, switch=True)
+
+    obj = _new_mesh_obj("Electrical_Outlets", bm, collection,
+                        "electrical", mat)
+    print(f"[House] ✓ Électricité: {count_p} prises + {count_i} "
+          f"interrupteurs (NF C 15-100: 0.25m / 1.10m)")
+    return [obj]

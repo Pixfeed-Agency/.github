@@ -313,7 +313,10 @@ class WindowGenerator:
         gw = max(0.2, width - self.frame_width * 2 - 0.02)
         gh = max(0.2, height - self.frame_width * 2 - 0.02)
         n = max(8, int(gw / 0.05))
-        depth_in = 0.16   # 16cm derrière le plan du mur
+        # ✅ FIX: le voilage pendait 3cm DEVANT la façade (+Y local =
+        # extérieur, mesuré au banc d'audit) — il pend désormais côté
+        # PIÈCE, 5cm derrière le nu intérieur du mur
+        depth_in = -(self._wall_half_depth() + 0.05)
         amp = 0.02
         rows = []
         for k in range(2):
