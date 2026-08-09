@@ -568,6 +568,19 @@ TILE_T = 0.022     # épaisseur
 TILE_OVERLAP = 0.09
 
 
+def _tile_accessory_material(color):
+    """✅ v1.15.1: matériau des ACCESSOIRES de couverture (faîtières,
+    rives, arêtiers) — suit la finition (roof_finish) comme les tuiles:
+    des faîtières terre cuite sur un toit ardoise criaient faux."""
+    try:
+        from . import look
+        p = getattr(bpy.context.scene, 'house_generator', None)
+        return look.tile_material(tuple(color)[:3],
+                                  getattr(p, 'roof_finish', 'AUTO'))
+    except Exception:
+        return _simple_material("House_Tile", color, roughness=0.7)
+
+
 def _create_tile_master(collection, color):
     """✅ V2: Vraie tuile CANAL galbée (profil sinusoïdal, shading lisse)
 
@@ -903,7 +916,7 @@ def build_roof_dormers(props, collection, wall_height, effective_pitch,
     wall_mat = _simple_material("House_Dormer_Wall", (0.88, 0.85, 0.78),
                                 roughness=0.85)
     tile_color = tuple(getattr(props, 'tile_color', (0.34, 0.115, 0.062)))[:3]
-    tile_mat = _simple_material("House_Tile", tile_color, roughness=0.75)
+    tile_mat = _tile_accessory_material(tile_color)
     fascia_mat = _simple_material("House_Fascia", (0.92, 0.92, 0.90),
                                   roughness=0.5)
     objs = []
@@ -1438,7 +1451,7 @@ def build_roof_tiles(props, collection, wall_height, effective_pitch, o_eave, o_
         for c in corners:
             end = r0 if (c - r0).length <= (c - r1).length else r1
             cap_run(bm, c + Vector((0, 0, 0.05)), end + Vector((0, 0, 0.03)), 0.09)
-        mat = _simple_material("House_Tile", tile_color, roughness=0.75)
+        mat = _tile_accessory_material(tile_color)
         ridge_objs.append(_new_mesh_obj("Roof_Hips", bm, collection, "roof", mat))
 
     if roof_type == 'GAMBREL':
@@ -1452,7 +1465,7 @@ def build_roof_tiles(props, collection, wall_height, effective_pitch, o_eave, o_
         cap_run(bm, (width / 2, y0, peak_h + 0.03), (width / 2, y1, peak_h + 0.03), 0.11)
         for xb in (bd, width - bd):
             cap_run(bm, (xb, y0, h + bh + 0.03), (xb, y1, h + bh + 0.03), 0.085)
-        mat = _simple_material("House_Tile", tile_color, roughness=0.75)
+        mat = _tile_accessory_material(tile_color)
         ridge_objs.append(_new_mesh_obj("Roof_Membrons", bm, collection, "roof", mat))
 
     if roof_type == 'GABLE':
@@ -1473,7 +1486,7 @@ def build_roof_tiles(props, collection, wall_height, effective_pitch, o_eave, o_
             bmesh.ops.transform(bm, verts=seg['verts'],
                                 matrix=Matrix.Translation(Vector((width / 2, length / 2, peak_h + 0.03))) @
                                 Matrix.Rotation(math.radians(90), 4, 'Y'))
-        mat = _simple_material("House_Tile", tile_color, roughness=0.75)
+        mat = _tile_accessory_material(tile_color)
         ridge = _new_mesh_obj("Roof_Ridge", bm, collection, "roof", mat)
         ridge_objs.append(ridge)
 
@@ -1909,7 +1922,7 @@ def build_roof_carpentry(props, collection, wall_height, effective_pitch,
 
     wood = _simple_material("House_Rafter", (0.36, 0.25, 0.15), roughness=0.7)
     fascia_mat = _simple_material("House_Fascia", (0.92, 0.92, 0.90), roughness=0.5)
-    rive_mat = _simple_material("House_Tile", tile_color, roughness=0.65)
+    rive_mat = _tile_accessory_material(tile_color)
 
     objs = []
     slope = math.tan(pitch_rad)

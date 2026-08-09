@@ -685,7 +685,8 @@ def build_wing_roof(props, collection, frame, o_eave, o_rake, tile_color,
         objs.append(obj)
         print(f"[House] ✓ Aile: {len(world_positions)} tuiles (noues ajustées)")
 
-    tile_mat = _simple_material("House_Tile", tile_color, roughness=0.75)
+    from .features import _tile_accessory_material
+    tile_mat = _tile_accessory_material(tile_color)
 
     # --- FAÎTIÈRE de l'aile (jusqu'au sommet de noue) ---
     bm = bmesh.new()

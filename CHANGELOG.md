@@ -1,5 +1,12 @@
 # Changelog — House Generator
 
+## v1.15.1 — Conformité des accessoires de couverture
+
+- Les FAÎTIÈRES, tuiles de rive et arêtiers suivent désormais la
+  finition de couverture (`_tile_accessory_material`) — des faîtières
+  terre cuite restaient sur un toit ARDOISE/BÉTON (vu sur le rendu de
+  contrôle); référence `finitions_ardoise` régénérée
+
 ## v1.15.0 — Slots d'assets + finitions procédurales (chantier n°7)
 
 Des SLOTS optionnels — jamais obligatoires: le procédural reste le
