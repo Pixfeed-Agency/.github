@@ -324,6 +324,9 @@ class HouseGeneratorProperties(PropertyGroup):
         items=[
             ('GABLE', "Pignon", "Toit à deux pentes (standard)"),
             ('HIP', "Croupe", "Toit à quatre pentes"),
+            ('SKELETON', "Auto (squelette)",
+             "Croupe DÉDUITE du plan par squelette droit — emprise "
+             "quelconque (maison + ailes en L/T/U natifs, plain-pied)"),
             ('FLAT', "Plat", "Toit-terrasse"),
             ('GAMBREL', "Mansarde", "Toit à combles"),
             ('SHED', "Monopente", "Toit à une seule pente"),

@@ -275,6 +275,7 @@ class HOUSE_OT_generate_auto(Operator):
     # Le slider (5-60°) est GLOBAL, mais chaque type de toit a sa plage
     # normative — une monopente à 35° donnait un mur pignon de 10m!
     PITCH_RANGES = {
+        'SKELETON': (15.0, 50.0),  # croupe auto (squelette)
         'SHED':    (5.0, 25.0),   # Monopente: bac acier ~5°, tuiles max ~25°
         'GABLE':   (15.0, 50.0),  # 2 pans: tuiles 15-50° selon région
         'HIP':     (15.0, 50.0),  # 4 pans: idem
@@ -507,6 +508,12 @@ class HOUSE_OT_generate_auto(Operator):
         volumes.build_wing_foundation(props, collection, wing,
                                       self._plinth_visible(props))
         volumes.build_wing_floor(props, collection, wing)
+        # ✅ S2: l'aile couverte par le toit SQUELETTE n'a pas de toit
+        # propre (noues et pans déduits du plan unifié)
+        if id(wing) in getattr(self, '_skeleton_wing_ids', ()):
+            if wing.get('garage'):
+                volumes.build_garage_wing_door(props, collection, wing)
+            return
         volumes.build_wing_roof(
             props, collection, wing,
             o_eave=props.roof_overhang,
@@ -1013,6 +1020,27 @@ class HOUSE_OT_generate_auto(Operator):
         # même valeur que celle utilisée pour les murs adaptés (cohérence)
         roof_pitch = self._effective_pitch(roof_type, props.roof_pitch)
         roof_overhang = props.roof_overhang
+
+        # ✅ S2: TOIT SQUELETTE — déduit du plan unifié (maison + ailes
+        # de même arase); les ailes plus basses gardent leur toit propre
+        if roof_type == 'SKELETON':
+            from . import plan2d, roof_skeleton
+            wings_ok = [w for w in getattr(self, '_wings', [])
+                        if abs(w.get('h', total_height) - total_height)
+                        < 0.02 and w.get('footprint')]
+            for w in getattr(self, '_wings', []):
+                if w not in wings_ok:
+                    print(f"[House] SKELETON: aile {w.get('side')} plus "
+                          f"basse que l'arase — garde son toit propre")
+            self._skeleton_wing_ids = {id(w) for w in wings_ok}
+            contour = plan2d.house_footprint(props, wings_ok)
+            roof_skeleton.build(
+                props, collection, contour, total_height, roof_pitch,
+                tuple(getattr(props, 'tile_color',
+                              (0.34, 0.115, 0.062)))[:3])
+            print(f"[House] ✓ Toit squelette sur emprise à "
+                  f"{len(contour)} sommets ({1 + len(wings_ok)} volumes)")
+            return
 
         # ✅ FIX: Les murs briques construisent leurs propres pignons
         # maçonnés — le toit ne doit alors PAS fermer les pignons (ses
@@ -1944,6 +1972,10 @@ class HOUSE_OT_generate_auto(Operator):
 
     def _generate_chimney(self, context, props, collection):
         """✅ Cheminée en brique traversant le toit"""
+        if props.roof_type == 'SKELETON':
+            print("[House] SKELETON: cheminée non posée (v1 — la "
+                  "pénétration par pan arrive avec les velux)")
+            return
         from . import features
         h, _pitch, peak, *_ = self._roof_metrics(props)
         features.build_chimney(props, collection, h, peak)
@@ -1961,6 +1993,8 @@ class HOUSE_OT_generate_auto(Operator):
 
     def _generate_gutters(self, context, props, collection):
         """✅ Gouttières le long des égouts + descentes"""
+        if props.roof_type == 'SKELETON':
+            return   # ✅ S2: posées par roof_skeleton sur TOUS les égouts
         from . import features
         _h, _pitch, _peak, eave_l, eave_r, o_eave, o_rake = self._roof_metrics(props)
         features.build_gutters(props, collection, eave_l, eave_r, o_eave, o_rake,

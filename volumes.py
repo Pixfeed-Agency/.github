@@ -78,10 +78,13 @@ def wing_frame(props, effective_pitch, main_wall_height, wing_wall_height=None,
     if not enabled:
         return None
 
-    if props.roof_type not in ('GABLE', 'HIP', 'GAMBREL'):
+    if props.roof_type not in ('GABLE', 'HIP', 'GAMBREL', 'SKELETON'):
         print(f"[House] ⚠️ Aile: toit principal {props.roof_type} non supporté "
-              f"(GABLE/croupe/mansarde) — aile ignorée")
+              f"(GABLE/croupe/mansarde/squelette) — aile ignorée")
         return None
+    # ✅ S2: sous toit SQUELETTE, l'aile n'a NI noue propre NI appentis:
+    # le toit unifié (plan2d + skeleton) couvre l'ensemble
+    skeleton_roof = props.roof_type == 'SKELETON'
 
     side = side or props.wing_side  # 'FRONT' / 'BACK' / 'LEFT' / 'RIGHT'
     W, L = props.house_width, props.house_length
@@ -118,6 +121,8 @@ def wing_frame(props, effective_pitch, main_wall_height, wing_wall_height=None,
     # NOUE réelle seulement si: accroche sur un mur d'égout ET égouts à la
     # même hauteur (aile et maison de plain-pied) → pénétration du pan
     valley = (attached_wall in eave_walls) and (abs(h - h_main) < 0.02)
+    if skeleton_roof:
+        valley = False   # le squelette déduit noues/arêtiers lui-même
 
     if main_rt == 'GAMBREL' and attached_wall in eave_walls:
         print("[House] ⚠️ Aile: sur une mansarde, l'aile s'accroche aux "
@@ -157,8 +162,8 @@ def wing_frame(props, effective_pitch, main_wall_height, wing_wall_height=None,
             return h_main  # murs d'égout partout
         return h_main + slope * (half_f - abs(center - half_f))
 
-    if not valley and attached_wall not in eave_walls or \
-            (not valley and main_rt == 'HIP'):
+    if not skeleton_roof and (not valley and attached_wall not in eave_walls or
+                              (not valley and main_rt == 'HIP')):
         # APPENTIS: le faîtage de l'aile doit passer sous le mur/rampant
         center = a0 + w / 2
         pignon_z = _pignon_height(center)
@@ -471,23 +476,29 @@ def build_wing_simple_walls(frame, props, collection, openings_local):
             res.append({'a': a, 'w': o['width'], 'z': o['z'], 'h': o['height']})
         return res
 
-    # Mur extérieur (pignon, y=0)
-    wall_with_openings(w, ops_for('front'),
-                       lambda a0, a1, z0, z1: _add_box(bm, a0, 0, z0, a1, t, z1),
-                       top=h)
-    # Triangle du pignon (prisme exact) au-dessus de h
-    v = [bm.verts.new(p) for p in
-         [(0, 0, h), (w, 0, h), (w / 2, 0, peak),
-          (0, t, h), (w, t, h), (w / 2, t, peak)]]
-    bm.faces.new([v[0], v[1], v[2]])
-    bm.faces.new([v[5], v[4], v[3]])
-    bm.faces.new([v[0], v[3], v[4], v[1]])
-    bm.faces.new([v[1], v[4], v[5], v[2]])
-    bm.faces.new([v[2], v[5], v[3], v[0]])
-
     # Murs latéraux (sous égouts — capés sous la dalle)
     cap = ROOF_T / max(0.2, math.cos(pitch_rad)) + 0.05
     hc = h - cap
+
+    # ✅ S2: sous toit SQUELETTE, le bout de l'aile est une CROUPE —
+    # pas de pignon maçonné (il transperçait le pan), mur capé à
+    # l'égout comme les côtés
+    skeleton_roof = props.roof_type == 'SKELETON'
+
+    # Mur extérieur (pignon, y=0)
+    wall_with_openings(w, ops_for('front'),
+                       lambda a0, a1, z0, z1: _add_box(bm, a0, 0, z0, a1, t, z1),
+                       top=hc if skeleton_roof else h)
+    if not skeleton_roof:
+        # Triangle du pignon (prisme exact) au-dessus de h
+        v = [bm.verts.new(p) for p in
+             [(0, 0, h), (w, 0, h), (w / 2, 0, peak),
+              (0, t, h), (w, t, h), (w / 2, t, peak)]]
+        bm.faces.new([v[0], v[1], v[2]])
+        bm.faces.new([v[5], v[4], v[3]])
+        bm.faces.new([v[0], v[3], v[4], v[1]])
+        bm.faces.new([v[1], v[4], v[5], v[2]])
+        bm.faces.new([v[2], v[5], v[3], v[0]])
     wall_with_openings(d, ops_for('left'),
                        lambda a0, a1, z0, z1: _add_box(bm, 0, a0, z0, t, a1, z1),
                        top=hc)

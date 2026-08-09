@@ -226,6 +226,21 @@ def configs():
                                        detail_level='PHOTO'),
                   ((13, -10.5, 6.5), (4, 2.5, 2.0), 32),
                   expect=("Window_Sill_Photo",)))
+    # --- Toit squelette (S2): croupe déduite du plan, L natif ---
+    C.append(_cfg("roof_skeleton_L", dict(BASE,
+                                          wall_construction_type='SIMPLE',
+                                          wall_material_color=(0.62, 0.545, 0.42),
+                                          house_width=11.0,
+                                          house_length=7.5,
+                                          roof_type='SKELETON',
+                                          include_wing=True,
+                                          wing_side='FRONT',
+                                          wing_width=5.0, wing_depth=4.5,
+                                          wing_offset=0.3,
+                                          include_chimney=False),
+                  ((17, -14, 9), (5.5, 2, 1.8), 32),
+                  expect=("Roof_Skeleton", "Roof_Valleys", "Roof_Hips",
+                          "Roof_Tiles")))
     # --- Finitions procédurales (chantier n°7) ---
     C.append(_cfg("finitions_ardoise", dict(BASE,
                                             wall_construction_type='SIMPLE',

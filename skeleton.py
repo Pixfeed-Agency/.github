@@ -127,6 +127,7 @@ def faces(poly):
     n = len(poly)
     edges = [(poly[i], poly[(i + 1) % n]) for i in range(n)]
     seg_d = [_seg_dist_fn(e) for e in edges]
+    line_d = [_edge_dist(e) for e in edges]
 
     # Les bissectrices entre formes linéaires ±(x−a) / ±(y−b) sont:
     # verticales x=(a1+a2)/2, horizontales y=(b1+b2)/2, ou diagonales
@@ -170,8 +171,21 @@ def faces(poly):
             for f in frags:
                 fx = sum(p[0] for p in f) / len(f)
                 fy = sum(p[1] for p in f) / len(f)
-                win = min(range(n), key=lambda j: seg_d[j]((fx, fy)))
-                dw = seg_d[win]
+                # hauteur du toit = min des distances-SEGMENTS (surface
+                # exacte du squelette rectiligne)…
+                h = min(seg_d[j]((fx, fy)) for j in range(n))
+                # …mais le PAN est l'arête dont le PLAN DE SUPPORT
+                # réalise cette hauteur (les faces du squelette sont
+                # PLANES; l'attribution au segment le plus proche
+                # créait des cônes aux coins rentrants — toit bombé)
+                win = None
+                for j in range(n):
+                    if abs(line_d[j]((fx, fy)) - h) < 1e-7:
+                        win = j
+                        break
+                if win is None:      # dégénéré: repli segment
+                    win = min(range(n), key=lambda j: seg_d[j]((fx, fy)))
+                dw = line_d[win]
                 pieces_by_edge.setdefault(win, []).append(
                     [(x, y, dw((x, y))) for (x, y) in f])
     return [(i, pieces_by_edge[i]) for i in sorted(pieces_by_edge)]

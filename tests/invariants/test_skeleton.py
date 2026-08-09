@@ -55,8 +55,21 @@ def test_couverture_et_attribution(name, poly, exp_area, n_edges,
     tot = sum(_area(p) for _i, ps in cells for p in ps)
     assert abs(tot - exp_area) < 1e-6, \
         f"{name}: couverture {tot} != {exp_area}"
-    assert [i for i, _ in cells] == list(range(n_edges)), \
-        f"{name}: chaque arête doit avoir SON pan"
+    # chaque arête a son pan, SAUF si elle est colinéaire à une arête
+    # déjà servie (plans confondus → faces fusionnées, inoffensif)
+    got = {i for i, _ in cells}
+    edges = [(poly[i], poly[(i + 1) % n_edges]) for i in range(n_edges)]
+
+    def support(e):
+        (x0, y0), (x1, y1) = e
+        return ('h', round(y0, 6)) if abs(y1 - y0) < 1e-9 \
+            else ('v', round(x0, 6))
+    for i in range(n_edges):
+        if i in got:
+            continue
+        assert any(j in got and support(edges[j]) == support(edges[i])
+                   for j in range(n_edges)), \
+            f"{name}: arête {i} sans pan et sans colinéaire servie"
     dmax = max(pt[2] for _i, ps in cells for p in ps for pt in p)
     assert abs(dmax - exp_dmax) < 1e-6, \
         f"{name}: hauteur max {dmax} != rayon inscrit {exp_dmax}"
@@ -70,12 +83,18 @@ def test_coherence_des_pans(name, poly, exp_area, n_edges, exp_dmax):
     cells = skeleton.faces(poly)
     n = len(poly)
     edges = [(poly[i], poly[(i + 1) % n]) for i in range(n)]
+    seg_fns = [skeleton._seg_dist_fn(e) for e in edges]
     for i, pieces in cells:
-        dfn = skeleton._seg_dist_fn(edges[i])
+        dfn = skeleton._edge_dist(edges[i])   # plan de SUPPORT (planéité)
         for p in pieces:
             for (x, y, d) in p:
                 assert abs(dfn((x, y)) - d) < 1e-6, \
                     f"{name}: pan {i}, sommet ({x},{y}) hors plan"
+                # la hauteur du pan = la SURFACE exacte du squelette
+                # (min des distances-segments) en tout sommet
+                h = min(f((x, y)) for f in seg_fns)
+                assert abs(h - d) < 1e-6, \
+                    f"{name}: pan {i}, ({x},{y}): plan {d} != surface {h}"
     for a, b, i, j in skeleton.ridge_segments(cells):
         assert i != j, f"{name}: arc interne rapporté comme faîtage"
 

@@ -1,5 +1,34 @@
 # Changelog — House Generator
 
+## v1.18.0 — Toit par SQUELETTE DROIT + plan 2D unifié (S2 + S1 noyau)
+
+Le toit n'est plus codé cas par cas: il est DÉDUIT du plan.
+
+- **`skeleton.py`** — squelette droit rectiligne EXACT (pur Python):
+  surface = min des distances L∞ aux segments, pans = régions du plan
+  de support (attribution PLANAIRE — l'attribution au segment le plus
+  proche créait des cônes bombés aux coins rentrants, vu au rendu);
+  décomposition en pièces convexes (grille + médianes entre murs
+  parallèles + diagonales x±y). Prouvé sur carré/rect/L/T/U:
+  couverture au µm², planéité par sommet, surface exacte, faîtage du
+  rectangle — 11 tests purs
+- **`plan2d.py`** — union maison+ailes+garage → UN contour CCW propre
+  (frontières orientées, chaînage, colinéaires fondus; non-connexe
+  refusé) — 8 tests purs; chaîne plan2d→skeleton prouvée
+- **`roof_skeleton.py` + roof_type 'SKELETON' ("Auto (squelette)")**:
+  croupe construite depuis les pans sur N'IMPORTE QUELLE emprise —
+  dalles prismatiques par pièce, FAÎTIÈRES sur les arcs horizontaux,
+  ARÊTIERS (coins convexes), NOUES zinc (coins rentrants), fascias et
+  gouttières sur TOUS les égouts, tuiles par pan (grille bornée à
+  l'étendue du pan — l'éventail des coins dépassait l'égout)
+- **Ailes NATIVES**: sous SKELETON l'aile n'a ni toit propre ni pignon
+  maçonné (il transperçait la croupe — vu au rendu de contrôle et
+  corrigé); le L/T/U est le même algorithme que le rectangle
+- Invariant décisif: grille zénithale sur l'emprise UNIFIÉE en L →
+  100% toit (73 invariants); banc: +1 config roof_skeleton_L (29)
+- Périmètre v1: plain-pied même arase (ailes plus basses → moteur
+  historique), cheminée/velux sur squelette à venir
+
 ## v1.17.0 — Spec d'ouverture UNIFIÉE, pilotée par les pièces (S4)
 
 Quatre implémentations parallèles des ouvertures (trous briques,
