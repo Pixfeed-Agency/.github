@@ -134,3 +134,20 @@ def derive_seed(props, label):
     for c in label:
         h = ((h ^ ord(c)) * 16777619) & 0xFFFFFFFF
     return (base * 1000003 + h) & 0x7FFFFFFF
+
+
+def fresh_node_group(name):
+    """✅ v1.29.1 Node group GN par NOM STABLE: purge les orphelins
+    (.001, .002…) laissés par les régénérations précédentes avant d'en
+    créer un neuf — LA fuite datablock des longues sessions (confirmée
+    au banc: +1 groupe par régénération avec les tuiles)."""
+    import bpy
+    for ng in [g for g in bpy.data.node_groups
+               if g.name == name or g.name.startswith(name + ".")]:
+        if ng.users == 0:
+            try:
+                bpy.data.node_groups.remove(ng)
+            except Exception:
+                pass
+    import bpy as _b
+    return _b.data.node_groups.new(name, 'GeometryNodeTree')

@@ -46,7 +46,8 @@ def _build_instancer_node_group(brick_master):
     L'ancienne réutilisation par nom supprimait le groupe de la maison
     précédente → son modificateur perdait son node_group (murs invisibles).
     """
-    ng = bpy.data.node_groups.new(NODE_GROUP_NAME, 'GeometryNodeTree')
+    from ..norms import fresh_node_group
+    ng = fresh_node_group(NODE_GROUP_NAME)
 
     # Interface (API Blender 4.x)
     ng.interface.new_socket("Geometry", in_out='INPUT', socket_type='NodeSocketGeometry')

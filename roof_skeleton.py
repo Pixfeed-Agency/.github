@@ -327,8 +327,7 @@ def build(props, collection, contour, wall_top, pitch_deg, tile_color):
         obj = bpy.data.objects.new("Roof_Tiles", mesh)
         obj["house_part"] = "roof"
         collection.objects.link(obj)
-        ng = bpy.data.node_groups.new("House_SkelTile_Instancer",
-                                      'GeometryNodeTree')
+        ng = norms.fresh_node_group("House_SkelTile_Instancer")
         ng.interface.new_socket("Geometry", in_out='INPUT',
                                 socket_type='NodeSocketGeometry')
         ng.interface.new_socket("Geometry", in_out='OUTPUT',

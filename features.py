@@ -1174,8 +1174,7 @@ def build_roof_dormers(props, collection, wall_height, effective_pitch,
         obj = bpy.data.objects.new("Dormer_Tiles", mesh)
         obj["house_part"] = "roof_window"
         collection.objects.link(obj)
-        ng = bpy.data.node_groups.new("House_DormerTile_Instancer",
-                                      'GeometryNodeTree')
+        ng = norms.fresh_node_group("House_DormerTile_Instancer")
         ng.interface.new_socket("Geometry", in_out='INPUT',
                                 socket_type='NodeSocketGeometry')
         ng.interface.new_socket("Geometry", in_out='OUTPUT',
@@ -1568,7 +1567,7 @@ def build_roof_tiles(props, collection, wall_height, effective_pitch, o_eave, o_
     obj["house_part"] = "roof"
     collection.objects.link(obj)
 
-    ng = bpy.data.node_groups.new("House_Tile_Instancer", 'GeometryNodeTree')
+    ng = norms.fresh_node_group("House_Tile_Instancer")
     ng.interface.new_socket("Geometry", in_out='INPUT', socket_type='NodeSocketGeometry')
     ng.interface.new_socket("Geometry", in_out='OUTPUT', socket_type='NodeSocketGeometry')
     n_in = ng.nodes.new('NodeGroupInput')
@@ -2263,7 +2262,7 @@ def _scatter_grass(collection, cx, cy, radius, exclude_rects, seed=7,
     obj = bpy.data.objects.new("Env_Grass", mesh)
     obj["house_part"] = "environment"
     collection.objects.link(obj)
-    ng = bpy.data.node_groups.new("House_Grass_Instancer", 'GeometryNodeTree')
+    ng = norms.fresh_node_group("House_Grass_Instancer")
     ng.interface.new_socket("Geometry", in_out='INPUT', socket_type='NodeSocketGeometry')
     ng.interface.new_socket("Geometry", in_out='OUTPUT', socket_type='NodeSocketGeometry')
     n_in = ng.nodes.new('NodeGroupInput')
