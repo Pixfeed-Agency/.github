@@ -25,6 +25,16 @@ def _estimate_brick_count(props):
     return int(perimeter * total_height / BRICK_CELL_AREA)
 
 
+class HOUSE_UL_openings(bpy.types.UIList):
+    """Liste du tableau d'ouvertures"""
+    def draw_item(self, context, layout, data, item, icon, active_data,
+                  active_propname):
+        row = layout.row(align=True)
+        row.label(text=f"{item.wall[:2]} {item.item_type[:4]} "
+                       f"{item.width:.2f}×{item.height:.2f} "
+                       f"@{item.pos:.1f}m ét.{item.floor}")
+
+
 class HOUSE_PT_main_panel(Panel):
     """Panneau principal du générateur de maison"""
     bl_label = "House Generator"
@@ -103,6 +113,33 @@ class HOUSE_PT_main_panel(Panel):
         row.scale_y = 2.0
         row.operator("house.generate_auto", text="Générer la maison", icon='HOME')
         
+        # ✅ TABLEAU D'OUVERTURES (types/tailles/allèges libres)
+        box = layout.box()
+        box.prop(props, "use_openings_table",
+                 text="Tableau d'ouvertures (remplace l'auto)",
+                 toggle=True)
+        if props.use_openings_table:
+            row = box.row()
+            row.template_list("HOUSE_UL_openings", "",
+                              props, "openings_table",
+                              props, "openings_table_index", rows=4)
+            col = row.column(align=True)
+            col.operator("house.opening_add", text="", icon='ADD')
+            col.operator("house.opening_remove", text="", icon='REMOVE')
+            if 0 <= props.openings_table_index < len(props.openings_table):
+                it = props.openings_table[props.openings_table_index]
+                col2 = box.column(align=True)
+                row = col2.row(align=True)
+                row.prop(it, "wall", text="")
+                row.prop(it, "item_type", text="")
+                row = col2.row(align=True)
+                row.prop(it, "width", text="L")
+                row.prop(it, "height", text="H")
+                row = col2.row(align=True)
+                row.prop(it, "pos", text="Position")
+                row.prop(it, "sill", text="Allège")
+                col2.prop(it, "floor", text="Étage")
+
         # ✅ TERRAIN & IMPLANTATION
         box = layout.box()
         box.label(text="Terrain & implantation", icon='WORLD_DATA')
@@ -608,6 +645,7 @@ class HOUSE_PT_info_panel(Panel):
 
 
 classes = (
+    HOUSE_UL_openings,
     HOUSE_PT_main_panel,
     HOUSE_PT_roof_panel,
     HOUSE_PT_windows_panel,

@@ -1,5 +1,28 @@
 # Changelog — House Generator
 
+## v1.24.0 — TABLEAU D'OUVERTURES hétérogènes (2/5 du brief)
+
+Le manque n°1 des briefs réels: House imposait UN type et UNE taille
+de fenêtre pour toute la maison. Le tableau les libère.
+
+- **Une ligne = une ouverture**: façade, type (battante / baie
+  coulissante / châssis fixe / PORTE), largeur × hauteur, ALLÈGE,
+  position en mètres le long du mur (les travées d'un brief se posent
+  directement), étage — UIList avec +/− dans le panneau principal
+- **Le tableau REMPLACE l'auto** quand il est actif; il alimente la
+  spec S4 unique → trous briques, Booleans, menuiseries, voilages et
+  volets suivent sans code supplémentaire (l'architecture S4 paie)
+- **Portes multiples**: la porte de service du brief existe enfin —
+  chaque ligne PORTE devient une vraie porte sur SA façade, perron
+  sur la première porte avant uniquement
+- **Volets intelligents en mode tableau**: sur les battantes
+  seulement (une baie coulissante n'a pas de volets battants)
+- Validé sur la façade du brief longère: porte 1.00×2.15 + 3 baies
+  2.40×2.15 toute hauteur + 3 fenêtres 1.20×1.40 allège 0.90 SUR LA
+  MÊME FAÇADE + porte de service nord — rendu conforme
+- 76 invariants (test façade mixte: dimensions, allèges, volets
+  comptés); banc fast 10/10 (l'auto est inchangé)
+
 ## v1.23.0 — TERRAIN & IMPLANTATION (chantier terrain, 1/5 du brief)
 
 La maison seule, sur une parcelle générée, ou sur TON terrain.

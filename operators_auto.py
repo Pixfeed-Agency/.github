@@ -1639,13 +1639,19 @@ class HOUSE_OT_generate_auto(Operator):
             else:
                 loc = Vector((width - wall_depth / 2, o['along'], z_center))
                 sx, sy = width, o['along']
+            wtype = o.get('window_type', props.window_type)
             window_gen.generate_window(
-                window_type=props.window_type,
+                window_type=wtype,
                 width=o['width'], height=o['height'],
                 location=loc, orientation=wall, collection=collection)
-            shutter_specs.append({'x': sx, 'y': sy, 'z_center': z_center,
-                                  'width': o['width'],
-                                  'height': o['height'], 'wall': wall})
+            # volets: comportement historique en auto; en TABLEAU,
+            # seulement sur les battantes (une baie n'a pas de volets)
+            if 'window_type' not in o or wtype == 'CASEMENT':
+                shutter_specs.append({'x': sx, 'y': sy,
+                                      'z_center': z_center,
+                                      'width': o['width'],
+                                      'height': o['height'],
+                                      'wall': wall})
 
         # ✅ MULTI-VOLUMES: fenêtres de l'aile (mêmes réglages, repère
         # transformé) + leurs volets
@@ -1677,6 +1683,54 @@ class HOUSE_OT_generate_auto(Operator):
         print(f"[House] Génération porte visuelle {props.door_type}: {door_width}x{door_height}m")
 
         door_gen = DoorGenerator(quality=props.door_quality)
+
+        # ✅ TABLEAU D'OUVERTURES: chaque ligne PORTE devient une porte
+        # réelle (entrée, service…) sur SA façade, à SA taille
+        if getattr(props, 'use_openings_table', False) \
+                and len(getattr(props, 'openings_table', [])):
+            from . import openings as _om
+            W_, L_ = props.house_width, props.house_length
+            first_front = True
+            for o in _om.compute(self, props):
+                if not o.get('door_item'):
+                    continue
+                wall = o['wall']
+                if wall == 'front':
+                    locd = Vector((o['x'],
+                                   (wall_depth - DOOR_FRAME_DEPTH) / 2,
+                                   o['z']))
+                elif wall == 'back':
+                    locd = Vector((o['x'] + o['width'],
+                                   L_ - (wall_depth - DOOR_FRAME_DEPTH) / 2
+                                   - DOOR_FRAME_DEPTH, o['z']))
+                elif wall == 'left':
+                    locd = Vector(((wall_depth - DOOR_FRAME_DEPTH) / 2,
+                                   o['y'] + o['width'], o['z']))
+                else:
+                    locd = Vector((W_ - (wall_depth - DOOR_FRAME_DEPTH) / 2
+                                   - DOOR_FRAME_DEPTH, o['y'], o['z']))
+                door_gen.generate_door(
+                    door_type=props.door_type if wall == 'front'
+                    else 'SINGLE',
+                    width=o['width'], height=o['height'],
+                    location=locd, orientation=wall,
+                    collection=collection)
+                # perron sur la première porte AVANT seulement
+                if wall == 'front' and first_front:
+                    first_front = False
+                    import bmesh as _bm
+                    from .features import _add_box as _fb, \
+                        _new_mesh_obj as _nmo, _simple_material as _sm
+                    plinth = self._plinth_visible(props)
+                    pw_ = o['width'] + 0.6
+                    bmp = _bm.new()
+                    _fb(bmp, o['along'] - pw_ / 2, -1.20,
+                        max(0.0, plinth - 0.02),
+                        o['along'] + pw_ / 2, 0.02, plinth + 0.005)
+                    _nmo("Door_Perron", bmp, collection, "foundation",
+                         _sm("House_Seuil", (0.58, 0.56, 0.52),
+                             roughness=0.9))
+            return
 
         # ✅ FIX: Le cadre de porte s'étend de y=0 à y=DOOR_FRAME_DEPTH dans
         # son repère local — on le CENTRE dans l'épaisseur du mur (avant, il
@@ -2344,6 +2398,34 @@ class HOUSE_OT_apply_preset(bpy.types.Operator):
         return {'FINISHED'}
 
 
+class HOUSE_OT_opening_add(bpy.types.Operator):
+    """Ajoute une ligne au tableau d'ouvertures"""
+    bl_idname = "house.opening_add"
+    bl_label = "Ajouter une ouverture"
+
+    def execute(self, context):
+        props = context.scene.house_generator
+        it = props.openings_table.add()
+        it.pos = 2.0 + 2.8 * (len(props.openings_table) - 1)
+        props.openings_table_index = len(props.openings_table) - 1
+        return {'FINISHED'}
+
+
+class HOUSE_OT_opening_remove(bpy.types.Operator):
+    """Retire la ligne sélectionnée du tableau"""
+    bl_idname = "house.opening_remove"
+    bl_label = "Retirer l'ouverture"
+
+    def execute(self, context):
+        props = context.scene.house_generator
+        i = props.openings_table_index
+        if 0 <= i < len(props.openings_table):
+            props.openings_table.remove(i)
+            props.openings_table_index = min(
+                i, len(props.openings_table) - 1)
+        return {'FINISHED'}
+
+
 class HOUSE_OT_camera_interior(bpy.types.Operator):
     """✅ Caméra INTÉRIEURE prête à rendre: œil à 1.5m dans le séjour,
     focale 20mm, exposition intérieure — le cadrage archviz de base."""
@@ -2448,6 +2530,8 @@ classes = (
     HOUSE_OT_apply_preset,
     HOUSE_OT_solve_programme,
     HOUSE_OT_camera_interior,
+    HOUSE_OT_opening_add,
+    HOUSE_OT_opening_remove,
 )
 
 

@@ -61,12 +61,71 @@ def _back_positions(op, props, width, num_windows_back):
     return [spacing * (i + 1) for i in range(num_windows_back)]
 
 
+def table_spec(op, props):
+    """✅ TABLEAU D'OUVERTURES: la liste construite depuis les lignes
+    utilisateur — types, tailles, allèges et positions LIBRES par
+    façade (le manque n°1 des briefs réels). Prime sur l'auto."""
+    W, L = props.house_width, props.house_length
+    wall_depth = op._get_wall_depth(props)
+    if getattr(op, 'real_wall_height', None):
+        fha = op.real_wall_height / props.num_floors
+    else:
+        fha = props.floor_height
+    out = []
+    for it in props.openings_table:
+        is_door = it.item_type == 'DOOR'
+        wall = it.wall.lower()
+        w_, h_ = it.width, it.height
+        along = max(w_ / 2 + 0.1,
+                    min(it.pos, (W if wall in ('front', 'back') else L)
+                        - w_ / 2 - 0.1))
+        if is_door and it.floor == 0:
+            z = op._plinth_visible(props)
+        else:
+            z = it.floor * fha + (0.0 if is_door else it.sill)
+        d = {'width': w_, 'height': h_, 'depth': wall_depth,
+             'wall': wall, 'type': 'door' if is_door else 'window',
+             'along': along, 'floor': it.floor, 'z': z}
+        if wall in ('front', 'back'):
+            d['x'] = along - w_ / 2
+            d['y'] = 0 if wall == 'front' else L
+        else:
+            d['y'] = along - w_ / 2
+            d['x'] = 0 if wall == 'left' else W
+        if is_door:
+            d['door_item'] = True
+        else:
+            d['window_type'] = it.item_type
+        out.append(d)
+    return out
+
+
 def compute(op, props):
     """LA liste des ouvertures des murs porteurs de la maison
     principale. Géométrie STRICTEMENT identique au producteur briques
-    historique (prouvé au banc), enrichie de `along` et `floor`."""
+    historique (prouvé au banc), enrichie de `along` et `floor`.
+    ✅ Si le TABLEAU D'OUVERTURES est actif, il REMPLACE portes et
+    fenêtres automatiques (les passages d'ailes restent gérés)."""
     width = props.house_width
     length = props.house_length
+
+    if getattr(props, 'use_openings_table', False) \
+            and len(getattr(props, 'openings_table', [])):
+        openings = table_spec(op, props)
+        for wing in getattr(op, '_wings', []):
+            from . import volumes
+            openings = [o for o in openings
+                        if o['type'] != 'window'
+                        or not volumes.opening_in_span(o, wing)]
+            p = volumes.passage_opening(wing, props,
+                                        op._get_wall_depth(props),
+                                        op._plinth_visible(props))
+            p.setdefault('floor', 0)
+            p.setdefault('along', p['x'] + p['width'] / 2
+                         if p.get('wall') in ('front', 'back')
+                         else p['y'] + p['width'] / 2)
+            openings.append(p)
+        return openings
 
     openings = []
 

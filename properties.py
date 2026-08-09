@@ -84,6 +84,8 @@ PROP_TAGS = {
     'shutter_asset': ('joinery',),
     'tile_asset': ('roof',),
     'wall_finish': ('walls',),
+    # tableau d'ouvertures: change les trous → tout
+    'use_openings_table': ('all',),
     'roof_finish': ('roof',),
 }
 
@@ -95,6 +97,12 @@ _pending_tags = set()
 
 def _prop_value(props, name):
     v = getattr(props, name)
+    if isinstance(v, bpy.types.bpy_prop_collection):
+        return tuple(
+            tuple(_prop_value(item, p.identifier)
+                  for p in item.bl_rna.properties
+                  if p.identifier not in ('rna_type', 'name'))
+            for item in v)
     if isinstance(v, bpy.types.ID):
         try:
             return ("ID", v.name)     # pointeurs d'assets (v1.15)
@@ -207,6 +215,38 @@ def get_brick_presets_safe(self, context):
     # Fallback: presets hardcodés si le scanner ne marche pas
     _PRESET_ITEMS_CACHE = list(_PRESET_ITEMS_FALLBACK)
     return _PRESET_ITEMS_CACHE
+
+
+class HouseOpeningItem(PropertyGroup):
+    """✅ TABLEAU D'OUVERTURES: une ligne = une ouverture réelle
+    (le brief type mélange baies 2.40×2.15 et fenêtres 1.20×1.40 sur
+    la même façade — impossible avec un type/taille unique)."""
+    wall: EnumProperty(
+        name="Façade",
+        items=[('FRONT', "Avant", ""), ('BACK', "Arrière", ""),
+               ('LEFT', "Gauche", ""), ('RIGHT', "Droite", "")],
+        default='FRONT', update=regenerate_house)
+    item_type: EnumProperty(
+        name="Type",
+        items=[('CASEMENT', "Fenêtre battante", "2 vantaux"),
+               ('SLIDING', "Baie coulissante", ""),
+               ('FIXED', "Châssis fixe", ""),
+               ('DOOR', "Porte", "Porte pleine (entrée/service)")],
+        default='CASEMENT', update=regenerate_house)
+    width: FloatProperty(name="Largeur", default=1.20, min=0.4, max=6.0,
+                         update=regenerate_house)
+    height: FloatProperty(name="Hauteur", default=1.40, min=0.4, max=3.0,
+                          update=regenerate_house)
+    sill: FloatProperty(name="Allège", description="Hauteur du bas de "
+                        "la fenêtre depuis le sol de l'étage",
+                        default=0.90, min=0.0, max=2.0,
+                        update=regenerate_house)
+    pos: FloatProperty(name="Position", description="Centre de "
+                       "l'ouverture le long du mur (m depuis le coin)",
+                       default=2.0, min=0.2, max=60.0,
+                       update=regenerate_house)
+    floor: IntProperty(name="Étage", default=0, min=0, max=4,
+                       update=regenerate_house)
 
 
 class HouseGeneratorProperties(PropertyGroup):
@@ -800,6 +840,16 @@ class HouseGeneratorProperties(PropertyGroup):
         update=regenerate_house
     )
 
+    # ✅ TABLEAU D'OUVERTURES (prime sur le calcul automatique)
+    use_openings_table: BoolProperty(
+        name="Tableau d'ouvertures",
+        description="Les lignes du tableau REMPLACENT les fenêtres et "
+                    "portes automatiques (types, tailles, allèges et "
+                    "positions libres, par façade)",
+        default=False, update=regenerate_house)
+    openings_table: bpy.props.CollectionProperty(type=HouseOpeningItem)
+    openings_table_index: IntProperty(default=0)
+
     # ✅ TERRAIN & IMPLANTATION (parcelle, nord, soleil, pente)
     terrain_mode: EnumProperty(
         name="Terrain",
@@ -1310,6 +1360,7 @@ class HouseGeneratorProperties(PropertyGroup):
 
 # Classes à enregistrer
 classes = (
+    HouseOpeningItem,
     HouseGeneratorProperties,
 )
 
