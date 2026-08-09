@@ -650,7 +650,35 @@ def _create_tile_master(collection, color):
         except Exception as e:
             print(f"[House] Slot tuile échoué ({e}) → tuile procédurale")
     w = TILE_W - 0.014       # largeur utile (léger jeu entre colonnes)
-    amp = 0.035              # hauteur du galbe
+
+    # ✅ S5: MASTER PAR COUVERTURE — une ardoise est PLATE, une tuile
+    # béton a un profil bas: le galbe canal pour tout le monde était le
+    # défaut n°1 du rendu ardoise (matière juste, géométrie fausse)
+    if finish == 'ARDOISE':
+        bm = bmesh.new()
+        e = 0.008            # épaisseur d'une ardoise
+        v = [bm.verts.new(p) for p in
+             ((0, 0, 0), (w, 0, 0), (w, TILE_L, 0), (0, TILE_L, 0),
+              (0, 0.012, e), (w, 0.012, e), (w, TILE_L, e), (0, TILE_L, e))]
+        bm.faces.new(v[:4][::-1])
+        bm.faces.new(v[4:])
+        for k in range(4):
+            k2 = (k + 1) % 4
+            bm.faces.new([v[k], v[k2], v[4 + k2], v[4 + k]])
+        try:
+            from . import look
+            mat = look.tile_material(color, finish)
+        except Exception:
+            mat = _simple_material("House_Tile", color, roughness=0.5)
+        obj = _new_mesh_obj("Tile_Master", bm, collection, "roof", mat)
+        obj.hide_render = True
+        try:
+            obj.hide_set(True)
+        except RuntimeError:
+            pass
+        return obj
+
+    amp = 0.012 if finish == 'BETON' else 0.035   # béton: profil BAS
     thick = 0.012            # épaisseur visible de la jupe
     nx, ny = 12, 5           # résolution du profil / de la longueur
 

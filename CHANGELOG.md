@@ -1,5 +1,16 @@
 # Changelog — House Generator
 
+## v1.19.0 — Masters de tuiles PAR COUVERTURE (S5, partie 1)
+
+- La géométrie du master suit enfin la couverture: **ARDOISE = élément
+  PLAT rectangulaire** (8mm, pose à pureau), **BÉTON = profil bas**
+  (galbe 12mm), terre cuite = tuile canal galbée (inchangée au pixel
+  près — 0.00 au banc). Le galbe canal pour tout le monde était le
+  défaut n°1 du rendu ardoise: matière juste, géométrie fausse
+- Référence `finitions_ardoise` rebasée (le toit change réellement)
+- Reste (S5 partie 2): tuiles COUPÉES aux arêtiers/noues (rangées de
+  bord bisectées en objets réels) et rives plates pour l'ardoise
+
 ## v1.18.0 — Toit par SQUELETTE DROIT + plan 2D unifié (S2 + S1 noyau)
 
 Le toit n'est plus codé cas par cas: il est DÉDUIT du plan.
