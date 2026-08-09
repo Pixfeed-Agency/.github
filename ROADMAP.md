@@ -117,3 +117,18 @@ CHANGELOG). Restent les limites listées après la liste historique.*
    repli procédural intégral) + finitions procédurales au choix
    (crépi fin/projeté/lisse; terre cuite/ardoise/béton); reste:
    slot brique, PBR displacement, slots par pièce (cuisine/SdB)
+
+## 🧱 Chantiers structurels S1-S8 (précision du moteur) — v1.16 à v1.20
+
+- ✅ S8 normes nommées (norms.py) · ✅ S3 modèle de niveaux (levels.py)
+- ✅ S6 graines dérivées (non-jumelles) · ✅ S7 maillage manifold + UVs
+- ✅ S4 spec d'ouverture unifiée, fenêtre par pièce en mode programme
+- ✅ S2 squelette droit: toit DÉDUIT du plan (roof_type SKELETON),
+  L/T/U natifs, arêtiers/noues/faîtières déduits
+- ✅ S5 masters par couverture (ardoise PLATE) + tuiles COUPÉES aux
+  arêtiers/noues (Roof_Tiles_Cut)
+- ✅ S1 plan 2D unifié (plan2d.py) + murs en anneau manifold; reste
+  l'incrément: mur-contour UNIQUE maison+ailes sous SKELETON (exige
+  la migration des ouvertures d'ailes vers la spec S4)
+- Suites naturelles: cheminée/velux sur toit squelette, pentes
+  inégales par pan, rives plates pour l'ardoise
