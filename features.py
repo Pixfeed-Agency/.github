@@ -167,7 +167,12 @@ def build_chimney(props, collection, wall_height, roof_peak_z):
     top = roof_peak_z + 0.55         # dépasse le faîtage (règle: +40cm min)
     if props.roof_type == 'FLAT':
         top = wall_height + 0.30 + 0.45 + 0.65  # au-dessus de l'acrotère
-    base = wall_height - 1.2         # ancrée sous le toit
+    # ✅ FIX (vu sur rendu intérieur): le fût démarrait 1.2m SOUS
+    # l'arase → bloc de briques flottant à mi-mur DANS la pièce. Une
+    # souche traverse les COMBLES et le toit; côté pièce elle est
+    # coffrée ou invisible — le fût ne commence qu'au-dessus du
+    # plafond du dernier étage.
+    base = wall_height - 0.05
 
     # ✅ v1.6: position, hauteur de toit et angle de solin EXACTS par
     # type de toit (avant: maths GABLE appliquées partout)

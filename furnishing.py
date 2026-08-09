@@ -309,12 +309,14 @@ def build_furniture(props, collection, layout, wall_depth, fha):
                                         cxc, cyc, z0, 2.2, 0.95, 0, 0,
                                         collection, "furniture")):
         bm = bmesh.new()
+        # ✅ boîtes SANS chevauchement (les faces coplanaires
+        # assise/accoudoirs z-fightaient en noir — vu au rendu)
         _add_box(bm, cxc - 1.1, cyc - 0.45, z0 + 0.10,
                  cxc + 1.1, cyc + 0.45, z0 + 0.45)           # assise
-        _add_box(bm, cxc - 1.1, cyc - 0.45, z0 + 0.45,
-                 cxc + 1.1, cyc - 0.25, z0 + 0.85)           # dossier
+        _add_box(bm, cxc - 0.95, cyc - 0.45, z0 + 0.452,
+                 cxc + 0.95, cyc - 0.25, z0 + 0.85)          # dossier
         for sx in (-1.1, 0.95):
-            _add_box(bm, cxc + sx, cyc - 0.45, z0 + 0.45,
+            _add_box(bm, cxc + sx, cyc - 0.45, z0 + 0.452,
                      cxc + sx + 0.15, cyc + 0.45, z0 + 0.62)  # accoudoirs
         _new_mesh_obj("Furn_Sofa", bm, collection, "furniture", mat_tissu)
     print("[House] ✓ Mobilier: lits, table, canapé (slots prioritaires)")
