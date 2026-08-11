@@ -124,8 +124,21 @@ def build(props, collection, door_x=None, garage_front=None):
         return objs
 
     # --- PARCELLE AUTO: sol en grille (pente), plateforme + talus ---
-    grass_mat = _simple_material("Env_Ground", (0.118, 0.191, 0.061),
-                                 roughness=0.95)
+    # ✅ v1.29.2: le slot 'sol' du PACK RÉALISME prime (texture scannée);
+    # sans pack, l'aplat historique est conservé À L'IDENTIQUE (le banc
+    # visuel ne doit pas bouger)
+    grass_mat = None
+    try:
+        from . import realism, look
+        _maps = realism.maps_for(props, 'sol')
+        if _maps:
+            grass_mat = look.pbr_material("Env_Ground_PBR", _maps,
+                                          size=2.0)
+    except Exception as _e:
+        print(f"[House] Sol PBR ignoré ({_e})")
+    if grass_mat is None:
+        grass_mat = _simple_material("Env_Ground", (0.118, 0.191, 0.061),
+                                     roughness=0.95)
     bm = bmesh.new()
     nx = max(8, int(pw / 2.5))
     ny = max(8, int(pl / 2.5))

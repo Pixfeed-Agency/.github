@@ -1,5 +1,22 @@
 # Changelog — House Generator
 
+## v1.29.2 — pack réalisme: le slot sol appliqué, HDRI validé
+
+Deux bugs trouvés en testant le pack sur un jeu de textures 8K réel:
+- **Slot `sol/` ignoré** en terrain AUTO (le mode courant): terrain.py
+  fabriquait son propre matériau vert sans jamais consulter le pack —
+  le sol scanné n'arrivait jamais. Corrigé; sans pack, l'aplat
+  historique est conservé à l'identique
+- **HDRI corrompu = rendu NOIR sans message**: un .hdr tronqué se
+  chargeait en magenta "texture manquante" et éteignait tout
+  l'éclairage. House valide désormais l'image, prévient en console et
+  retombe sur le ciel Nishita procédural
+- Scan tolérant à un niveau de sous-dossier (les zips Poly Haven /
+  ambientCG s'extraient dans `pierre/old_stone_wall_8k/…`)
+- Mesures sur pack 8K réel: pic mémoire 2,6 Go avec deux matériaux
+  (4 maps chacun) — le 8K passe très large sur une machine 16 Go
+- 88 invariants (2 tests de non-régression ajoutés), banc fast 10/10
+
 ## v1.29.0 — PACK RÉALISME: textures scannées + HDRI (le standard archviz)
 
 Le verdict de la bataille anti-maquette: le procédural a un plafond.

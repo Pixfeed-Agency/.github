@@ -1127,9 +1127,30 @@ def setup_sky_and_view(sun_elevation_deg=38.0, sun_rotation_deg=145.0,
     except Exception:
         pass
     if hdri:
+        # ✅ v1.29.2: VALIDER l'image avant de s'en servir — un .hdr
+        # tronqué/corrompu se charge en magenta "texture manquante" et
+        # le rendu part tout noir sans explication (vécu au banc)
+        himg = None
+        try:
+            himg = bpy.data.images.load(hdri, check_existing=True)
+            if himg.size[0] < 8 or himg.size[1] < 8:
+                raise ValueError(f"image vide ({himg.size[0]}x"
+                                 f"{himg.size[1]})")
+        except Exception as ex:
+            print(f"[Look] ⚠️ Ciel HDRI '{os.path.basename(hdri)}' "
+                  f"illisible ({ex}) → ciel Nishita procédural")
+            if himg is not None:
+                try:
+                    bpy.data.images.remove(himg)
+                except Exception:
+                    pass
+            himg = None
+        if himg is None:
+            hdri = None
+    if hdri:
         env = nt.nodes.new('ShaderNodeTexEnvironment')
         env.location = (-200, 0)
-        env.image = bpy.data.images.load(hdri, check_existing=True)
+        env.image = himg
         mapv = nt.nodes.new('ShaderNodeMapping')
         mapv.location = (-420, 0)
         mapv.inputs['Rotation'].default_value = \
