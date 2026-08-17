@@ -88,6 +88,7 @@ PROP_TAGS = {
     'use_openings_table': ('all',),
     'use_rooms_table': ('interior', 'structure'),
     'realism_dir': ('all',),
+    'use_realism_pack': ('all',),
     'ridge_height_target': ('all',),
     'attic_habitable': ('all',),
     'attic_trusses': ('interior',),
@@ -912,6 +913,11 @@ class HouseGeneratorProperties(PropertyGroup):
     # ✅ v1.29 PACK RÉALISME: dossier de textures scannées CC0
     # (polyhaven.com / ambientcg.com) — sous-dossiers pierre/ enduit/
     # sol/ tuiles/ + un .hdr/.exr = ciel. Vide = tout procédural.
+    use_realism_pack: BoolProperty(
+        name="Utiliser le pack réalisme",
+        description="Décocher pour revenir aux matériaux PROCÉDURAUX "
+                    "sans perdre le chemin du dossier de textures",
+        default=True, update=regenerate_house)
     realism_dir: StringProperty(
         name="Dossier réalisme",
         description="Dossier de textures PBR scannées (CC0): "

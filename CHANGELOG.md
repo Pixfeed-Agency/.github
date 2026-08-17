@@ -1,5 +1,21 @@
 # Changelog — House Generator
 
+## v1.29.4 — le choix procédural / textures reste TOUJOURS réversible
+
+Principe de conception réaffirmé et rendu explicite: le procédural est
+le socle, les textures scannées un supplément — jamais un aller sans
+retour.
+- **Interrupteur `use_realism_pack`**: une case à cocher rend la
+  maison 100% procédurale SANS perdre le chemin du dossier (avant, il
+  fallait effacer le chemin et le rechercher ensuite)
+- Le panneau affiche « Matériaux 100% procéduraux » quand il est
+  décoché, et grise le champ du dossier
+- Garanties couvertes par les tests: pack décoché ou dossier vide →
+  matériaux procéduraux; slot par slot indépendant; slot incomplet,
+  fichier corrompu ou dossier disparu → repli silencieux; banc visuel
+  10/10 pixel-identique aux réglages d'usine
+- 90 invariants, banc fast 10/10
+
 ## v1.29.3 — pack réalisme: conventions Quixel/Poliigon + ratio
 
 Validé sur un VRAI set photoscanné 8192x4096 (celui déjà présent dans

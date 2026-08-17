@@ -155,3 +155,26 @@ def test_conventions_bump_cavity_et_ratio():
         sx, _sy, sz = mapping.inputs['Scale'].default_value
         assert abs(sz / sx - 2.0) < 0.01, \
             f"ratio 2:1 non compensé (sz/sx={sz / sx:.2f})"
+
+
+def test_interrupteur_retour_procedural():
+    """L'utilisateur doit TOUJOURS pouvoir revenir au procédural —
+    sans perdre le chemin de son dossier de textures."""
+    bpy.ops.wm.read_factory_settings(use_empty=True)
+    p = bpy.context.scene.house_generator
+    from House import realism, look
+
+    with tempfile.TemporaryDirectory() as root:
+        _fake_pack(root)
+        p.realism_dir = root
+
+        p.use_realism_pack = True
+        assert 'pierre' in realism.active(p)
+        assert look.wall_material((0.7, 0.6, 0.5),
+                                  'PIERRE').name == "House_Pierre_PBR"
+
+        p.use_realism_pack = False          # un seul clic
+        assert realism.active(p) == {}, "le pack reste actif"
+        assert look.wall_material((0.7, 0.6, 0.5),
+                                  'PIERRE').name == "House_Pierre"
+        assert p.realism_dir == root, "le chemin a été perdu"

@@ -48,8 +48,14 @@ résultat si elles sont là.
 
 ## 3. Activation
 
-Panneau **House → « Pack réalisme (textures CC0) »** → choisissez le
-dossier. La ligne « Trouvé: … » liste ce qui a été reconnu. Générez.
+Panneau **House → « Pack réalisme (textures CC0) »** → cochez
+« Activer le pack » et choisissez le dossier. La ligne « Trouvé: … »
+liste ce qui a été reconnu. Générez.
+
+**Retour au procédural à tout moment**: décochez « Activer le pack ».
+La maison redevient 100 % procédurale et le chemin de votre dossier
+est conservé — un clic pour revenir en arrière, un clic pour y
+retourner.
 
 Un slot vide, incomplet ou absent retombe **silencieusement** sur le
 matériau procédural: rien ne casse jamais, et le dossier vide rend

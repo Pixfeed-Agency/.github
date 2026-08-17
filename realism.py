@@ -121,7 +121,11 @@ def bpy_abspath(path):
 
 
 def active(props):
-    """Le scan du dossier utilisateur, ou {} si non configuré."""
+    """Le scan du dossier utilisateur, ou {} si non configuré OU si
+    l'utilisateur a décoché le pack (retour au 100% procédural sans
+    perdre le chemin)."""
+    if not getattr(props, 'use_realism_pack', True):
+        return {}
     return scan(getattr(props, 'realism_dir', ''))
 
 

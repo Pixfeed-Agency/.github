@@ -124,8 +124,14 @@ class HOUSE_PT_main_panel(Panel):
         # ✅ v1.29 PACK RÉALISME (textures scannées CC0, optionnel)
         box = layout.box()
         box.label(text="Pack réalisme (textures CC0)", icon='TEXTURE')
-        box.prop(props, "realism_dir", text="")
-        if props.realism_dir:
+        box.prop(props, "use_realism_pack", text="Activer le pack",
+                 toggle=True)
+        row = box.row()
+        row.enabled = props.use_realism_pack
+        row.prop(props, "realism_dir", text="")
+        if not props.use_realism_pack:
+            box.label(text="Matériaux 100% procéduraux", icon='CHECKMARK')
+        elif props.realism_dir:
             try:
                 from . import realism
                 rep = realism.report(props)
