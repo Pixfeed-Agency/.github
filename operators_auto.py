@@ -347,6 +347,45 @@ class HOUSE_OT_generate_auto(Operator):
         from . import levels
         return levels.window_vertical(floor_z, floor_height, height_ratio)
 
+    @staticmethod
+    def _protect_kept_houses(collection):
+        """✅ v1.30: PROTÈGE LES MAISONS DÉJÀ POSÉES.
+
+        Les matériaux sont nommés canoniquement (House_Walls,
+        House_Pierre…) et RECONSTRUITS à chaque génération. Conséquence
+        vécue: on garde une première maison (collection renommée ou
+        objets déplacés), on en génère une seconde d'une autre couleur
+        — et la PREMIÈRE est repeinte, car les deux partagent le même
+        datablock.
+
+        Avant de régénérer, on donne donc à chaque maison conservée
+        hors de la collection cible ses PROPRES copies de matériaux.
+        Une maison seule (cas courant) ne déclenche rien: aucun objet
+        estampillé n'existe en dehors de la collection.
+        """
+        keep_names = {o.name for o in collection.objects}
+        kept = [o for o in bpy.data.objects
+                if o.type == 'MESH' and o.get("house_part") is not None
+                and o.name not in keep_names]
+        if not kept:
+            return 0
+        copies, n = {}, 0
+        for o in kept:
+            for slot in o.material_slots:
+                m = slot.material
+                # '.001' = déjà une copie privée: ne pas re-dupliquer
+                if m is None or '.00' in m.name:
+                    continue
+                if m.name not in copies:
+                    copies[m.name] = m.copy()
+                slot.material = copies[m.name]
+                n += 1
+        if n:
+            print(f"[House] ✓ {len(kept)} objet(s) d'une maison "
+                  f"précédente protégés ({len(copies)} matériaux "
+                  f"copiés) — elle ne sera pas repeinte")
+        return n
+
     def _create_house_collection(self, context):
         """Crée une collection pour la maison"""
         props = context.scene.house_generator
@@ -372,6 +411,7 @@ class HOUSE_OT_generate_auto(Operator):
             collection = bpy.data.collections.new(collection_name)
             context.scene.collection.children.link(collection)
 
+        self._protect_kept_houses(collection)
         return collection
 
     def _create_box_mesh(self, name, location, dimensions):
@@ -2273,10 +2313,34 @@ class HOUSE_OT_generate_auto(Operator):
         roof_color = props.roof_material_color if user_changed_roof else style_config.get('roof_color', props.roof_material_color)
         floor_color = props.floor_material_color if user_changed_floor else style_config.get('floor_color', props.floor_material_color)
 
-        wall_mat = self._get_or_create_material("House_Wall", wall_color)
-        roof_mat = self._get_or_create_material("House_Roof", roof_color)
-        floor_mat = self._get_or_create_material("House_Floor", floor_color)
-        glass_mat = self._get_or_create_glass_material("House_Glass")
+        # ✅ v1.30: fabriqués À LA DEMANDE — House_Wall et House_Glass
+        # restaient systématiquement orphelins en murs SIMPLE (le
+        # matériau réel vient de look.wall_material)
+        _cache = {}
+
+        def wall_mat():
+            if 'w' not in _cache:
+                _cache['w'] = self._get_or_create_material(
+                    "House_Wall", wall_color)
+            return _cache['w']
+
+        def roof_mat():
+            if 'r' not in _cache:
+                _cache['r'] = self._get_or_create_material(
+                    "House_Roof", roof_color)
+            return _cache['r']
+
+        def floor_mat():
+            if 'f' not in _cache:
+                _cache['f'] = self._get_or_create_material(
+                    "House_Floor", floor_color)
+            return _cache['f']
+
+        def glass_mat():
+            if 'g' not in _cache:
+                _cache['g'] = self._get_or_create_glass_material(
+                    "House_Glass")
+            return _cache['g']
 
         for obj in collection.objects:
             if obj.type != 'MESH' or obj.hide_render:
@@ -2296,7 +2360,7 @@ class HOUSE_OT_generate_auto(Operator):
                                 tuple(wall_color)[:3],
                                 getattr(props, 'wall_finish', 'AUTO')))
                     except Exception:
-                        obj.data.materials.append(wall_mat)
+                        obj.data.materials.append(wall_mat())
             elif part_type == "roof":
                 # ✅ FIX MAJEUR: ne PAS écraser les matériaux déjà posés —
                 # ce clear() repeignait chevrons (bois), planches de rive
@@ -2315,13 +2379,13 @@ class HOUSE_OT_generate_auto(Operator):
                                     "House_Roof_PBR", maps, size=1.6)
                         except Exception:
                             pbr = None
-                    obj.data.materials.append(pbr or roof_mat)
+                    obj.data.materials.append(pbr or roof_mat())
             elif part_type == "floor":
                 if len(obj.data.materials) == 0:
-                    obj.data.materials.append(floor_mat)
+                    obj.data.materials.append(floor_mat())
             elif part_type == "glass":
                 if len(obj.data.materials) == 0:
-                    obj.data.materials.append(glass_mat)
+                    obj.data.materials.append(glass_mat())
 
     def _get_or_create_material(self, name, color):
         """Crée ou récupère un matériau"""

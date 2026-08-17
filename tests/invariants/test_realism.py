@@ -178,3 +178,58 @@ def test_interrupteur_retour_procedural():
         assert look.wall_material((0.7, 0.6, 0.5),
                                   'PIERRE').name == "House_Pierre"
         assert p.realism_dir == root, "le chemin a été perdu"
+
+
+def test_deux_maisons_materiaux_independants():
+    """Garder une maison puis en générer une seconde ne doit PAS
+    repeindre la première (elles partageaient les datablocks nommés
+    canoniquement: House_Stucco, House_Roof…)."""
+    bpy.ops.wm.read_factory_settings(use_empty=True)
+    p = bpy.context.scene.house_generator
+    p.include_environment = False
+    p.house_width, p.house_length = 9.0, 8.0
+    p.wall_material_color = (0.85, 0.55, 0.35)      # A: terre cuite
+    assert 'FINISHED' in bpy.ops.house.generate_auto()
+    cA = bpy.data.collections["House"]
+    cA.name = "Maison_A"
+    walls_a = next(o for o in cA.objects
+                   if o.name.split('.')[0] == "Walls")
+
+    def teinte(obj):
+        """1re teinte du dégradé du matériau (le vrai porteur de la
+        couleur: l'entrée Base Color est reliée, pas brute)."""
+        mat = obj.data.materials[0]
+        ramp = next(n for n in mat.node_tree.nodes
+                    if n.type == 'VALTORGB')
+        return tuple(round(c, 4) for c in ramp.color_ramp.elements[0].color)
+
+    teinte_a = teinte(walls_a)
+
+    p.wall_material_color = (0.20, 0.28, 0.60)      # B: bleu
+    p.house_width = 12.0
+    assert 'FINISHED' in bpy.ops.house.generate_auto()
+    cB = bpy.data.collections["House"]
+    walls_b = next(o for o in cB.objects
+                   if o.name.split('.')[0] == "Walls")
+
+    # la maison A reçoit une COPIE privée (c'est le mécanisme de
+    # protection) — ce qui doit être préservé, c'est son APPARENCE
+    assert teinte(walls_a) == teinte_a, \
+        f"maison A repeinte: {teinte_a} -> {teinte(walls_a)}"
+    assert teinte(walls_b) != teinte_a, \
+        "la maison B n'a pas pris sa propre couleur"
+    assert walls_a.data.materials[0] is not walls_b.data.materials[0], \
+        "les deux maisons partagent encore le datablock"
+
+
+def test_pas_de_materiaux_orphelins():
+    """Aucun matériau créé puis laissé sans utilisateur (House_Wall et
+    House_Glass l'étaient systématiquement en murs SIMPLE)."""
+    bpy.ops.wm.read_factory_settings(use_empty=True)
+    p = bpy.context.scene.house_generator
+    p.include_environment = False
+    p.wall_construction_type = 'SIMPLE'
+    assert 'FINISHED' in bpy.ops.house.generate_auto()
+    orphelins = sorted(m.name for m in bpy.data.materials
+                       if m.users == 0)
+    assert not orphelins, f"matériaux orphelins: {orphelins}"

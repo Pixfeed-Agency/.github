@@ -1,5 +1,36 @@
 # Changelog — House Generator
 
+## v1.30.0 — audit d'extension: maisons multiples, matériaux orphelins
+
+Audit systématique (12 combinaisons toit x finition, 8 cas limites,
+déterminisme, fuites de datablocks, deux maisons dans une scène).
+
+**Sain, vérifié par la mesure**: les 6 types de toit en enduit comme
+en pierre, la maison de 3 m comme celle de 48 m sur 4 niveaux, le R+4
+en briques, les pentes de 5 à 60°, le faîtage inatteignable (averti et
+clampé), le débord de 2 m — aucun objet vide, enterré, sans matériau
+ni aux coordonnées aberrantes. Génération déterministe à graine égale,
+et la graine fait bien varier la pose des 1968 tuiles. Zéro fuite de
+matériau, mesh ou node group sur régénérations répétées.
+
+**Corrigé:**
+- **Deux maisons dans une scène**: les matériaux portent des noms
+  canoniques (House_Stucco, House_Roof…) RECONSTRUITS à chaque
+  génération — garder une première maison puis en générer une seconde
+  d'une autre couleur REPEIGNAIT la première (46 objets touchés).
+  Toute maison conservée hors de la collection cible reçoit désormais
+  ses copies privées avant régénération; une maison seule ne déclenche
+  rien
+- **Matériaux orphelins**: House_Wall et House_Glass étaient créés à
+  chaque génération et restaient sans utilisateur en murs SIMPLE —
+  fabriqués à la demande désormais
+- 92 invariants (2 tests ajoutés), banc fast 10/10
+
+**Dette identifiée, non traitée** (pour mémoire): `operators_auto.py`
+à 2895 lignes et `features.py` à 2481 méritent un découpage;
+`build_roof_tiles` fait 387 lignes; deux propriétés mortes
+(`advanced_mode`, `python_script`); pas d'intégration continue.
+
 ## v1.29.4 — le choix procédural / textures reste TOUJOURS réversible
 
 Principe de conception réaffirmé et rendu explicite: le procédural est
