@@ -125,3 +125,33 @@ def test_sol_pack_realisme():
         names = {m.name for m in bpy.data.materials}
         assert "Env_Ground_PBR" in names, \
             "le sol du terrain AUTO ignore le pack réalisme"
+
+
+def test_conventions_bump_cavity_et_ratio():
+    """Conventions Quixel/Poliigon (Bump = height, Cavity = AO) et
+    textures NON CARRÉES (ratio respecté, sinon pierres déformées)."""
+    bpy.ops.wm.read_factory_settings(use_empty=True)
+    p = bpy.context.scene.house_generator
+    from House import realism, look
+
+    with tempfile.TemporaryDirectory() as root:
+        sub = os.path.join(root, "pierre")
+        os.makedirs(sub, exist_ok=True)
+        img = bpy.data.images.new("w", width=64, height=32)   # 2:1
+        for suffix in ("Wall_Basecolor.jpg", "Wall_8K_Bump.jpg",
+                       "Wall_8K_Cavity.jpg", "Wall_8K_Normal.jpg",
+                       "Wall_8K_Roughness.jpg"):
+            img.filepath_raw = os.path.join(sub, suffix)
+            img.file_format = 'JPEG'
+            img.save()
+        maps = realism.scan(root)['pierre']
+        assert set(maps) == {'color', 'height', 'ao', 'normal',
+                             'roughness'}, f"maps manquantes: {set(maps)}"
+
+        p.realism_dir = root
+        mat = look.wall_material((0.7, 0.6, 0.5), 'PIERRE')
+        mapping = next(n for n in mat.node_tree.nodes
+                       if n.type == 'MAPPING')
+        sx, _sy, sz = mapping.inputs['Scale'].default_value
+        assert abs(sz / sx - 2.0) < 0.01, \
+            f"ratio 2:1 non compensé (sz/sx={sz / sx:.2f})"

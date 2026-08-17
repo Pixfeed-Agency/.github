@@ -1,5 +1,18 @@
 # Changelog — House Generator
 
+## v1.29.3 — pack réalisme: conventions Quixel/Poliigon + ratio
+
+Validé sur un VRAI set photoscanné 8192x4096 (celui déjà présent dans
+`materials/textures/brick_worn/`, qui ne servait qu'aux briques 3D):
+- **Maps `Bump` et `Cavity` reconnues** (conventions Quixel/Poliigon,
+  très répandues): le scan n'en lisait que 3 sur 5 — le relief et
+  l'occlusion des packs réels étaient perdus
+- **Ratio des textures NON CARRÉES respecté**: une 8192x4096 était
+  écrasée dans un carré (pierres/briques déformées de moitié). L'axe
+  vertical porte la correction; une image carrée reste isotrope
+- Pic mémoire mesuré sur ce set réel (5 maps 8K): 2,0 Go
+- 89 invariants, banc fast 10/10
+
 ## v1.29.2 — pack réalisme: le slot sol appliqué, HDRI validé
 
 Deux bugs trouvés en testant le pack sur un jeu de textures 8K réel:

@@ -748,7 +748,18 @@ def pbr_material(name, maps, size=2.5):
     mapping = nodes.new('ShaderNodeMapping')
     mapping.location = (-820, 0)
     s = 1.0 / max(0.05, size)
-    mapping.inputs['Scale'].default_value = (s, s, s)
+    # ✅ v1.29.3: RATIO respecté — une texture 8192x4096 écrasée dans un
+    # carré donne des pierres/briques déformées. L'axe VERTICAL porte la
+    # correction (les murs sont la cible n°1); une image carrée reste
+    # strictement isotrope (aspect = 1).
+    aspect = 1.0
+    try:
+        _probe = bpy.data.images.load(maps['color'], check_existing=True)
+        if _probe.size[0] and _probe.size[1]:
+            aspect = _probe.size[0] / _probe.size[1]
+    except Exception:
+        aspect = 1.0
+    mapping.inputs['Scale'].default_value = (s, s, s * aspect)
     links.new(coord.outputs['Object'], mapping.inputs['Vector'])
 
     def img_node(path, y, non_color=True):

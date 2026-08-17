@@ -40,8 +40,8 @@ MAP_PATTERNS = {
     'color': ('color', 'albedo', 'diff', 'basecolor', 'base_color'),
     'roughness': ('roughness', 'rough'),
     'normal': ('normalgl', 'nor_gl', 'normal'),
-    'ao': ('ambientocclusion', 'occlusion', '_ao'),
-    'height': ('displacement', 'height', 'disp'),
+    'ao': ('ambientocclusion', 'occlusion', 'cavity', '_ao'),
+    'height': ('displacement', 'height', 'disp', 'bump'),
 }
 IMG_EXT = ('.jpg', '.jpeg', '.png', '.tif', '.tiff', '.exr', '.webp')
 SLOTS = ('pierre', 'enduit', 'sol', 'tuiles')
